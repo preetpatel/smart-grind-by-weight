@@ -35,7 +35,7 @@ python3 tools/grinder.py analyze
 - **HardwareManager**: Central hardware coordinator
 - **GrindController**: 9-phase state machine with predictive flow control, 10 pulse corrections, mechanical instability detection, and time mode additional pulses
 - **LoadCell (HX711)**: Multi-mode precision weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics
-- **DiagnosticsController**: System health monitoring (calibration status, sustained noise, mechanical instability), state persistence, hysteresis, priority-based warnings
+- **DiagnosticsController**: System health monitoring (calibration status, sustained noise, mechanical instability, signal saturation), state persistence, hysteresis, priority-based warnings. LOAD_CELL_SATURATED fires when raw ADC is pegged at a rail (0x000000/0xFFFFFF ± margin) for 10+ consecutive samples — indicates A+/A- wiring fault, and blocks weight-mode grinds in `GrindController::start_grind()` (time mode is unaffected)
 - **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for time mode pulses
 - **StateMachine**: Central state coordination (READY → GRINDING → GRIND_COMPLETE)
 

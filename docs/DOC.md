@@ -273,6 +273,7 @@ The system includes comprehensive load cell health monitoring accessible via **M
 1. **Load Cell Not Calibrated** - Appears until calibration is completed via Menu → Calibrate (Tools section)
 2. **Sustained Noise** - Triggers after 60 seconds of excessive noise; clears after 120 seconds of acceptable levels
 3. **Mechanical Instability** - Detects sudden weight drops during grinding (3+ events); auto-resets on next grind or via manual reset
+4. **Load Cell Saturated** - Raw ADC reading pegged at a rail (0x000000/0xFFFFFF) for 10+ consecutive samples; indicates a load cell signal wiring fault (broken or miswired A+/A- wires). While active, weight-mode grinds are refused because there is no usable weight feedback; time mode still works. Clears automatically once healthy readings return
 
 **Displayed Values:**
 - **Motor Latency** - Current motor response latency in milliseconds (default: 50ms, or calibrated value from auto-tune)

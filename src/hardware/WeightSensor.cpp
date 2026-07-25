@@ -37,6 +37,8 @@ WeightSensor::WeightSensor() {
     prefs = nullptr;
     hardware_fault_ = HardwareFault::NONE;
     detected_sample_rate_sps_ = HW_LOADCELL_SAMPLE_RATE_SPS;
+    saturated_sample_count_ = 0;
+    signal_saturated_ = false;
 
     // Initialize tare state
     doTare = false;
@@ -100,6 +102,8 @@ void WeightSensor::init(Preferences* preferences) {
     tareStatus = false;
     hardware_fault_ = HardwareFault::NONE;
     detected_sample_rate_sps_ = HW_LOADCELL_SAMPLE_RATE_SPS;
+    saturated_sample_count_ = 0;
+    signal_saturated_ = false;
 
     calibration_flag_cached_ = false;
     calibration_flag_value_ = false;
@@ -716,6 +720,24 @@ bool WeightSensor::sample_and_feed_filter() {
         
         // Raw ADC validation (24-bit range - valid for all supported ADCs)
         if (raw_adc >= 0 && raw_adc <= 0xFFFFFF) {  // Valid 24-bit range
+            // Saturation detection: reading pegged at either rail means the amplifier
+            // input is railed (broken/miswired A+/A- signal wires), not a real weight
+            bool sample_saturated = (raw_adc <= HW_LOADCELL_SATURATION_MARGIN_ADC) ||
+                                    (raw_adc >= 0xFFFFFF - HW_LOADCELL_SATURATION_MARGIN_ADC);
+            if (sample_saturated) {
+                if (saturated_sample_count_ < HW_LOADCELL_SATURATION_SAMPLE_COUNT) {
+                    saturated_sample_count_++;
+                }
+                if (saturated_sample_count_ >= HW_LOADCELL_SATURATION_SAMPLE_COUNT && !signal_saturated_.load()) {
+                    signal_saturated_.store(true);
+                    LOG_BLE("WeightSensor: Load cell signal SATURATED - raw=%ld pegged at %s rail. Check A+/A- signal wiring.\n",
+                            (long)raw_adc, raw_adc <= HW_LOADCELL_SATURATION_MARGIN_ADC ? "negative" : "positive");
+                }
+            } else {
+                saturated_sample_count_ = 0;
+                signal_saturated_.store(false);
+            }
+
             // Thread-safe sample feeding (CircularBufferMath is single-producer safe)
             raw_filter.add_sample(raw_adc, timestamp);
             

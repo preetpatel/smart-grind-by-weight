@@ -59,6 +59,10 @@ private:
     bool data_available;
     std::atomic<HardwareFault> hardware_fault_;
     float detected_sample_rate_sps_;
+
+    // Saturation detection (written on Core 0 sampling task, read on Core 1 diagnostics)
+    uint16_t saturated_sample_count_;
+    std::atomic<bool> signal_saturated_;
     
     // Tare implementation (hardware-independent)
     static const uint8_t DATA_SET = 16 + 1 + 1;  // SAMPLES + IGN_HIGH_SAMPLE + IGN_LOW_SAMPLE
@@ -196,6 +200,10 @@ public:
     bool is_calibrated() const;
     void set_calibrated(bool calibrated);
     
+    // Saturation diagnostic: true if raw ADC is pegged at a rail (0x000000/0xFFFFFF)
+    // for sustained consecutive samples - indicates load cell wiring/electrical fault
+    bool is_signal_saturated() const { return signal_saturated_.load(); }
+
     // Hardware fault reporting for diagnostics
     HardwareFault get_hardware_fault() const { return hardware_fault_.load(); }
     void set_hardware_fault(HardwareFault fault) { hardware_fault_.store(fault); }

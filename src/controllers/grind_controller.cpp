@@ -117,7 +117,14 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
                 static_cast<int>(weight_sensor->get_hardware_fault()));
         return;
     }
-    
+    // A saturated load cell reports a constant weight, so weight-mode control has no
+    // feedback: taring captures the rail, flow is never detected, and the grind would
+    // run to the timeout while dispensing. Time mode is unaffected (no weight feedback).
+    if (grind_mode == GrindMode::WEIGHT && weight_sensor->is_signal_saturated()) {
+        LOG_BLE("ERROR: Cannot start weight-mode grind - load cell signal saturated. Check A+/A- signal wiring.\n");
+        return;
+    }
+
     target_weight = target;
     target_time_ms = time_ms;
     mode = grind_mode;

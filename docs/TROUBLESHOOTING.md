@@ -71,8 +71,26 @@ If wires were reversed, swap them so Pin 3 connects to GPIO 18. The Waveshare bo
 
 ### Quick Fixes
 - **NOT_CONNECTED:** Verify VCC/GND/SCK/DOUT wiring and that the HX711 board is powered.
-- **SAMPLE_RATE_INVALID:** Ensure the HX711 `RATE` pin is tied to GND for 10 SPS; a floating/high pin forces 80 SPS and will now block startup.
+- **SAMPLE_RATE_INVALID:** Ensure the HX711 `RATE` pin is tied to GND for 10 SPS; a floating/high pin forces 80 SPS and will now block startup.
 - After correcting hardware, reboot the scale. The diagnostic clears automatically when healthy samples are detected.
+
+## Load Cell Signal Saturated
+
+**Applies to:** HX711 communicates but the reading is pegged at a rail (raw ADC 16777215 or 0).
+
+### Symptoms
+- Warning icon (⚠) with message "Load cell signal saturated. Check A+/A- signal wiring."
+- Raw ADC reading stuck at 16777215 (0xFFFFFF) or 0, unchanged when pressing on the load cell.
+- The grind button does nothing in weight mode - grinds are refused while the diagnostic is active because there is no usable weight feedback. Time mode still grinds normally.
+
+### Root Cause
+The HX711 amplifier input is railed - the differential signal exceeds the ±20mV input range at gain 128. This is an electrical fault, not a firmware or calibration issue.
+
+### Quick Fixes
+- **Broken/disconnected signal wire:** Check continuity of the A+ and A- (green/white) wires from load cell to HX711.
+- **Swapped wires:** Verify excitation (E+/E-, typically red/black) and signal (A+/A-, typically green/white) wires are not crossed. Measure A+ to A-: it should read single-digit millivolts, not volts.
+- **Damaged load cell:** With correct wiring, A+ to A- should change by a few mV when load is applied. If it stays railed, replace the cell.
+- The diagnostic clears automatically once healthy readings return.
 
 ## Unknown board ID 'esp32-s3-devkitc-1'
 

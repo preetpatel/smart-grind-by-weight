@@ -43,6 +43,11 @@
 // Calibration validation
 #define HW_LOADCELL_CAL_MIN_ADC_VALUE 1000                                    // Minimum ADC value to confirm weight placed on scale
 
+// Saturation detection (ADC input pegged at a rail => wiring/electrical fault)
+// Normalized 24-bit range is 0x000000..0xFFFFFF; a saturated HX711 clips to a rail.
+#define HW_LOADCELL_SATURATION_MARGIN_ADC 1000                                // Samples within this margin of either rail count as saturated
+#define HW_LOADCELL_SATURATION_SAMPLE_COUNT 10                                // Consecutive saturated samples before flagging (~1s at 10 SPS)
+
 //------------------------------------------------------------------------------
 // DISPLAY SPECIFICATIONS  
 //------------------------------------------------------------------------------
