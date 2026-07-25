@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include <cstdint>
 
 class UIManager;
 
@@ -44,6 +45,7 @@ public:
 private:
     UIManager* ui_manager_;
     lv_timer_t* motor_timer_{};
+    uint32_t last_status_refresh_ms_{};
 
     void perform_factory_reset();
     void execute_purge_operation();

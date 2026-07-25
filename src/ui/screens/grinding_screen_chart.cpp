@@ -1,8 +1,22 @@
 #include "grinding_screen_chart.h"
 #include <Arduino.h>
+#include <cstring>
 #include "../../config/constants.h"
 #include <lvgl.h>
 #include <widgets/span/lv_span.h>
+
+// The weight readout is rewritten on every grind progress event (~50Hz). lv_span_set_text()
+// reallocates the span's text buffer unconditionally and lv_spangroup_refresh() re-measures
+// and invalidates the whole group, so skip both when the text has not actually changed.
+static bool set_span_text_if_changed(lv_span_t* span, const char* text) {
+    if (!span || !text) return false;
+
+    const char* current = lv_span_get_text(span);
+    if (current && strcmp(current, text) == 0) return false;
+
+    lv_span_set_text(span, text);
+    return true;
+}
 
 void GrindingScreenChart::create() {
     screen = lv_obj_create(lv_scr_act());
@@ -146,12 +160,14 @@ void GrindingScreenChart::update_target_weight(float weight) {
         lv_span_t* separator_span = lv_spangroup_get_child(weight_spangroup, 1);
 
         if (current_span && separator_span) {
-            lv_span_set_text(current_span, current_text);
-            lv_span_set_text(separator_span, target_text);
-            lv_spangroup_refresh(weight_spangroup);
+            bool changed = set_span_text_if_changed(current_span, current_text);
+            changed |= set_span_text_if_changed(separator_span, target_text);
+            if (changed) {
+                lv_spangroup_refresh(weight_spangroup);
+            }
         }
     }
-    
+
     // Update chart configuration
     lv_chart_set_point_count(chart, predicted_chart_points);
     lv_chart_set_axis_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, (int32_t)(max_y_value * 10)); // Weight axis
@@ -172,8 +188,9 @@ void GrindingScreenChart::update_target_weight_text(const char* text) {
         } else {
             snprintf(formatted_text, sizeof(formatted_text), "%s", target_text);
         }
-        lv_span_set_text(separator_span, formatted_text);
-        lv_spangroup_refresh(weight_spangroup);
+        if (set_span_text_if_changed(separator_span, formatted_text)) {
+            lv_spangroup_refresh(weight_spangroup);
+        }
     }
 }
 
@@ -186,8 +203,9 @@ void GrindingScreenChart::update_target_time(float seconds) {
         // Keep the current weight span untouched; show time on a new line without slash
         char target_text[48];
         snprintf(target_text, sizeof(target_text), "\nTime: %.1fs", seconds);
-        lv_span_set_text(separator_span, target_text);
-        lv_spangroup_refresh(weight_spangroup);
+        if (set_span_text_if_changed(separator_span, target_text)) {
+            lv_spangroup_refresh(weight_spangroup);
+        }
     }
 
     uint32_t predicted_ms = (seconds > 0.0f) ? static_cast<uint32_t>(seconds * 1000.0f) : 0;
@@ -204,15 +222,17 @@ void GrindingScreenChart::update_current_weight(float weight) {
     lv_span_t* separator_span = lv_spangroup_get_child(weight_spangroup, 1);
     
     if (current_span && separator_span) {
-        lv_span_set_text(current_span, current_text);
+        bool changed = set_span_text_if_changed(current_span, current_text);
         if (time_mode) {
             char time_text[48];
             snprintf(time_text, sizeof(time_text), "\nTime: %.1fs", target_time_seconds);
-            lv_span_set_text(separator_span, time_text);
+            changed |= set_span_text_if_changed(separator_span, time_text);
         } else {
-            lv_span_set_text(separator_span, target_text);
+            changed |= set_span_text_if_changed(separator_span, target_text);
         }
-        lv_spangroup_refresh(weight_spangroup);
+        if (changed) {
+            lv_spangroup_refresh(weight_spangroup);
+        }
     }
 }
 
@@ -225,15 +245,17 @@ void GrindingScreenChart::update_tare_display() {
     lv_span_t* separator_span = lv_spangroup_get_child(weight_spangroup, 1);
     
     if (current_span && separator_span) {
-        lv_span_set_text(current_span, "TARE");
+        bool changed = set_span_text_if_changed(current_span, "TARE");
         if (time_mode) {
             char time_text[48];
             snprintf(time_text, sizeof(time_text), "\nTime: %.1fs", target_time_seconds);
-            lv_span_set_text(separator_span, time_text);
+            changed |= set_span_text_if_changed(separator_span, time_text);
         } else {
-            lv_span_set_text(separator_span, target_text);
+            changed |= set_span_text_if_changed(separator_span, target_text);
         }
-        lv_spangroup_refresh(weight_spangroup);
+        if (changed) {
+            lv_spangroup_refresh(weight_spangroup);
+        }
     }
 }
 

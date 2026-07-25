@@ -552,8 +552,16 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                     event_data.pulse_count, (float)event_data.pulse_duration_ms);
 #if DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR
         {
+            // lv_style_init() memzeroes the style, orphaning the heap block allocated by a
+            // previous lv_style_set_*(). Initialize once, then only update the value.
             static lv_style_t style_bg;
-            lv_style_init(&style_bg);
+            static bool style_initialized = false;
+
+            if (!style_initialized) {
+                lv_style_init(&style_bg);
+                style_initialized = true;
+            }
+
             lv_style_set_bg_color(&style_bg, lv_color_hex(THEME_COLOR_GRINDER_ACTIVE));
             lv_obj_add_style(lv_scr_act(), &style_bg, 0);
         }

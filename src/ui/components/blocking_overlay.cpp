@@ -136,9 +136,13 @@ void BlockingOperationOverlay::operation_timer_cb(lv_timer_t* timer) {
 }
 
 void BlockingOperationOverlay::show(const char* message) {
+    // Cancel any operation still pending from a previous show_and_execute(), otherwise it
+    // would fire against a message-only overlay and invoke a stale callback.
+    cancel_pending_operation();
+
     // Set message
     lv_label_set_text(label, message);
-    
+
     // Show overlay
     lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(overlay);
@@ -146,7 +150,18 @@ void BlockingOperationOverlay::show(const char* message) {
 }
 
 void BlockingOperationOverlay::hide() {
+    cancel_pending_operation();
+
     // Hide overlay
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
     is_visible = false;
+}
+
+void BlockingOperationOverlay::cancel_pending_operation() {
+    if (operation_timer) {
+        lv_timer_del(operation_timer);
+        operation_timer = nullptr;
+    }
+    operation_callback = nullptr;
+    completion_callback = nullptr;
 }

@@ -61,8 +61,9 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_screensaver_slider_released(); });
 
     // Note: Event registration for menu widgets is done in the page creation functions
-    // (menu_screen.cpp) because the menu is created lazily and destroyed on hide.
-    // Attempting to register events here would fail silently since widgets don't exist yet.
+    // (menu_screen.cpp) because those widgets do not exist yet when this runs. The menu is
+    // built on first MenuScreen::create() and then only hidden/shown, never destroyed.
+    // Attempting to register events here would fail silently.
 }
 
 void MenuUIController::update() {
@@ -70,17 +71,33 @@ void MenuUIController::update() {
         return;
     }
 
+    auto& menu_screen = ui_manager_->menu_screen;
     WeightSensor* sensor = ui_manager_->hardware_manager->get_weight_sensor();
-    unsigned long uptime_ms = millis();
-    size_t free_heap = ESP.getFreeHeap();
 
-    ui_manager_->menu_screen.update_info(sensor, uptime_ms, free_heap);
-    ui_manager_->menu_screen.update_diagnostics(sensor);
-    ui_manager_->menu_screen.update_ble_status();
+    // The live scale readout is the only menu content that needs frame-rate updates. It is a
+    // single label and now only reallocates when the displayed value actually changes.
+    if (menu_screen.is_scale_page_active()) {
+        menu_screen.update_scale_weight(sensor ? sensor->get_display_weight() : 0.0f);
+    }
 
-    if (ui_manager_->menu_screen.is_scale_page_active()) {
-        float display_weight = sensor ? sensor->get_display_weight() : 0.0f;
-        ui_manager_->menu_screen.update_scale_weight(display_weight);
+    // Everything below is slow-moving status text. Running it every UI frame rewrote roughly
+    // ten labels per frame - each an unconditional free/malloc of the label text plus a
+    // deferred-refresh hook allocation - on pages that were usually not even on screen.
+    // Refresh only the visible page, at a rate a human can actually read.
+    uint32_t now = millis();
+    if (now - last_status_refresh_ms_ < SYS_MENU_STATUS_REFRESH_INTERVAL_MS) {
+        return;
+    }
+    last_status_refresh_ms_ = now;
+
+    if (menu_screen.is_info_page_active()) {
+        menu_screen.update_info(sensor, now, ESP.getFreeHeap());
+    }
+    if (menu_screen.is_diagnostics_page_active()) {
+        menu_screen.update_diagnostics(sensor);
+    }
+    if (menu_screen.is_bluetooth_page_active()) {
+        menu_screen.update_ble_status();
     }
 }
 

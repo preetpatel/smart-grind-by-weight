@@ -48,5 +48,6 @@ public:
     
 private:
     const char* get_operation_message(BlockingOperation op_type, const char* custom_message);
+    void cancel_pending_operation();
     static void operation_timer_cb(lv_timer_t* timer);
 };

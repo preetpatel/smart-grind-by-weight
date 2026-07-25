@@ -88,7 +88,8 @@ private:
     // Common elements
     bool visible;
     bool scale_active;
-    
+    lv_obj_t* active_page;  // Main page currently on screen, used to skip off-screen updates
+
     BluetoothManager* bluetooth_manager;
     GrindController* grind_controller;
     GrindingScreen* grinding_screen;
@@ -125,6 +126,9 @@ public:
     lv_obj_t* get_motor_test_button() const { return motor_test_button; }
     lv_obj_t* get_autotune_button() const { return autotune_button; }
     bool is_scale_page_active() const { return scale_active; }
+    bool is_info_page_active() const { return active_page == info_page; }
+    bool is_diagnostics_page_active() const { return active_page == diagnostics_page; }
+    bool is_bluetooth_page_active() const { return active_page == bluetooth_page; }
     lv_obj_t* get_ble_toggle() const { return ble_toggle; }
     lv_obj_t* get_ble_startup_toggle() const { return ble_startup_toggle; }
     lv_obj_t* get_logging_toggle() const { return logging_toggle; }

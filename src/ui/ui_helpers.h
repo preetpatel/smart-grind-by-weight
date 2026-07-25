@@ -10,6 +10,15 @@ lv_obj_t* create_button(lv_obj_t* parent, const char* text,
                        int32_t width = 260, int32_t height = 80, 
                        const lv_font_t* font = &lv_font_montserrat_28);
 
+// lv_label_set_text() unconditionally frees and reallocates the label's text buffer and
+// registers a deferred-refresh hook (another allocation), even when the text is unchanged.
+// On periodically-refreshed labels that churns the shared internal heap, so compare first.
+void set_label_text_if_changed(lv_obj_t* label, const char* text);
+
+// lv_obj_set_style_text_color() has no value-change early-out either: it always invalidates
+// the object. Compare against the current style value before writing.
+void set_label_text_color_if_changed(lv_obj_t* label, lv_color_t color);
+
 void set_label_text_int(lv_obj_t* label, int32_t value, const char* unit = nullptr);
 
 void set_label_text_float(lv_obj_t* label, float value, const char* unit = nullptr);

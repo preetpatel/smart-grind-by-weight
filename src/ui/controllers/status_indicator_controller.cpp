@@ -2,6 +2,7 @@
 
 #include "../../config/constants.h"
 #include "../../system/diagnostics_controller.h"
+#include "../ui_helpers.h"
 #include "../ui_manager.h"
 
 StatusIndicatorController::StatusIndicatorController(UIManager* manager)
@@ -51,10 +52,11 @@ void StatusIndicatorController::update_ble_status_icon() {
     auto* bluetooth = ui_manager_->bluetooth_manager;
     if (bluetooth && bluetooth->is_enabled()) {
         lv_obj_clear_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_style_text_color(ble_status_icon_,
-                                    bluetooth->is_connected() ? lv_color_hex(THEME_COLOR_SUCCESS)
-                                                              : lv_color_hex(THEME_COLOR_ACCENT),
-                                    0);
+        // This runs every UI frame in every state, so only touch the style when the colour
+        // actually changes - lv_obj_set_style_text_color() always invalidates the object.
+        set_label_text_color_if_changed(ble_status_icon_,
+                                        bluetooth->is_connected() ? lv_color_hex(THEME_COLOR_SUCCESS)
+                                                                  : lv_color_hex(THEME_COLOR_ACCENT));
     } else {
         lv_obj_add_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
     }

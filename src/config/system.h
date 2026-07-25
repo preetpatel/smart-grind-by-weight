@@ -50,6 +50,11 @@
 #define SYS_QUEUE_UI_TO_GRIND_SIZE 5                                           // UI events to grind controller
 #define SYS_QUEUE_FILE_IO_SIZE 20                                              // File I/O operation requests
 
+// Menu status text refresh rate. Slow-moving readouts (uptime, diagnostics, BLE state) are
+// decoupled from the 60Hz UI task: every label rewrite is a heap free/malloc pair in LVGL,
+// so refreshing them per frame churns the shared internal heap for no visible benefit.
+#define SYS_MENU_STATUS_REFRESH_INTERVAL_MS 250                                // Menu status text refresh (4Hz) - Core 1
+
 // Legacy task scheduler intervals (deprecated - kept for compatibility)
 #define SYS_TASK_LOADCELL_INTERVAL_MS 20                                       // Load cell polling frequency (50Hz)
 

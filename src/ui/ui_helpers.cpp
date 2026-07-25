@@ -1,6 +1,7 @@
 #include "ui_helpers.h"
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 void style_as_button(lv_obj_t* object, int32_t width, int32_t height, const lv_font_t* font) {
     lv_obj_set_style_radius(object, THEME_CORNER_RADIUS_PX, 0);
@@ -32,6 +33,24 @@ lv_obj_t* create_button(lv_obj_t* parent, const char* text, lv_color_t bg_color,
     return button;  
 }
 
+void set_label_text_if_changed(lv_obj_t* label, const char* text) {
+    if (!label || !text) return;
+
+    const char* current = lv_label_get_text(label);
+    if (current && strcmp(current, text) == 0) return;
+
+    lv_label_set_text(label, text);
+}
+
+void set_label_text_color_if_changed(lv_obj_t* label, lv_color_t color) {
+    if (!label) return;
+
+    lv_color_t current = lv_obj_get_style_text_color(label, LV_PART_MAIN);
+    if (lv_color_eq(current, color)) return;
+
+    lv_obj_set_style_text_color(label, color, 0);
+}
+
 void set_label_text_int(lv_obj_t* label, int32_t value, const char* unit) {
     if (!label) return;
     char buf[24];
@@ -42,20 +61,20 @@ void set_label_text_int(lv_obj_t* label, int32_t value, const char* unit) {
         snprintf(buf, sizeof(buf), "%ld", value);
     }
 
-    lv_label_set_text(label, buf);
+    set_label_text_if_changed(label, buf);
 }
 
 void set_label_text_float(lv_obj_t* label, float value, const char* unit) {
     if (!label) return;
     char buf[24];
-    
+
     if (unit) {
         snprintf(buf, sizeof(buf), "%.2fg %s", value, unit);
     } else {
         snprintf(buf, sizeof(buf), "%.2f", value);
     }
 
-    lv_label_set_text(label, buf);
+    set_label_text_if_changed(label, buf);
 }
 
 lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_obj_t** weight_label){
@@ -265,7 +284,18 @@ lv_obj_t* create_radio_button_group(
     
     // Allocate data structure
     RadioButtonGroupData* data = (RadioButtonGroupData*)malloc(sizeof(RadioButtonGroupData));
+    if (!data) {
+        Serial.println("[RADIO_BTN] ERROR: Failed to allocate radio button group data");
+        return group_container;
+    }
+
     data->buttons = (lv_obj_t**)malloc(sizeof(lv_obj_t*) * option_count);
+    if (!data->buttons) {
+        Serial.println("[RADIO_BTN] ERROR: Failed to allocate radio button array");
+        free(data);
+        return group_container;
+    }
+
     data->button_count = option_count;
     data->selected_index = initial_selection;
     data->callback = callback;
