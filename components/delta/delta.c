@@ -177,10 +177,13 @@ static int delta_init_flash_mem(flash_mem_t *flash, const delta_opts_t *opts)
 
 static int delta_set_boot_partition(flash_mem_t *flash)
 {
-    if (esp_ota_set_boot_partition(flash->dest) != ESP_OK) {
+    esp_err_t err = esp_ota_set_boot_partition(flash->dest);
+    free(flash);
+
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Could not set boot partition: %s", esp_err_to_name(err));
         return -DELTA_TARGET_IMAGE_ERROR;
     }
-    free(flash);
 
     const esp_partition_t *boot_partition = esp_ota_get_boot_partition();
     ESP_LOGI(TAG, "Next Boot Partition: Subtype %d at Offset 0x%x", boot_partition->subtype, boot_partition->address);
@@ -273,8 +276,10 @@ int delta_check_and_apply(int patch_size, const delta_opts_t *opts)
             opts = &DEFAULT_DELTA_OPTS;
         }
 
+        /* No OTA handle is open yet if this fails, so only the struct needs freeing. */
         ret = delta_init_flash_mem(flash, opts);
         if (ret) {
+            free(flash);
             return ret;
         }
 
@@ -286,7 +291,19 @@ int delta_check_and_apply(int patch_size, const delta_opts_t *opts)
                                             flash);
 
         if (ret <= 0) {
+            esp_ota_abort(flash->ota_handle);
+            free(flash);
             return ret;
+        }
+
+        /* Flushes the trailing partial write and verifies the reconstructed
+         * image. The handle is released either way, so it must not be aborted
+         * afterwards. */
+        esp_err_t err = esp_ota_end(flash->ota_handle);
+        if (err != ESP_OK) {
+            ESP_LOGE(TAG, "Target image validation failed: %s", esp_err_to_name(err));
+            free(flash);
+            return -DELTA_TARGET_IMAGE_ERROR;
         }
 
         ESP_LOGI(TAG, "Patch Successful!!!");
