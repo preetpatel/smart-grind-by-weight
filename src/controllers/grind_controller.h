@@ -64,7 +64,7 @@ enum class GrindPhase {
     PULSE_SETTLING,     // Waiting for weight to settle after pulse
     FINAL_SETTLING,     // Waiting for weight to settle
     TIME_GRINDING,      // Time-based grinding phase
-    TIME_ADDITIONAL_PULSE, // Additional pulse in time mode after completion
+    TIME_ADDITIONAL_PULSE, // Additional top-up pulse after completion (both modes); name kept for log compatibility
     COMPLETED,          // Grind completed (success, overshoot, or max pulses)
     TIMEOUT,            // Grind timed out
     PRIME,              // Optional chute priming/purging grind
@@ -203,10 +203,12 @@ public:
     void continue_from_purge(); // Called by UI to continue from PURGE_CONFIRM to PREDICTIVE
     void update(); // Core 0 main control method - runs at fixed RTOS interval
     
-    // Time mode pulse functionality
-    void start_additional_pulse(); // Start an additional 100ms pulse in time mode
+    // Additional top-up pulse functionality (both weight and time mode)
+    void start_additional_pulse(); // Start an additional 100ms pulse from the completion screen
     bool can_pulse() const; // Check if additional pulses are allowed
     int get_additional_pulse_count() const { return additional_pulse_count; }
+    // True while a top-up pulse is being delivered or its weight is still settling
+    bool is_additional_pulse_active() const { return phase == GrindPhase::TIME_ADDITIONAL_PULSE; }
     
     // UI event system
     void set_ui_event_callback(void (*callback)(const GrindEventData&));

@@ -476,16 +476,33 @@ void GrindController::update() {
             }
             break;
             
-        case GrindPhase::TIME_ADDITIONAL_PULSE:
-            // Check for additional pulse completion
-            if (grinder && grinder->is_pulse_complete()) {
-                LOG_BLE("[%lums CONTROLLER] Additional pulse #%d completed, weight: %.2fg\n", 
-                        millis(), additional_pulse_count, weight_sensor ? weight_sensor->get_display_weight() : 0.0f);
-                
-                // Return to completed phase
-                switch_phase(GrindPhase::COMPLETED, loop_data);
+        case GrindPhase::TIME_ADDITIONAL_PULSE: {
+            if (!grinder || !grinder->is_pulse_complete()) {
+                break;
             }
+
+            // Grounds keep falling for up to a second after the motor stops, so hold this phase
+            // until the scale settles. Staying out of COMPLETED keeps emit_progress_update()
+            // streaming the live weight (the number climbs as the grounds land), lets final_weight
+            // capture the full pulse yield, and keeps the pulse button disabled until the previous
+            // tap has actually been measured.
+            bool settled = grinder->is_motor_settled() && weight_sensor &&
+                           weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);
+            bool settling_timed_out = (loop_data.now - phase_start_time) >= GRIND_SCALE_SETTLING_TIMEOUT_MS;
+            if (!settled && !settling_timed_out) {
+                break;
+            }
+
+            if (weight_sensor) {
+                final_weight = weight_sensor->get_weight_high_latency();
+            }
+            queue_log_message("[PULSE] Additional pulse #%d settled at %.2fg%s\n",
+                              additional_pulse_count, final_weight,
+                              settled ? "" : " (settling timeout)");
+
+            switch_phase(GrindPhase::COMPLETED, loop_data);
             break;
+        }
             
         case GrindPhase::COMPLETED:
             if (grind_logger.is_logging_active() && !session_end_flash_queued) {
@@ -556,11 +573,14 @@ void GrindController::update() {
     emit_progress_update(loop_data);
 
     // Check for negative weight failsafe after TARE_CONFIRM phase during active grinding
-    // Only check after motor has settled to avoid false positives from startup transients
+    // Only check after motor has settled to avoid false positives from startup transients.
+    // TIME_ADDITIONAL_PULSE is excluded: the grind is already finished there, so a negative
+    // reading means the user lifted the cup off, not a scale fault.
     if (phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT &&
         phase != GrindPhase::IDLE && phase != GrindPhase::INITIALIZING &&
         phase != GrindPhase::SETUP && phase != GrindPhase::TARING &&
         phase != GrindPhase::TARE_CONFIRM &&
+        phase != GrindPhase::TIME_ADDITIONAL_PULSE &&
         grinder->is_motor_settled() &&
         loop_data.current_weight < -1.0f) {
         timeout_phase = phase;
@@ -646,6 +666,8 @@ void GrindController::final_measurement(const GrindLoopData& loop_data) {
 
 void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& loop_data) {
     if (phase == new_phase) return;
+
+    const GrindPhase previous_phase = phase;
 
     // Check if we have valid loop_data (non-zero timestamp indicates valid data)
     bool has_loop_data = (loop_data.now > 0);
@@ -764,24 +786,25 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         }
         last_session_result_ = session_result;
 
-        // Update grind freshness tracking
+        // Update grind freshness tracking. Skipped when we are merely returning from a
+        // top-up pulse - the grind itself already recorded its runtime and NVS writes cost flash.
         grinder_purged_since_boot = true;
-        last_purge_runtime_ms = esp_timer_get_time() / 1000;
-        if (preferences) {
-            preferences->putULong64(PREF_KEY_LAST_GRIND_RUNTIME, last_purge_runtime_ms);
+        if (previous_phase != GrindPhase::TIME_ADDITIONAL_PULSE) {
+            last_purge_runtime_ms = esp_timer_get_time() / 1000;
+            if (preferences) {
+                preferences->putULong64(PREF_KEY_LAST_GRIND_RUNTIME, last_purge_runtime_ms);
+            }
         }
 
         event_data.event = UIGrindEvent::COMPLETED;
         // Use final_weight if available (from final_measurement), otherwise use high latency weight
-        event_data.final_weight = (final_weight > 0) ? final_weight : 
+        event_data.final_weight = (final_weight > 0) ? final_weight :
                                  (weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f);
-        
-        // For time mode, also indicate pulse availability
-        if (mode == GrindMode::TIME) {
-            event_data.can_pulse = true;
-            event_data.pulse_count = additional_pulse_count;
-            event_data.pulse_duration_ms = pulse_duration_ms;
-        }
+
+        // Additional top-up pulses are available in both modes once the grind has completed
+        event_data.can_pulse = true;
+        event_data.pulse_count = additional_pulse_count;
+        event_data.pulse_duration_ms = pulse_duration_ms;
     } else if (new_phase == GrindPhase::TIMEOUT) {
         if (last_session_result_ == GrindSessionResult::UNKNOWN) {
             last_session_result_ = GrindSessionResult::TIMEOUT;
@@ -1057,11 +1080,15 @@ void GrindController::start_additional_pulse() {
     
     additional_pulse_count++;
 
-    // Update statistics for time mode pulse
+    // Update statistics for the additional pulse
     statistics_manager.update_time_pulse();
 
-    // Reset timeout timer to prevent timeout during additional pulses
+    // Reset timeout timer to prevent timeout during additional pulses. The pause offset belongs
+    // to the finished grind's window - carrying it into a fresh window would make the elapsed-time
+    // subtraction in check_timeout() underflow and trip the timeout immediately.
     start_time = millis();
+    timeout_pause_start = 0;
+    timeout_offset_ms = 0;
 
     LOG_BLE("[%lums CONTROLLER] Starting additional pulse #%d (%lums) - timeout timer reset\n",
             millis(), additional_pulse_count, (unsigned long)pulse_duration_ms);
@@ -1081,9 +1108,9 @@ void GrindController::start_additional_pulse() {
 }
 
 bool GrindController::can_pulse() const {
-    // Only allow pulses in time mode when grind is completed and not in pulse phase
-    return mode == GrindMode::TIME &&
-           phase == GrindPhase::COMPLETED;
+    // Allowed in both modes, but only from the completed screen - while a pulse is still
+    // being delivered or measured the phase is TIME_ADDITIONAL_PULSE, which blocks re-triggering
+    return phase == GrindPhase::COMPLETED;
 }
 
 //==============================================================================

@@ -300,7 +300,9 @@ All profiles are fully customizable. Default grind-by-weight targets (fallback t
 - **Double**: 18 g (10 s)  
 - **Custom**: 21.5 g (12 s)
 
-> 💡 **Tip** – the target label always shows the active unit (`g` or `s`). Long-press to edit in whichever mode you are currently using.
+> 💡 **Tip** – the target label always shows the active unit (`g` or `s`). Long-press to edit in whichever mode you are currently using. Targets clamp to 5–1000 g in weight mode and 0.1–25 s in time mode.
+>
+> ⚠️ A 0.1 s timed profile is not as repeatable as a 0.1 s top-up pulse. Timed grinds run the motor continuously and stop when the 20 ms control loop notices the target has elapsed (±20 ms, i.e. ±20 % at 100 ms) with no compensation for motor start-up lag, whereas the "+" pulse on the completion screen is timed exactly in hardware. For tiny doses, prefer the pulse.
 
 ### Navigation
 - **Swipe left/right** to navigate between menu tabs
@@ -337,7 +339,7 @@ These steps describe the default grind-by-weight workflow:
 
 Need the stock timed run? Enable swipe gestures in **Menu → Grind Settings**, then swipe up or down on the ready screen before you start; the GRIND button background turns blue to confirm time mode is active (red = weight). Alternatively, use the direct **Time Mode** toggle in the menu.
 
-> **Time mode pulse button:** In time mode completion, a "+" button appears next to OK for 100ms additional grinding pulses.
+> **Top-up pulse button:** On the GRIND COMPLETE screen a "+" button appears next to OK in both weight and time mode. Each tap fires a fixed 100ms motor pulse (roughly 0.1–0.2 g) with no re-tare and no purge, so an 17.8 g shot can be nudged to 18.0 g. The weight on screen counts up live as the grounds land, and the button greys out until that pulse has settled — tap it again to add more.
 
 ### Quick Scale View
 Need a simple live readout? Open **Menu → Scale** to jump into a full-screen weight display. Entering the page automatically tares the scale (using the same blocking overlay as the main workflow), and a large `TARE` button at the bottom lets you re-zero manually whenever you need.
@@ -365,7 +367,7 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
 +-- Custom Profile
 |   |-- Weight display (long press to edit)
 |   \-- GRIND button (red=weight, blue=time)
-|   \-- Time mode completion: OK + PULSE buttons
+|   \-- Grind completion (both modes): OK + PULSE buttons
 |
 \-- Menu (scrollable hub)
     |
@@ -559,10 +561,14 @@ The system uses a **zero-shot learning algorithm** requiring no prior knowledge 
    - Mechanical instability detection (3+ sudden weight drops triggers diagnostic)
    - Repeats until target ± tolerance reached
 
-5. **Time Mode Additional Pulses**
+5. **Additional Top-Up Pulses (weight and time mode)**
    - Dedicated `TIME_ADDITIONAL_PULSE` phase for post-completion grinding
-   - 100ms fixed pulse duration
+   - 100ms fixed pulse duration, delivered by hardware RMT so the timing is exact
    - Split-button UI: OK + PULSE buttons on completion screen
+   - The phase is held until the scale settles, so the displayed weight and the final weight
+     include the full pulse yield and a second tap cannot land before the first is measured
+   - Not captured in the stored session log: the session is finalized when the grind first
+     reaches `COMPLETED`, so the logged final weight excludes any top-up pulses
 
 **Motor Response Latency Model:**
 

@@ -155,6 +155,11 @@ void GrindingUIController::update(UIState current_state) {
 
     switch (current_state) {
         case UIState::GRIND_COMPLETE: {
+            // While a top-up pulse is landing the control loop streams live weight and progress
+            // at 20ms - don't fight it here with the frozen post-grind progress value.
+            if (ui_manager_->grind_controller && ui_manager_->grind_controller->is_additional_pulse_active()) {
+                break;
+            }
             WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
             if (weight_sensor) {
                 float current_weight = weight_sensor->get_display_weight();
@@ -239,7 +244,7 @@ void GrindingUIController::handle_pulse_button() {
         return;
     }
 
-    // Normal time mode pulse behavior
+    // Normal top-up pulse behavior (weight and time mode)
     if (ui_manager_->grind_controller->can_pulse()) {
         LOG_BLE("[UIManager] Pulse button clicked - requesting additional pulse\n");
         ui_manager_->grind_controller->start_additional_pulse();
@@ -336,8 +341,8 @@ void GrindingUIController::update_button_layout() {
     // Check if we're in PURGE_CONFIRM phase (show dual buttons for CANCEL + CONTINUE)
     bool in_purge_confirm = ui_manager_->purge_confirm_screen.is_visible();
 
-    bool should_show_pulse = (ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE) &&
-                              ui_manager_->current_mode == GrindMode::TIME);
+    // Top-up pulses are offered after every completed grind, in both weight and time mode
+    bool should_show_pulse = ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE);
 
     if (in_purge_confirm || should_show_pulse) {
         // Dual button layout: left button at -60, right button at +60
@@ -353,13 +358,13 @@ void GrindingUIController::update_button_layout() {
                 lv_obj_clear_state(pulse_button_, LV_STATE_DISABLED);
                 lv_obj_set_style_bg_opa(pulse_button_, LV_OPA_COVER, 0);
             } else if (ui_manager_->grind_controller && ui_manager_->grind_controller->can_pulse()) {
-                // Time mode pulse: enable/disable based on can_pulse()
+                // Top-up pulse armed
                 lv_img_set_src(pulse_icon_, LV_SYMBOL_PLUS);
                 lv_obj_set_style_bg_color(pulse_button_, lv_color_hex(THEME_COLOR_ACCENT), 0);
                 lv_obj_clear_state(pulse_button_, LV_STATE_DISABLED);
                 lv_obj_set_style_bg_opa(pulse_button_, LV_OPA_COVER, 0);
             } else {
-                // Time mode pulse: disabled
+                // Top-up pulse disabled (previous pulse still being delivered/measured)
                 lv_img_set_src(pulse_icon_, LV_SYMBOL_PLUS);
                 lv_obj_set_style_bg_color(pulse_button_, lv_color_hex(THEME_COLOR_ACCENT), 0);
                 lv_obj_add_state(pulse_button_, LV_STATE_DISABLED);

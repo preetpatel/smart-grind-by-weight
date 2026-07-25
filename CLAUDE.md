@@ -33,17 +33,17 @@ python3 tools/grinder.py analyze
 
 **Key Components:**
 - **HardwareManager**: Central hardware coordinator
-- **GrindController**: 9-phase state machine with predictive flow control, 10 pulse corrections, mechanical instability detection, and time mode additional pulses
+- **GrindController**: 9-phase state machine with predictive flow control, 10 pulse corrections, mechanical instability detection, and post-completion top-up pulses (both modes)
 - **LoadCell (HX711)**: Multi-mode precision weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics
 - **DiagnosticsController**: System health monitoring (calibration status, sustained noise, mechanical instability, signal saturation), state persistence, hysteresis, priority-based warnings. LOAD_CELL_SATURATED fires when raw ADC is pegged at a rail (0x000000/0xFFFFFF ± margin) for 10+ consecutive samples — indicates A+/A- wiring fault, and blocks weight-mode grinds in `GrindController::start_grind()` (time mode is unaffected)
-- **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for time mode pulses
+- **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for top-up pulses on the completion screen
 - **StateMachine**: Central state coordination (READY → GRINDING → GRIND_COMPLETE)
 
 **Update Intervals:** 20ms grind control, 25ms load cell (active), 50ms UI/hardware
 
 **Grind Phases:**
 - Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, COMPLETED, TIMEOUT
-- `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
+- `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion top-up pulses in **both** weight and time mode. Name kept for on-flash log compatibility (`phase_id` ordinals are decoded by `phase_names[]` in `src/bluetooth/manager.cpp`). The phase is held after the pulse until the scale settles, so `final_weight` captures the full yield
 - `PURGE_CONFIRM` - Pauses after chute operation (in Purge mode) to allow user to discard grinds before continuing to main grind
 - **Timeout**: 30-second maximum from grind start (includes taring), auto-stops and requires user acknowledgment
 
@@ -56,7 +56,7 @@ python3 tools/grinder.py analyze
 - **Logging disabled** during PURGE_CONFIRM phase to avoid capturing data while paused
 - **Preferences**: `chute_mode` (int: 0=Prime, 1=Purge, default=1), `chute_amount_g` (float: 0.1-5.0, default=1.0)
 
-**Time Mode Pulses:** Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100ms duration
+**Top-Up Pulses:** Split-button completion screen (OK + PULSE) in both weight and time mode, `TIME_ADDITIONAL_PULSE` phase, fixed 100ms duration (~0.1-0.2g). No re-tare and no purge, so a grind that landed at 17.8g can be nudged to 18.0g. Weight and arc update live while grounds land (the frozen `final_weight` in `emit_progress_update` only applies once back in `COMPLETED`); button is disabled during pulse+settle. Pulses are **not** reflected in the stored session log — the session is finalized on first entry to `COMPLETED`
 
 **Grind Settings:** Configurable through Menu → Grind Settings page
 - **Mode Selection**: Radio buttons for Weight/Time mode selection
