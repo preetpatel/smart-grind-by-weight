@@ -90,9 +90,9 @@ private:
     
     // Tare implementation (hardware-independent)
     static const uint8_t DATA_SET = 16 + 1 + 1;  // SAMPLES + IGN_HIGH_SAMPLE + IGN_LOW_SAMPLE
-    bool doTare;
+    std::atomic<bool> doTare;
     uint8_t tareTimes;
-    bool tareStatus;
+    std::atomic<bool> tareStatus;
     bool tareTimeoutFlag;
     unsigned long tareTimeOut;
     
@@ -146,16 +146,16 @@ public:
     void power_down();
     
     // Tare operations
-    void tare();                          // Blocking tare
+    bool tare();                          // Blocking tare
     void tareNoDelay();                   // Exact HX711_ADC method
     bool getTareStatus();                 // Exact HX711_ADC method
     
     // Legacy wrapper methods for compatibility
     bool start_nonblocking_tare() { tareNoDelay(); return true; }
-    bool is_tare_in_progress() const { return doTare; }
+    bool is_tare_in_progress() const { return doTare.load(); }
     
     // Calibration
-    void calibrate(float known_weight);
+    bool calibrate(float known_weight);
     void set_calibration_factor(float factor);
     void set_zero_offset(int32_t offset);
     

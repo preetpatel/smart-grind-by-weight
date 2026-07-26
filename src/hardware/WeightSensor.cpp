@@ -1,5 +1,6 @@
 #include "WeightSensor.h"
 #include "../config/constants.h"
+#include "circular_buffer_math/timestamp_window.h"
 #include "hx711_driver.h"
 #if DEBUG_ENABLE_LOADCELL_MOCK
 #include "mock_hx711_driver.h"
@@ -235,7 +236,7 @@ void WeightSensor::update_temperature_if_available() {
     }
 }
 
-void WeightSensor::tare() {
+bool WeightSensor::tare() {
     LOG_LOADCELL_DEBUG("[DEBUG %lums] BLOCKING_TARE_START: Beginning blocking tare operation using HX711_ADC exact implementation\n", millis());
 
     // Use exact HX711_ADC non-blocking implementation
@@ -243,7 +244,7 @@ void WeightSensor::tare() {
 
     // Wait for tare completion with timeout
     unsigned long start_time = millis();
-    while (doTare && millis() - start_time < GRIND_TARE_TIMEOUT_MS) {
+    while (doTare.load() && millis() - start_time < GRIND_TARE_TIMEOUT_MS) {
         // Call update to ensure fresh samples are collected and tare state is updated
         update();
 
@@ -251,15 +252,13 @@ void WeightSensor::tare() {
         delay(SYS_TASK_LOADCELL_INTERVAL_MS);
     }
 
-    if (doTare) {
+    if (doTare.load()) {
+        doTare.store(false);
         LOG_BLE("ERROR: Blocking tare operation failed or timed out\n");
+        return false;
     } else {
-        // Clear buffer after tare completes for clean measurements
-        raw_filter.clear_all_samples();
-        raw_filter.reset_display_filter();
-        noise_monitor.clear();  // Pre-tare values would read as a huge fake noise spike
-
-        // Ensure at least one sample is in the buffer after taring
+        // The Core 0 sampling task clears the raw history at the exact point
+        // it applies the new tare offset. Wait for its next clean sample.
         unsigned long sample_start = millis();
         while (raw_filter.get_sample_count() == 0 && millis() - sample_start < 1000) {
             update();
@@ -268,54 +267,72 @@ void WeightSensor::tare() {
     }
 
     LOG_LOADCELL_DEBUG("[DEBUG %lums] BLOCKING_TARE_COMPLETE: Tare operation completed\n", millis());
+    return true;
 }
 
-void WeightSensor::calibrate(float known_weight) {
+bool WeightSensor::calibrate(float known_weight) {
 #if DEBUG_ENABLE_LOADCELL_MOCK
     LOG_BLE("Mock load cell: calibration skipped (fixed factor %.2f)\n", cal_factor);
-    return;
+    return true;
 #endif
     if (known_weight <= 0) {
         LOG_BLE("ERROR: Invalid calibration weight\n");
-        return;
+        return false;
     }
     if (has_hardware_fault()) {
         LOG_BLE("ERROR: Cannot calibrate - HX711 hardware fault active\n");
-        return;
+        return false;
     }
     
     LOG_BLE("Starting calibration with %.3fg weight...\n", known_weight);
     
     // First, wait for weight to settle (user just placed calibration weight)
     LOG_CALIBRATION_DEBUG("Waiting for calibration weight to settle...\n");
-    get_precision_settled_weight(); // Use precision settling for calibration
+    float settle_time_ms = 0.0f;
+    get_precision_settled_weight(&settle_time_ms);
+    if (settle_time_ms >= GRIND_SCALE_SETTLING_TIMEOUT_MS) {
+        LOG_BLE("ERROR: Cannot calibrate - weight did not settle\n");
+        return false;
+    }
     
     LOG_CALIBRATION_DEBUG("Weight settled, performing calibration...");
     
-    // Now perform calibration with high accuracy - CircularBufferMath handles all filtering
-    
-    unsigned long cal_start = millis();
-    while(!update_async() && millis() - cal_start < GRIND_CALIBRATION_TIMEOUT_MS) {
-        delay(10);
+    // The Core 0 sampling task exclusively owns HX711 reads. Calibration runs
+    // on the UI core and consumes its settled raw-filter snapshot.
+    if (raw_filter.get_sample_count() == 0) {
+        LOG_BLE("ERROR: Cannot calibrate - no settled ADC samples available\n");
+        return false;
     }
     
     // Calibration using raw ADC data - more precise than calibrated data
     int32_t raw_reading = raw_filter.get_raw_high_latency(); // Use high-latency for precision
+    int64_t raw_delta = static_cast<int64_t>(raw_reading) - tare_offset;
+    int64_t absolute_raw_delta = raw_delta < 0 ? -raw_delta : raw_delta;
+
+    if (absolute_raw_delta < HW_LOADCELL_CAL_MIN_ADC_VALUE) {
+        LOG_BLE("ERROR: Calibration ADC delta too small: %lld (minimum: %d)\n",
+                static_cast<long long>(raw_delta), HW_LOADCELL_CAL_MIN_ADC_VALUE);
+        return false;
+    }
     
     // Calculate new calibration factor: raw_change / weight_change
     // We know the weight change is known_weight (from 0 after taring)
-    float new_cal_factor = (float)(raw_reading - tare_offset) / known_weight;
+    float new_cal_factor = static_cast<float>(raw_delta) / known_weight;
+    if (!isfinite(new_cal_factor) || fabsf(new_cal_factor) < 1e-6f) {
+        LOG_BLE("ERROR: Calculated invalid calibration factor\n");
+        return false;
+    }
+
     cal_factor = new_cal_factor;
     
     save_calibration();
     save_calibration_weight(known_weight);
-    
-    // Clear buffer after calibration operation for clean measurements
-    raw_filter.clear_all_samples();
-    raw_filter.reset_display_filter();
-    noise_monitor.clear();  // Values from the old calibration factor are no longer comparable
-    
+
+    // Filter and noise-monitor history is stored in raw ADC units, so it
+    // remains valid under the new conversion factor and must not be cleared
+    // from the UI core while the sampling task is writing it.
     LOG_BLE("Calibration completed. New factor: %.2f\n", cal_factor);
+    return true;
 }
 
 void WeightSensor::set_calibration_factor(float factor) {
@@ -497,12 +514,22 @@ bool WeightSensor::weight_range_exceeds(uint32_t window_ms, float threshold_g) c
 
 // Flow rate analysis using CircularBufferMath - convert raw flow to weight flow
 float WeightSensor::get_flow_rate(uint32_t window_ms) const {
+    if (fabsf(cal_factor) < 1e-6f) {
+        return 0.0f;
+    }
+
     float raw_flow = raw_filter.get_raw_flow_rate(window_ms);
     return raw_flow / cal_factor;  // Convert raw units per second to grams per second
 }
 
 float WeightSensor::get_flow_rate_95th_percentile(uint32_t window_ms) const {
-    float raw_flow = raw_filter.get_raw_flow_rate_95th_percentile(window_ms);
+    if (fabsf(cal_factor) < 1e-6f) {
+        return 0.0f;
+    }
+
+    const bool reverse_raw_order = cal_factor < 0.0f;
+    float raw_flow =
+        raw_filter.get_raw_flow_rate_percentile(window_ms, 0.95f, reverse_raw_order);
     return raw_flow / cal_factor;  // Convert raw units per second to grams per second
 }
 
@@ -752,7 +779,7 @@ bool WeightSensor::sample_and_feed_filter() {
 
 
             // Tare logic (hardware-independent)
-            if (doTare) {
+            if (doTare.load()) {
                 if (tareTimes < DATA_SET) {
                     tareTimes++;
                 } else {
@@ -760,8 +787,18 @@ bool WeightSensor::sample_and_feed_filter() {
                     int32_t smoothed_raw = raw_filter.get_smoothed_raw(250); // 250ms window for stability
                     tare_offset = smoothed_raw;  // Set tare offset to smoothed raw ADC value
                     tareTimes = 0;
-                    doTare = 0;
-                    tareStatus = 1;
+
+                    // CircularBufferMath and LoadCellNoiseMonitor are written
+                    // by this task. Reset them here so Core 1 never clears a
+                    // ring while Core 0 is appending to it. Re-seed both with
+                    // the tare point so readers never observe an empty filter.
+                    raw_filter.clear_all_samples();
+                    raw_filter.add_sample(smoothed_raw, timestamp);
+                    noise_monitor.clear();
+                    noise_monitor.add_sample(smoothed_raw, timestamp);
+
+                    doTare.store(false);
+                    tareStatus.store(true);
                 }
             }
             
@@ -824,11 +861,10 @@ float WeightSensor::get_current_sps() const {
     
     uint32_t now = millis();
     int samples_in_window = 0;
-    uint32_t window_start = now - 2000; // 2 second window
     
     // Count samples in the last 2 seconds
     for (int i = 0; i < sps_sample_count; i++) {
-        if (sps_timestamps[i] >= window_start) {
+        if (TimestampWindow::contains(now, sps_timestamps[i], 2000)) {
             samples_in_window++;
         }
     }
@@ -889,13 +925,11 @@ LoadCellNoiseStats WeightSensor::get_noise_stats() const {
 
 // HX711_ADC exact tare methods
 void WeightSensor::tareNoDelay() {
-    doTare = 1;
     tareTimes = 0;
-    tareStatus = 0;
+    tareStatus.store(false);
+    doTare.store(true);
 }
 
 bool WeightSensor::getTareStatus() {
-    bool t = tareStatus;
-    tareStatus = 0;
-    return t;
+    return tareStatus.exchange(false);
 }

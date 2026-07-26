@@ -108,6 +108,10 @@ public:
     
     // Flow rate calculation in raw units per second with configurable time window
     float get_raw_flow_rate(uint32_t window_ms = 200) const;      // Default 200ms window
+    float get_raw_flow_rate_percentile(
+        uint32_t window_ms,
+        float percentile,
+        bool reverse_order = false) const;
     float get_raw_flow_rate_95th_percentile(uint32_t window_ms = 200) const; // 95th percentile
     bool raw_flowrate_is_stable(uint32_t window_ms = 100) const;  // Check if flow rate stable
     

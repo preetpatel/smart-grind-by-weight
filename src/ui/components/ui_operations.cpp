@@ -1,29 +1,58 @@
 #include "ui_operations.h"
 #include <Arduino.h>
+#include <memory>
 
 void UIOperations::execute_tare(HardwareManager* hw_manager, OperationCallback completion) {
     auto& overlay = BlockingOperationOverlay::getInstance();
-    
-    auto tare_operation = [hw_manager]() {
+
+    auto tare_succeeded = std::make_shared<bool>(false);
+    auto tare_operation = [hw_manager, tare_succeeded]() {
         // This will now block and wait for settlement internally
-        hw_manager->get_load_cell()->tare();
-        LOG_BLE("Scale tared successfully\n");
+        *tare_succeeded = hw_manager->get_load_cell()->tare();
+        if (*tare_succeeded) {
+            LOG_BLE("Scale tared successfully\n");
+        } else {
+            LOG_BLE("ERROR: Scale tare failed; keeping previous tare\n");
+        }
     };
-    
-    overlay.show_and_execute(BlockingOperation::TARING, tare_operation, completion);
+
+    auto tare_completion = [tare_succeeded, completion]() {
+        if (*tare_succeeded && completion) {
+            completion();
+        }
+    };
+
+    overlay.show_and_execute(
+        BlockingOperation::TARING,
+        tare_operation,
+        tare_completion);
 }
 
 void UIOperations::execute_calibration(HardwareManager* hw_manager, float cal_weight, 
                                       OperationCallback completion) {
     auto& overlay = BlockingOperationOverlay::getInstance();
-    
-    auto calibration_operation = [hw_manager, cal_weight]() {
+
+    auto calibration_succeeded = std::make_shared<bool>(false);
+    auto calibration_operation = [hw_manager, cal_weight, calibration_succeeded]() {
         // This will now block and wait for settlement internally
-        hw_manager->get_load_cell()->calibrate(cal_weight);
-        LOG_BLE("Scale calibrated with %.2fg weight\n", cal_weight);
+        *calibration_succeeded = hw_manager->get_load_cell()->calibrate(cal_weight);
+        if (*calibration_succeeded) {
+            LOG_BLE("Scale calibrated with %.2fg weight\n", cal_weight);
+        } else {
+            LOG_BLE("ERROR: Scale calibration failed; keeping previous calibration\n");
+        }
+    };
+
+    auto calibration_completion = [calibration_succeeded, completion]() {
+        if (*calibration_succeeded && completion) {
+            completion();
+        }
     };
     
-    overlay.show_and_execute(BlockingOperation::CALIBRATING, calibration_operation, completion);
+    overlay.show_and_execute(
+        BlockingOperation::CALIBRATING,
+        calibration_operation,
+        calibration_completion);
 }
 
 void UIOperations::execute_grind_tare(GrindController* grind_controller, OperationCallback completion) {

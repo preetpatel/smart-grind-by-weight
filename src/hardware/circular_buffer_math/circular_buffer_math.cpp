@@ -1,4 +1,6 @@
 #include "circular_buffer_math.h"
+#include "percentile_index.h"
+#include "timestamp_window.h"
 #include "../../config/constants.h"
 #include <math.h>
 #include <algorithm>
@@ -73,7 +75,6 @@ int CircularBufferMath::get_samples_in_window(uint32_t window_ms, int32_t* sampl
     if (samples_count == 0 || capacity <= 0) return 0;
 
     uint32_t current_time = millis();
-    uint32_t window_start = current_time - window_ms;
     int collected_samples = 0;
 
     // Walk backwards from most recent sample. Bounded by the caller's capacity as well as the
@@ -84,7 +85,8 @@ int CircularBufferMath::get_samples_in_window(uint32_t window_ms, int32_t* sampl
         uint16_t index = (write_index - 1 - i + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
 
         // Check if sample is within time window
-        if (circular_buffer[index].timestamp_ms >= window_start) {
+        if (TimestampWindow::contains(
+                current_time, circular_buffer[index].timestamp_ms, window_ms)) {
             samples_out[collected_samples] = circular_buffer[index].raw_value;
             collected_samples++;
         } else {
@@ -206,8 +208,6 @@ bool CircularBufferMath::get_window_delta(uint32_t window_ms, int32_t* delta_out
     }
 
     uint32_t current_time = millis();
-    uint32_t window_start = current_time - window_ms;
-
     int collected = 0;
     int32_t newest_raw = 0;
     int32_t oldest_raw = 0;
@@ -218,7 +218,7 @@ bool CircularBufferMath::get_window_delta(uint32_t window_ms, int32_t* delta_out
         uint16_t index = (write_index - 1 - i + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
         const AdcSample& sample = circular_buffer[index];
 
-        if (sample.timestamp_ms < window_start) {
+        if (!TimestampWindow::contains(current_time, sample.timestamp_ms, window_ms)) {
             break;
         }
 
@@ -349,12 +349,12 @@ float CircularBufferMath::get_raw_flow_rate(uint32_t window_ms) const {
     // Get samples and timestamps within window
     int collected = 0;
     uint32_t current_time = millis();
-    uint32_t window_start = current_time - window_ms;
     
     for (int i = 0; i < (int)samples_count && collected < max_samples; i++) {
         uint16_t index = (write_index - 1 - i + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
         
-        if (circular_buffer[index].timestamp_ms >= window_start) {
+        if (TimestampWindow::contains(
+                current_time, circular_buffer[index].timestamp_ms, window_ms)) {
             samples[collected] = circular_buffer[index].raw_value;
             timestamps[collected] = circular_buffer[index].timestamp_ms;
             collected++;
@@ -375,7 +375,10 @@ float CircularBufferMath::get_raw_flow_rate(uint32_t window_ms) const {
     return (float)raw_change * 1000.0f / time_change;
 }
 
-float CircularBufferMath::get_raw_flow_rate_95th_percentile(uint32_t window_ms) const {
+float CircularBufferMath::get_raw_flow_rate_percentile(
+    uint32_t window_ms,
+    float percentile,
+    bool reverse_order) const {
     // Define parameters for the sub-window analysis
     const uint32_t MIN_SAMPLES_FOR_PERCENTILE = 10;
     const uint32_t SUB_WINDOW_MS = 300;
@@ -402,11 +405,13 @@ float CircularBufferMath::get_raw_flow_rate_95th_percentile(uint32_t window_ms) 
     uint32_t sample_times[WINDOW_SAMPLE_CAPACITY];
     int collected_samples = 0;
     uint32_t current_time = millis();
-    uint32_t window_start_time = current_time - effective_window_ms;
 
     for (int i = 0; i < (int)samples_count && collected_samples < max_samples; ++i) {
         uint16_t index = (write_index - 1 - i + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
-        if (circular_buffer[index].timestamp_ms >= window_start_time) {
+        if (TimestampWindow::contains(
+                current_time,
+                circular_buffer[index].timestamp_ms,
+                effective_window_ms)) {
             // Samples are collected from newest to oldest
             sample_values[collected_samples] = circular_buffer[index].raw_value;
             sample_times[collected_samples] = circular_buffer[index].timestamp_ms;
@@ -428,15 +433,17 @@ float CircularBufferMath::get_raw_flow_rate_95th_percentile(uint32_t window_ms) 
 
     // 3. Iterate through sub-windows and calculate flow rate for each.
     for (int i = 0; i < num_sub_windows; ++i) {
-        uint32_t sub_window_end_time = current_time - (i * STEP_MS);
-        uint32_t sub_window_start_time = sub_window_end_time - SUB_WINDOW_MS;
+        uint32_t sub_window_end_age_ms = i * STEP_MS;
+        uint32_t sub_window_start_age_ms = sub_window_end_age_ms + SUB_WINDOW_MS;
 
         // Find the newest and oldest samples within this sub-window from our collected arrays
         int newest_idx = -1, oldest_idx = -1;
         for (int j = 0; j < collected_samples; ++j) {
-            if (sample_times[j] <= sub_window_end_time) {
+            const uint32_t sample_age_ms =
+                TimestampWindow::age(current_time, sample_times[j]);
+            if (sample_age_ms >= sub_window_end_age_ms) {
                 if (newest_idx == -1) newest_idx = j;
-                if (sample_times[j] >= sub_window_start_time) {
+                if (sample_age_ms <= sub_window_start_age_ms) {
                     oldest_idx = j;
                 } else {
                     break; // Past the start of the sub-window
@@ -453,16 +460,23 @@ float CircularBufferMath::get_raw_flow_rate_95th_percentile(uint32_t window_ms) 
         }
     }
 
-    // 4. Calculate the 95th percentile from the collected flow rates.
+    // 4. Select the requested percentile from the collected flow rates. When
+    // calibration is negative, raw and calibrated rates have opposite order.
     if (valid_flow_rates_count >= MIN_SAMPLES_PER_SUB_WINDOW) {
         std::sort(flow_rates, flow_rates + valid_flow_rates_count);
-        int percentile_95_index = static_cast<int>(valid_flow_rates_count * 0.95f);
-        percentile_95_index = std::min(percentile_95_index, valid_flow_rates_count - 1);
-        return flow_rates[percentile_95_index];
+        const size_t percentile_index = PercentileIndex::select(
+            static_cast<size_t>(valid_flow_rates_count),
+            percentile,
+            reverse_order);
+        return flow_rates[percentile_index];
     }
 
     // Fallback if we couldn't get enough valid sub-window rates
     return get_raw_flow_rate(effective_window_ms);
+}
+
+float CircularBufferMath::get_raw_flow_rate_95th_percentile(uint32_t window_ms) const {
+    return get_raw_flow_rate_percentile(window_ms, 0.95f);
 }
 
 bool CircularBufferMath::raw_flowrate_is_stable(uint32_t window_ms) const {
@@ -482,7 +496,7 @@ bool CircularBufferMath::raw_flowrate_is_stable(uint32_t window_ms) const {
 bool CircularBufferMath::get_window_min_max(uint32_t window_ms, int32_t* min_out, int32_t* max_out) const {
     if (samples_count == 0) return false;
 
-    uint32_t window_start = millis() - window_ms;
+    const uint32_t current_time = millis();
     bool found = false;
     int32_t min_val = 0;
     int32_t max_val = 0;
@@ -490,7 +504,8 @@ bool CircularBufferMath::get_window_min_max(uint32_t window_ms, int32_t* min_out
     for (int i = 0; i < samples_count; i++) {
         uint16_t index = (write_index - 1 - i + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
 
-        if (circular_buffer[index].timestamp_ms < window_start) {
+        if (!TimestampWindow::contains(
+                current_time, circular_buffer[index].timestamp_ms, window_ms)) {
             break; // Samples are time-ordered, so we can stop here
         }
 

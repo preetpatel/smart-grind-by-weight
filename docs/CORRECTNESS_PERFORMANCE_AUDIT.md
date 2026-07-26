@@ -89,7 +89,67 @@ Before source changes:
 
 ## Stage 2: Grind-flow and calibration accuracy
 
-Pending.
+### Findings
+
+1. The default load-cell calibration factor is negative. Raw flow rates were
+   sorted in ascending order before selecting the 95th percentile, but dividing
+   by a negative factor reverses that order. A representative set therefore
+   returned 1.00 g/s instead of the true calibrated 95th-percentile value of
+   3.00 g/s. Underestimating flow can lengthen correction pulses and increase
+   overshoot.
+2. Calibration ran on the UI core but directly invoked an HX711 update while
+   the sampling task owned the same bit-banged device on Core 0. The direct
+   result was not used.
+3. Tare and calibration cleared sample and noise rings on the UI core while
+   Core 0 could append to them.
+4. Calibration accepted an unsettled timeout, an empty sample set, and an
+   implausibly small ADC delta as if it had succeeded. The UI advanced even
+   when no valid factor was saved.
+5. A blocking tare timeout left the request armed, allowing it to alter the
+   zero point later after the UI had already reported completion.
+6. Sample-window comparisons used absolute timestamp ordering. After the
+   32-bit `millis()` counter rolled over, recent pre-rollover samples appeared
+   newer than the current time and were excluded until the entire window had
+   elapsed.
+
+### Changes and rationale
+
+- Select flow percentiles in calibrated-weight order. Positive calibration
+  retains ascending raw order; negative calibration mirrors the selected raw
+  index.
+- Return zero flow for a zero or near-zero calibration factor rather than
+  divide by it.
+- Keep HX711 reads and tare-time ring resets on the Core 0 sampling task. The
+  filter is re-seeded at the new tare point so readers do not observe an empty
+  buffer or a false full-scale jump.
+- Calibrate from the settled raw-filter snapshot and preserve raw history,
+  which remains valid because it is stored in ADC units.
+- Reject calibration when settling times out, no samples are available, the
+  ADC delta is below the existing hardware threshold, or the calculated factor
+  is invalid.
+- Propagate tare and calibration failure to the UI operation wrapper. Failed
+  operations keep the prior value, log the reason, and do not invoke the
+  success transition.
+- Disarm a timed-out blocking tare request.
+- Replace absolute timestamp ordering with unsigned elapsed-time comparisons
+  in flow, delta, min/max, sample-window, and SPS calculations.
+
+### Verification
+
+- A host regression verifies that both negative and positive calibration
+  factors select 3.00 g/s from the representative flow-rate set and checks
+  percentile index boundaries.
+- A host regression verifies elapsed-time windows immediately across a
+  `uint32_t` timestamp rollover.
+- The Stage 1 exhaustive pulse-timing regression still passes.
+- Final production build 39 passed: RAM 67,752 bytes; flash 2,189,671
+  bytes.
+- Final debug build 40 passed: RAM 67,752 bytes; flash 2,278,839 bytes.
+- Final mock build 41 passed: RAM 67,808 bytes; flash 2,276,871 bytes.
+- BLE host tests passed: 2 of 2.
+- Python tool compilation and Git whitespace validation passed.
+- Stage cost versus Stage 1: no additional RAM. The production flash increase
+  is 2,512 bytes.
 
 ## Deliberately unchanged
 
@@ -97,6 +157,9 @@ Pending.
   it is available, so changing the global optimization mode would be
   speculative and performance-negative.
 - The broader task architecture and controller interfaces remain unchanged.
+- Filter constants, correction thresholds, and task rates remain unchanged.
+  Without ground-truth hardware measurements, tuning them would be
+  speculative and could reduce accuracy on real beans and grinders.
 
 ## On-device validation when hardware is available
 
@@ -108,3 +171,10 @@ Pending.
   increment per pulse.
 - Complete several weighted grinds and compare final error, correction count,
   and recorded flow rate with the prior firmware.
+- Tare repeatedly under both quiet and noisy conditions; verify failed/timeout
+  attempts retain the previous zero and successful attempts settle near zero.
+- Calibrate with the reference mass several times; verify factors are
+  repeatable, polarity is preserved, and unstable/missing masses do not save.
+- Leave a unit running across the `millis()` rollover (approximately 49.7
+  days), or inject timestamps around rollover in a hardware test build, and
+  confirm flow/SPS telemetry remains continuous.
