@@ -3,6 +3,7 @@
 #include <cstdarg>
 #include <Arduino.h>
 #include <esp_system.h>
+#include <esp_heap_caps.h>
 #include <LittleFS.h>
 #include <nvs_flash.h>
 #include <nvs.h>
@@ -1127,11 +1128,24 @@ void BluetoothManager::generate_diagnostic_report() {
         "REAL";
 #endif
 
+    // Internal vs PSRAM breakdown. This device has no accessible USB port, so the serial log is
+    // not reachable - the memory census has to come out over BLE. "min" is the worst free has
+    // ever been and "largest" is the biggest single allocation that would still succeed, which
+    // together separate a leak from plain exhaustion from fragmentation.
+    size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+    size_t internal_total = heap_caps_get_total_size(MALLOC_CAP_INTERNAL);
+    size_t internal_min = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+    size_t internal_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+    size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    size_t psram_total = heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+
     snprintf(buf, sizeof(buf),
         "[SYSTEM]\n"
         "  Uptime: %02lu:%02lu:%02lu\n"
         "  CPU: %lu MHz\n"
         "  Heap: %u KB / %u KB (%.1f%% used)\n"
+        "  Internal: %u free / %u total / %u min / %u largest\n"
+        "  PSRAM: %u free / %u total\n"
         "  Flash: %u MB\n"
         "  Driver: %s\n"
         "\n",
@@ -1140,6 +1154,12 @@ void BluetoothManager::generate_diagnostic_report() {
         (unsigned int)(heap_free / 1024),
         (unsigned int)(heap_total / 1024),
         heap_used_pct,
+        (unsigned int)internal_free,
+        (unsigned int)internal_total,
+        (unsigned int)internal_min,
+        (unsigned int)internal_largest,
+        (unsigned int)psram_free,
+        (unsigned int)psram_total,
         (unsigned int)(flash_size / 1024 / 1024),
         driver_type
     );
