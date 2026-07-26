@@ -11,7 +11,6 @@ AutoTuneController::AutoTuneController()
     , current_phase(AutoTunePhase::IDLE)
     , sub_phase(AutoTuneSubPhase::IDLE)
     , is_running(false)
-    , cancel_requested(false)
     , current_pulse_ms(0.0f)
     , active_pulse_ms(0.0f)
     , last_executed_pulse_ms(0.0f)
@@ -62,7 +61,6 @@ bool AutoTuneController::start() {
     progress.has_new_message = false;
 
     is_running = true;
-    cancel_requested = false;
 
     // Initialize binary search state
     current_pulse_ms = GRIND_AUTOTUNE_LATENCY_MAX_MS;
@@ -109,23 +107,16 @@ void AutoTuneController::cancel() {
     }
 
     LOG_BLE("AutoTune: User cancel requested\n");
-    cancel_requested = true;
 
-    // The UI exits immediately, so stop an in-flight pulse here rather than
-    // waiting for the next controller update.
-    if (grinder && grinder->is_grinding()) {
-        grinder->stop();
-    }
+    // Finish here rather than deferring to update(). The UI leaves UIState::AUTOTUNING on the
+    // same call stack, and update() is only reached from that state, so a deferred flag would
+    // never be serviced - leaving the controller running and the log file open forever.
+    // complete_with_failure() stops an in-flight pulse for us.
+    complete_with_failure("Cancelled by user");
 }
 
 void AutoTuneController::update() {
     if (!is_running) {
-        return;
-    }
-
-    if (cancel_requested) {
-        LOG_BLE("AutoTune: Cancelled by user\n");
-        complete_with_failure("Cancelled by user");
         return;
     }
 
@@ -408,7 +399,7 @@ void AutoTuneController::update_verification_phase() {
                 if (verification_round >= 5) {
                     LOG_BLE("AutoTune: Verification failed after 5 rounds\n");
                     log_message("\nFailed 5 rounds");
-                    log_message("Default %.0fms", (float)GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS);
+                    log_message("Keeping %.0fms", progress.previous_latency_ms);
                     complete_with_failure("Failed verification after 5 rounds");
                     return;
                 }

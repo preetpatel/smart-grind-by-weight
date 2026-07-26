@@ -62,7 +62,6 @@ private:
     AutoTunePhase current_phase;
     AutoTuneSubPhase sub_phase;
     bool is_running;
-    bool cancel_requested;
 
     // Binary search state
     float current_pulse_ms;
