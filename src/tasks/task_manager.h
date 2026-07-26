@@ -130,6 +130,7 @@ private:
     // Performance monitoring
     void record_task_timing(int task_index, uint32_t start_time, uint32_t end_time);
     void print_task_heartbeat(int task_index, const char* task_name) const;
+    TaskHandle_t task_handle_for_index(int task_index) const;
     
     // Task validation
     bool validate_hardware_ready() const;

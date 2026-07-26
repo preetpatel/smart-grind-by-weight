@@ -473,7 +473,7 @@ void TaskManager::bluetooth_task_impl() {
         }
         
         uint32_t end_time = millis();
-        record_task_timing(4, start_time, end_time); // Task index 4 for bluetooth
+        record_task_timing(3, start_time, end_time); // Task index 3 for bluetooth (matches task_names[])
         
         // Use vTaskDelayUntil for predictable timing
         vTaskDelayUntil(&xLastWakeTime, xFrequency);
@@ -517,14 +517,31 @@ void TaskManager::record_task_timing(int task_index, uint32_t start_time, uint32
 #endif
 }
 
+TaskHandle_t TaskManager::task_handle_for_index(int task_index) const {
+    switch (task_index) {
+        case 0: return task_handles.weight_sampling_task;
+        case 1: return task_handles.grind_control_task;
+        case 2: return task_handles.ui_render_task;
+        case 3: return task_handles.bluetooth_task;
+        case 4: return task_handles.file_io_task;
+        default: return nullptr;
+    }
+}
+
 void TaskManager::print_task_heartbeat(int task_index, const char* task_name) const {
 #if SYS_ENABLE_REALTIME_HEARTBEAT
     const TaskMetrics& metrics = task_metrics[task_index];
     uint32_t avg_cycle_time = metrics.cycle_count > 0 ? metrics.cycle_time_sum_ms / metrics.cycle_count : 0;
-    
-    LOG_BLE("[%lums TASK_HEARTBEAT_%s] Cycles: %lu/10s | Avg: %lums (%lu-%lums) | Build: #%d\n",
-           millis(), task_name, metrics.cycle_count, avg_cycle_time, 
-           metrics.cycle_time_min_ms, metrics.cycle_time_max_ms, BUILD_NUMBER);
+
+    // Smallest the task's free stack has ever been. A figure trending towards zero means the task
+    // is about to overwrite its canary, which panics and reboots the device
+    // (CONFIG_FREERTOS_CHECK_STACKOVERFLOW_CANARY). High water mark is reported in words.
+    TaskHandle_t handle = task_handle_for_index(task_index);
+    uint32_t stack_free_bytes = handle ? uxTaskGetStackHighWaterMark(handle) * sizeof(StackType_t) : 0;
+
+    LOG_BLE("[%lums TASK_HEARTBEAT_%s] Cycles: %lu/10s | Avg: %lums (%lu-%lums) | StackFree: %luB | Build: #%d\n",
+           millis(), task_name, metrics.cycle_count, avg_cycle_time,
+           metrics.cycle_time_min_ms, metrics.cycle_time_max_ms, stack_free_bytes, BUILD_NUMBER);
 #endif
 }
 
