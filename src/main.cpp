@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 #include <esp_system.h>
+#include <esp_heap_caps.h>
 #include "hardware/hardware_manager.h"
 #include "system/state_machine.h"
 #include "system/statistics_manager.h"
@@ -54,8 +55,17 @@ void setup() {
         default: break;
     }
     LOG_BLE("[STARTUP] Reset reason: %s (%d)\n", rr_str, rr);
-    
-    
+
+    // Memory census before anything allocates. LVGL, Bluedroid and the widget tree all draw from
+    // the internal heap, so if PSRAM is missing here every large buffer falls back to internal
+    // DRAM and the device runs out. PSRAM totals of 0 mean the board is not mapping it at all.
+    LOG_BLE("[STARTUP] Internal heap: %u free / %u total | PSRAM: %u free / %u total\n",
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+            (unsigned)heap_caps_get_total_size(MALLOC_CAP_INTERNAL),
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+            (unsigned)heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
+
+
     // Early startup heartbeat - helps capture initialization sequence
     LOG_BLE("[STARTUP] Initializing ESP32-S3 Coffee Scale - Build %d - Core1 active\n", BUILD_NUMBER);
     
@@ -209,10 +219,19 @@ void loop() {
         const char* grinder_state = is_grinding ? "ACTIVE" : "IDLE";
         const char* tasks_status = task_manager.are_tasks_healthy() ? "HEALTHY" : "ERROR";
         size_t free_heap_kb = ESP.getFreeHeap() / 1024;
-        
-        LOG_BLE("[%lums MAIN_LOOP_HEARTBEAT] Cycles: %lu/10s | Avg: %lums (%lu-%lums) | Tasks: %s | BLE: %s | Grinder: %s | Mem: %zuKB | Build: #%d\n",
+
+        // Internal heap detail: a steadily falling "free" is a leak, a low but stable "free" with
+        // a much smaller "largest block" is fragmentation, and "min" is the worst it has ever
+        // been - the number that actually predicts the next failed allocation.
+        size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        size_t internal_min = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL);
+        size_t internal_largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+        size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+
+        LOG_BLE("[%lums MAIN_LOOP_HEARTBEAT] Cycles: %lu/10s | Avg: %lums (%lu-%lums) | Tasks: %s | BLE: %s | Grinder: %s | Mem: %zuKB | Int: %zu free/%zu min/%zu largest | PSRAM: %zu | Build: #%d\n",
                millis(), core1_cycle_count_10s, avg_cycle_time, core1_cycle_time_min_ms, core1_cycle_time_max_ms,
-               tasks_status, ble_state, grinder_state, free_heap_kb, BUILD_NUMBER);
+               tasks_status, ble_state, grinder_state, free_heap_kb,
+               internal_free, internal_min, internal_largest, psram_free, BUILD_NUMBER);
         
         // Reset Core 1 metrics for next interval
         core1_cycle_count_10s = 0;
