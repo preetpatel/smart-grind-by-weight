@@ -64,7 +64,8 @@ Before source changes:
 - Store both finite and continuous RMT payloads in `Grinder`, preserving their
   lifetime for asynchronous transmission.
 - Poll the RMT driver's transaction-completion state with a zero-timeout call
-  instead of inferring completion from a GPIO read.
+  instead of inferring completion from a GPIO read. (Superseded in stage 3 by
+  the transmit-done callback, which does not log on every poll.)
 - Reject zero or unsupported durations and leave grinder state inactive when
   encoder creation or transmission fails.
 - Keep mock pulse notification in `Grinder`, the single hardware-abstraction
@@ -150,6 +151,80 @@ Before source changes:
 - Python tool compilation and Git whitespace validation passed.
 - Stage cost versus Stage 1: no additional RAM. The production flash increase
   is 2,512 bytes.
+
+## Stage 3: Review follow-ups
+
+A correctness review of stages 1 and 2 confirmed their fixes but found defects in and
+around them.
+
+### Findings
+
+1. Cancelling auto-tune only set a deferred flag. `AutoTuneController::update()` is reached
+   solely from `UIState::AUTOTUNING`, and the UI leaves that state on the same call stack, so
+   the flag was never serviced. The controller stayed `is_running` and its log file stayed
+   open, and every later `start()` was rejected as already running until reboot. Stage 1
+   stopped the motor on cancel but left this half unfixed.
+2. Polling `rmt_tx_wait_all_done()` with a zero timeout logs an ESP-IDF error on every
+   unfinished poll. `libesp_driver_rmt.a` contains the `flush timeout` string,
+   `CONFIG_LOG_DEFAULT_LEVEL` is `ERROR`, and nothing suppresses the `rmt` tag - roughly 27
+   lines per 550 ms correction pulse at the 20 ms control interval, up to ten pulses per
+   grind, and hundreds per auto-tune run.
+3. The verification-failure console line still named the default latency after stage 1
+   changed the behaviour to retain the previous one.
+4. Stage 2 correctly stopped advancing the UI on a failed tare or calibration, but the
+   overlay hides itself regardless, so the user saw it appear and vanish with the wizard on
+   the same step and no explanation.
+5. Encoding left a zero-duration second half in the final symbol, relying on the RMT treating
+   that as an end marker - the assumption the pre-stage-1 short-pulse path avoided by writing
+   a 1 us LOW.
+6. The RMT payload capacity was derived from the auto-tune priming pulse while the motor test
+   independently hardcoded the same 1,000 ms, and an out-of-range or failed transmission left
+   `pulse_active` false, so callers read a pulse that never ran as one that had completed.
+7. `tools/tests` was referenced by no build file, tool or workflow, so nothing compiled or ran
+   the stage 1 and 2 regressions.
+8. The blocking-tare timeout disarmed the request with a plain store, which can lose to a
+   sampling-task pass already committing, and calibration inferred a settling timeout by
+   comparing elapsed time against the timeout value.
+
+### Changes and rationale
+
+- Complete auto-tune cancellation synchronously inside `cancel()`, and remove the deferred
+  flag that could never be serviced.
+- Report pulse completion from the RMT transmit-done callback through an atomic flag, so the
+  control loop makes no driver call and produces no driver logging.
+- Report the retained latency on verification failure.
+- Add a self-dismissing notice to `BlockingOperationOverlay` and an `on_failure` callback to
+  the tare and calibration wrappers, used by the calibration wizard and the menu scale page.
+- Spread pulse time evenly across symbols and across the halves within each symbol, so no
+  half is zero-length for any pulse of at least 2 us and termination goes through the
+  driver's end-of-transmission marker and the configured `eot_level`.
+- Key the payload capacity off a dedicated maximum-pulse constant, assert at compile time that
+  every caller fits, and return a result from `start_pulse_rmt()` so each caller can react.
+- Add a `test` target to `tools/grinder.py` and a CI job that runs it on push and pull
+  request.
+- Claim the tare request with a compare-exchange on the sampling task, and return an explicit
+  settling-timeout flag instead of inferring one from the elapsed time.
+
+### Verification
+
+- Host tests pass, 3 of 3, via `python3 tools/grinder.py test`. The pulse-timing regression
+  additionally asserts, for every length up to 1,000,000 us, that no symbol half is
+  zero-length and none exceeds the 15-bit hardware field.
+- The runner was confirmed to fail and return a non-zero exit code when an assertion is
+  inverted.
+- Production build 50 passed: RAM 67,760 bytes; flash 2,191,127 bytes.
+- Debug build passed: RAM 67,760 bytes; flash 2,281,011 bytes.
+- Mock build passed: RAM 67,816 bytes; flash 2,278,739 bytes.
+- Stage cost versus stage 2: 8 bytes RAM. The production flash increase is 1,456 bytes.
+
+### Still requires hardware
+
+- Scope the motor output for 30, 50, 100, 300, 550 and 1,000 ms pulses. The zero-duration
+  dependency is gone, but the encoding remains the one part no host test can prove; the
+  single-symbol lengths are the highest-value measurements.
+- Cancel auto-tune during priming, then start it again immediately and confirm it runs.
+- Confirm a disturbed tare and a calibration with no mass both show the failure notice and
+  retain the previous zero and factor.
 
 ## Deliberately unchanged
 
