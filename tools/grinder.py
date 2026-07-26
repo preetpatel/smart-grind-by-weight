@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 import shutil
 import stat
+import tempfile
 
 # Color support for cross-platform output
 try:
@@ -196,6 +197,64 @@ class GrinderTool:
         
         return result.returncode
     
+    def cmd_test(self, args: argparse.Namespace) -> int:
+        """Compile and run the host-side C++ regression tests.
+
+        These cover the pure logic that is impractical to exercise on-device: RMT pulse
+        timing arithmetic, flow-rate percentile selection and millis() rollover windows.
+        They build against src/ with a host compiler, so no toolchain or device is needed.
+        """
+        self.print_header("Running Host Tests")
+
+        test_dir = self.script_dir / "tests"
+        test_sources = sorted(test_dir.glob("*.cpp"))
+
+        if not test_sources:
+            self.print_error(f"No tests found in {test_dir}")
+            return 1
+
+        compiler = None
+        for candidate in ["c++", "g++", "clang++"]:
+            if shutil.which(candidate):
+                compiler = candidate
+                break
+
+        if not compiler:
+            self.print_error("No host C++ compiler found (tried c++, g++, clang++)")
+            return 1
+
+        failures = []
+        with tempfile.TemporaryDirectory() as build_dir:
+            for source in test_sources:
+                name = source.stem
+                binary = Path(build_dir) / name
+
+                compile_result = self.run_command([
+                    compiler, "-std=c++17", "-Wall", "-I", str(self.project_dir / "src"),
+                    "-o", str(binary), str(source)
+                ], capture_output=True)
+
+                if compile_result.returncode != 0:
+                    self.print_error(f"{name}: compile failed")
+                    self.safe_print(compile_result.stderr.rstrip())
+                    failures.append(name)
+                    continue
+
+                run_result = self.run_command([str(binary)], capture_output=True)
+                if run_result.returncode != 0:
+                    self.print_error(f"{name}: FAILED")
+                    self.safe_print((run_result.stdout + run_result.stderr).rstrip())
+                    failures.append(name)
+                else:
+                    self.print_success(f"{name}: passed")
+
+        if failures:
+            self.print_error(f"{len(failures)} of {len(test_sources)} test(s) failed")
+            return 1
+
+        self.print_success(f"All {len(test_sources)} host tests passed")
+        return 0
+
     async def cmd_upload(self, args: argparse.Namespace) -> int:
         """Upload firmware via BLE OTA."""
         firmware_path = args.firmware
@@ -468,7 +527,9 @@ def create_parser() -> argparse.ArgumentParser:
     
     # Build & Upload Commands
     build_parser = subparsers.add_parser('build', help='Build firmware using PlatformIO')
-    
+
+    test_parser = subparsers.add_parser('test', help='Compile and run host-side C++ regression tests')
+
     upload_parser = subparsers.add_parser('upload', help='Upload firmware via BLE OTA')
     upload_parser.add_argument('firmware', nargs='?', help='Path to firmware .bin file (finds latest if not specified)')
     upload_parser.add_argument('--force-full', action='store_true', help='Force full firmware update (skip delta patching)')
@@ -529,6 +590,8 @@ async def main():
         # Map commands to methods
         if args.command == 'build':
             return tool.cmd_build(args)
+        elif args.command == 'test':
+            return tool.cmd_test(args)
         elif args.command == 'upload':
             return await tool.cmd_upload(args)
         elif args.command == 'build-upload':

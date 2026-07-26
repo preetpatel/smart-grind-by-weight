@@ -1,0 +1,31 @@
+name: Host Tests
+
+# The host tests build against src/ with a plain C++ compiler - no PlatformIO toolchain and
+# no device - so they are cheap enough to run on every push and pull request.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run host regression tests
+        run: python3 tools/grinder.py test

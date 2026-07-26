@@ -104,6 +104,19 @@ python3 tools/venv/bin/python -m platformio run -e waveshare-esp32s3-touch-amole
 python3 tools/grinder.py clean
 ```
 
+### Host Tests
+
+```bash
+python3 tools/grinder.py test
+```
+
+Compiles and runs every `tools/tests/*.cpp` against `src/` with the host compiler — no
+PlatformIO toolchain and no device required. These cover pure logic that is impractical to
+verify on hardware: RMT pulse-timing arithmetic, flow-rate percentile selection under a
+negative calibration factor, and `millis()` rollover windows. The same command runs in CI on
+every push and pull request (`.github/workflows/tests.yml`), so add a test here whenever you
+change that kind of logic.
+
 ### Initial USB Flashing
 
 For the first-time setup or when BLE isn't working:

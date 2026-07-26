@@ -16,6 +16,7 @@ python3 tools/grinder.py analyze
 
 **Common Commands:**
 - `python3 tools/grinder.py build` - Build firmware only
+- `python3 tools/grinder.py test` - Compile and run host-side C++ regression tests (also runs in CI)
 - `python3 tools/grinder.py upload` - Upload latest firmware via BLE
 - `python3 tools/grinder.py export` - Export grind data to database
 - `python3 tools/grinder.py report` - Launch Streamlit report from existing data
