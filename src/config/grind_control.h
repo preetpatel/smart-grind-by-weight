@@ -70,6 +70,8 @@ enum class GrinderPurgeMode {
 // Motor response latency - runtime configurable via auto-tune
 #define GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS 50.0f                             // Safe default motor response latency
 #define GRIND_MOTOR_MAX_PULSE_DURATION_MS 250.0f                                  // Maximum pulse duration above latency (latency + GRIND_MOTOR_MAX_PULSE_DURATION_MS)
+#define GRIND_MOTOR_TEST_PULSE_MS 1000                                            // Menu motor test pulse length
+#define GRIND_MOTOR_MAX_SUPPORTED_PULSE_MS 1000                                   // Longest pulse the RMT payload can hold (see Grinder static_asserts)
 
 // Motor timing
 #define GRIND_MOTOR_SETTLING_TIME_MS 200                                          // Motor vibration settling time

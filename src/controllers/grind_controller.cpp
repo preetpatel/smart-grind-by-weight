@@ -1074,6 +1074,14 @@ void GrindController::start_additional_pulse() {
         return;
     }
     
+    // Start the pulse before committing any state, so a rejected pulse leaves the session
+    // sitting in COMPLETED exactly as it was and the user can simply press PULSE again.
+    if (!grinder->start_pulse_rmt(pulse_duration_ms)) {
+        LOG_BLE("ERROR: Cannot pulse - grinder rejected %lums pulse\n",
+                (unsigned long)pulse_duration_ms);
+        return;
+    }
+
     additional_pulse_count++;
 
     // Update statistics for the additional pulse
@@ -1093,9 +1101,6 @@ void GrindController::start_additional_pulse() {
     GrindLoopData empty_loop_data = {};
     empty_loop_data.now = millis();
     switch_phase(GrindPhase::TIME_ADDITIONAL_PULSE, empty_loop_data);
-
-    // Start the pulse
-    grinder->start_pulse_rmt(pulse_duration_ms);
 }
 
 bool GrindController::can_pulse() const {

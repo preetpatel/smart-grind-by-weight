@@ -146,9 +146,15 @@ void WeightGrindStrategy::run_pulse_decision_phase(GrindController& controller,
     controller.current_pulse_duration_ms = calculate_pulse_duration_ms(controller, error);
     controller.pulse_history[controller.pulse_attempts].duration_ms = controller.current_pulse_duration_ms;
 
-    controller.switch_phase(GrindPhase::PULSE_EXECUTE, loop_data);
-    controller.grinder->start_pulse_rmt(static_cast<uint32_t>(controller.current_pulse_duration_ms));
+    if (!controller.grinder->start_pulse_rmt(
+            static_cast<uint32_t>(controller.current_pulse_duration_ms))) {
+        // The motor never ran, so waiting for the pulse to finish would stall until timeout.
+        controller.set_error_message("Err: pulse");
+        controller.switch_phase(GrindPhase::TIMEOUT, loop_data);
+        return;
+    }
 
+    controller.switch_phase(GrindPhase::PULSE_EXECUTE, loop_data);
     controller.pulse_attempts++;
 }
 

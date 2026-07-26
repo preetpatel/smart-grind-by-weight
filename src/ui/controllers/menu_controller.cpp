@@ -691,10 +691,15 @@ void MenuUIController::run_motor_test() {
     if (!grinder) return;
 
     ui_manager_->set_background_active(true);
-    grinder->start_pulse_rmt(1000);
 
-    // Update statistics for motor test (1000ms = 1 second)
-    statistics_manager.update_motor_test(1000);
+    if (!grinder->start_pulse_rmt(GRIND_MOTOR_TEST_PULSE_MS)) {
+        LOG_BLE("ERROR: Motor test pulse rejected by grinder\n");
+        ui_manager_->set_background_active(false);
+        return_to_menu();
+        return;
+    }
+
+    statistics_manager.update_motor_test(GRIND_MOTOR_TEST_PULSE_MS);
 
     stop_motor_timer();
     motor_timer_ = lv_timer_create(static_motor_timer_cb, 2000, this);

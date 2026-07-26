@@ -15,6 +15,7 @@ void Grinder::init(int pin) {
     current_encoder = nullptr;
     motor_start_time = 0;
     continuous_symbol = {};
+    pulse_done.store(false);
 
     // Initialize background indicator
     background_active = false;
@@ -24,7 +25,7 @@ void Grinder::init(int pin) {
     initialized = true;
     return;
 #endif
-    
+
     // Initialize RMT for all motor control (both continuous and pulse)
     rmt_tx_channel_config_t tx_chan_config = {
         .gpio_num = (gpio_num_t)motor_pin,
@@ -33,12 +34,36 @@ void Grinder::init(int pin) {
         .mem_block_symbols = 64,
         .trans_queue_depth = 4,
     };
-    
+
     if (rmt_new_tx_channel(&tx_chan_config, &rmt_channel) == ESP_OK) {
+        // Must be registered while the channel is still in the init state. Pulse completion
+        // is reported by this callback so the control loop never has to poll the driver.
+        rmt_tx_event_callbacks_t callbacks = {};
+        callbacks.on_trans_done = &Grinder::on_rmt_trans_done;
+        const esp_err_t callback_result =
+            rmt_tx_register_event_callbacks(rmt_channel, &callbacks, this);
+        if (callback_result != ESP_OK) {
+            LOG_BLE("ERROR: Failed to register grinder RMT callbacks: %d\n", callback_result);
+            rmt_del_channel(rmt_channel);
+            rmt_channel = nullptr;
+            return;
+        }
+
         rmt_enable(rmt_channel);
         rmt_initialized = true;
         initialized = true;
     }
+}
+
+bool Grinder::on_rmt_trans_done(rmt_channel_handle_t,
+                                const rmt_tx_done_event_data_t*,
+                                void* user_ctx) {
+    auto* grinder = static_cast<Grinder*>(user_ctx);
+    if (grinder) {
+        grinder->pulse_done.store(true);
+    }
+
+    return false; // No higher priority task woken
 }
 
 void Grinder::start() {
@@ -125,17 +150,17 @@ void Grinder::stop() {
     emit_background_change(false);
 }
 
-void Grinder::start_pulse_rmt(uint32_t duration_ms) {
+bool Grinder::start_pulse_rmt(uint32_t duration_ms) {
 #if DEBUG_ENABLE_LOADCELL_MOCK
-    if (!initialized || duration_ms == 0) return;
+    if (!initialized || duration_ms == 0) return false;
     MockHX711Driver::notify_pulse(duration_ms);
     pulse_active = true;
     grinding = true;
     motor_start_time = millis();
     emit_background_change(true);
-    return;
+    return true;
 #endif
-    if (!initialized || !rmt_initialized) return;
+    if (!initialized || !rmt_initialized) return false;
 
     const uint64_t duration_us = static_cast<uint64_t>(duration_ms) * 1000ULL;
     const size_t symbol_count = RmtPulseTiming::required_symbol_count(duration_us);
@@ -143,26 +168,31 @@ void Grinder::start_pulse_rmt(uint32_t duration_ms) {
         LOG_BLE(
             "ERROR: Grinder pulse duration %lums exceeds supported range (1-%lums)\n",
             static_cast<unsigned long>(duration_ms),
-            static_cast<unsigned long>(
-                (RMT_PULSE_SYMBOL_CAPACITY * RmtPulseTiming::MAX_SYMBOL_DURATION_US) / 1000));
-        return;
+            static_cast<unsigned long>(GRIND_MOTOR_MAX_SUPPORTED_PULSE_MS));
+        return false;
     }
 
     motor_start_time = millis();
+
+    // Recycle finished transaction descriptors before queueing a new one. Stopping a
+    // continuous grind leaves one behind, because rmt_disable() moves the interrupted
+    // transaction to the complete queue without retiring it.
+    rmt_tx_wait_all_done(rmt_channel, 0);
 
     // Clean up any existing encoder
     if (current_encoder) {
         rmt_del_encoder(current_encoder);
         current_encoder = nullptr;
     }
-    
+
     // Create copy encoder for raw symbol data
     rmt_copy_encoder_config_t encoder_config = {};
-    
+
     if (rmt_new_copy_encoder(&encoder_config, &current_encoder) != ESP_OK) {
-        return;
+        LOG_BLE("ERROR: Failed to create grinder RMT encoder\n");
+        return false;
     }
-    
+
     for (size_t index = 0; index < symbol_count; ++index) {
         const RmtPulseTiming::SymbolDurations durations =
             RmtPulseTiming::symbol_durations(duration_us, index);
@@ -178,6 +208,8 @@ void Grinder::start_pulse_rmt(uint32_t duration_ms) {
     tx_config.loop_count = 0;
     tx_config.flags.eot_level = 0;
 
+    pulse_done.store(false);
+
     const esp_err_t transmit_result =
         rmt_transmit(
             rmt_channel,
@@ -190,12 +222,13 @@ void Grinder::start_pulse_rmt(uint32_t duration_ms) {
                 static_cast<unsigned long>(duration_ms), transmit_result);
         rmt_del_encoder(current_encoder);
         current_encoder = nullptr;
-        return;
+        return false;
     }
 
     pulse_active = true;
     grinding = true;
     emit_background_change(true);
+    return true;
 }
 
 bool Grinder::is_pulse_complete() {
@@ -210,22 +243,17 @@ bool Grinder::is_pulse_complete() {
     return false;
 #endif
     if (!pulse_active) return true;
-    
-    const esp_err_t wait_result = rmt_tx_wait_all_done(rmt_channel, 0);
-    if (wait_result == ESP_OK) {
-        pulse_active = false;
-        grinding = false;
-        emit_background_change(false);
-        return true;
+
+    // Reported by the RMT transmit-done ISR. Polling rmt_tx_wait_all_done() here instead
+    // would log a driver error on every unfinished poll.
+    if (!pulse_done.load()) {
+        return false;
     }
 
-    if (wait_result != ESP_ERR_TIMEOUT) {
-        LOG_BLE("ERROR: Failed to query grinder pulse completion: %d\n", wait_result);
-        stop();
-        return true;
-    }
-    
-    return false;
+    pulse_active = false;
+    grinding = false;
+    emit_background_change(false);
+    return true;
 }
 
 bool Grinder::is_motor_settled() const {

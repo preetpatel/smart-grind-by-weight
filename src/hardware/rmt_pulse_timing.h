@@ -20,22 +20,28 @@ constexpr size_t required_symbol_count(uint64_t duration_us) {
               (duration_us + MAX_SYMBOL_DURATION_US - 1) / MAX_SYMBOL_DURATION_US);
 }
 
+// Splits a pulse into RMT symbol halves whose durations sum exactly to duration_us.
+//
+// The time is spread as evenly as possible across the symbols, and then across the two
+// halves within each symbol, rather than packing each symbol to its maximum and leaving a
+// short residue at the end. Even spreading keeps every emitted half non-zero for any pulse
+// of at least 2us, so the transmitter is stopped by the end-of-transmission marker the RMT
+// driver appends (honouring the configured eot_level) instead of by a zero-duration entry
+// inside our own payload - packing would leave a 1us tail for lengths such as 65535us.
 constexpr SymbolDurations symbol_durations(uint64_t duration_us, size_t symbol_index) {
-    const uint64_t symbol_start_us =
-        static_cast<uint64_t>(symbol_index) * MAX_SYMBOL_DURATION_US;
+    const size_t symbol_count = required_symbol_count(duration_us);
 
-    if (symbol_start_us >= duration_us) {
+    if (symbol_index >= symbol_count) {
         return {0, 0};
     }
 
-    const uint64_t remaining_us = duration_us - symbol_start_us;
-    const uint16_t first_us = static_cast<uint16_t>(
-        remaining_us > MAX_PHASE_DURATION_US ? MAX_PHASE_DURATION_US : remaining_us);
-    const uint64_t after_first_us = remaining_us - first_us;
-    const uint16_t second_us = static_cast<uint16_t>(
-        after_first_us > MAX_PHASE_DURATION_US ? MAX_PHASE_DURATION_US : after_first_us);
+    // The first `extra_us` symbols absorb the indivisible remainder, one microsecond each.
+    const uint64_t base_us = duration_us / symbol_count;
+    const uint64_t extra_us = duration_us % symbol_count;
+    const uint64_t symbol_us = base_us + (symbol_index < extra_us ? 1 : 0);
 
-    return {first_us, second_us};
+    return {static_cast<uint16_t>((symbol_us + 1) / 2),
+            static_cast<uint16_t>(symbol_us / 2)};
 }
 
 }  // namespace RmtPulseTiming

@@ -496,7 +496,11 @@ void AutoTuneController::start_pulse(float pulse_duration_ms) {
 
     active_pulse_ms = pulse_duration_ms;
 
-    grinder->start_pulse_rmt(static_cast<uint32_t>(pulse_duration_ms));
+    if (!grinder->start_pulse_rmt(static_cast<uint32_t>(pulse_duration_ms))) {
+        log_message("\nMotor pulse failed");
+        complete_with_failure("Motor pulse failed to start");
+        return;
+    }
 
     switch_sub_phase(AutoTuneSubPhase::PULSE_EXECUTE);
 }
