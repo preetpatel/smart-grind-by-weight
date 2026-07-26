@@ -2,7 +2,9 @@
 #include <Arduino.h>
 #include <memory>
 
-void UIOperations::execute_tare(HardwareManager* hw_manager, OperationCallback completion) {
+void UIOperations::execute_tare(HardwareManager* hw_manager,
+                                OperationCallback completion,
+                                OperationCallback on_failure) {
     auto& overlay = BlockingOperationOverlay::getInstance();
 
     auto tare_succeeded = std::make_shared<bool>(false);
@@ -16,9 +18,13 @@ void UIOperations::execute_tare(HardwareManager* hw_manager, OperationCallback c
         }
     };
 
-    auto tare_completion = [tare_succeeded, completion]() {
-        if (*tare_succeeded && completion) {
-            completion();
+    auto tare_completion = [tare_succeeded, completion, on_failure]() {
+        if (*tare_succeeded) {
+            if (completion) {
+                completion();
+            }
+        } else if (on_failure) {
+            on_failure();
         }
     };
 
@@ -28,8 +34,9 @@ void UIOperations::execute_tare(HardwareManager* hw_manager, OperationCallback c
         tare_completion);
 }
 
-void UIOperations::execute_calibration(HardwareManager* hw_manager, float cal_weight, 
-                                      OperationCallback completion) {
+void UIOperations::execute_calibration(HardwareManager* hw_manager, float cal_weight,
+                                       OperationCallback completion,
+                                       OperationCallback on_failure) {
     auto& overlay = BlockingOperationOverlay::getInstance();
 
     auto calibration_succeeded = std::make_shared<bool>(false);
@@ -43,12 +50,16 @@ void UIOperations::execute_calibration(HardwareManager* hw_manager, float cal_we
         }
     };
 
-    auto calibration_completion = [calibration_succeeded, completion]() {
-        if (*calibration_succeeded && completion) {
-            completion();
+    auto calibration_completion = [calibration_succeeded, completion, on_failure]() {
+        if (*calibration_succeeded) {
+            if (completion) {
+                completion();
+            }
+        } else if (on_failure) {
+            on_failure();
         }
     };
-    
+
     overlay.show_and_execute(
         BlockingOperation::CALIBRATING,
         calibration_operation,

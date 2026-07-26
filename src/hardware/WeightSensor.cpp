@@ -252,18 +252,20 @@ bool WeightSensor::tare() {
         delay(SYS_TASK_LOADCELL_INTERVAL_MS);
     }
 
-    if (doTare.load()) {
-        doTare.store(false);
+    // Disarm the request so a late sampling-task pass cannot move the zero point after we
+    // have reported a timeout. Losing this exchange means Core 0 claimed the tare first and
+    // has already applied it, which is a success rather than a timeout.
+    if (doTare.exchange(false)) {
         LOG_BLE("ERROR: Blocking tare operation failed or timed out\n");
         return false;
-    } else {
-        // The Core 0 sampling task clears the raw history at the exact point
-        // it applies the new tare offset. Wait for its next clean sample.
-        unsigned long sample_start = millis();
-        while (raw_filter.get_sample_count() == 0 && millis() - sample_start < 1000) {
-            update();
-            delay(SYS_TASK_LOADCELL_INTERVAL_MS);
-        }
+    }
+
+    // The Core 0 sampling task clears the raw history at the exact point
+    // it applies the new tare offset. Wait for its next clean sample.
+    unsigned long sample_start = millis();
+    while (raw_filter.get_sample_count() == 0 && millis() - sample_start < 1000) {
+        update();
+        delay(SYS_TASK_LOADCELL_INTERVAL_MS);
     }
 
     LOG_LOADCELL_DEBUG("[DEBUG %lums] BLOCKING_TARE_COMPLETE: Tare operation completed\n", millis());
@@ -288,9 +290,9 @@ bool WeightSensor::calibrate(float known_weight) {
     
     // First, wait for weight to settle (user just placed calibration weight)
     LOG_CALIBRATION_DEBUG("Waiting for calibration weight to settle...\n");
-    float settle_time_ms = 0.0f;
-    get_precision_settled_weight(&settle_time_ms);
-    if (settle_time_ms >= GRIND_SCALE_SETTLING_TIMEOUT_MS) {
+    bool settling_timed_out = false;
+    get_precision_settled_weight(nullptr, &settling_timed_out);
+    if (settling_timed_out) {
         LOG_BLE("ERROR: Cannot calibrate - weight did not settle\n");
         return false;
     }
@@ -376,44 +378,51 @@ bool WeightSensor::is_settled(uint32_t window_ms) {
 }
 
 // WARNING: This method blocks execution until weight settles or times out!
-float WeightSensor::get_motor_settled_weight(float* settle_time_out) {
-    return get_settled_weight(GRIND_MOTOR_SETTLING_TIME_MS, settle_time_out);
+float WeightSensor::get_motor_settled_weight(float* settle_time_out, bool* timed_out_out) {
+    return get_settled_weight(GRIND_MOTOR_SETTLING_TIME_MS, settle_time_out, timed_out_out);
 }
 
 // WARNING: This method blocks execution until weight settles or times out!
-float WeightSensor::get_precision_settled_weight(float* settle_time_out) {
-    return get_settled_weight(GRIND_SCALE_PRECISION_SETTLING_TIME_MS, settle_time_out);
+float WeightSensor::get_precision_settled_weight(float* settle_time_out, bool* timed_out_out) {
+    return get_settled_weight(GRIND_SCALE_PRECISION_SETTLING_TIME_MS, settle_time_out, timed_out_out);
 }
 
 // WARNING: This method blocks execution until weight settles or times out!
-float WeightSensor::get_settled_weight(uint32_t window_ms, float* settle_time_out) {
+float WeightSensor::get_settled_weight(uint32_t window_ms, float* settle_time_out,
+                                       bool* timed_out_out) {
     LOG_SETTLING_DEBUG("Waiting for weight to settle (window=%lums, timeout=%lums)...\n", window_ms, GRIND_SCALE_SETTLING_TIMEOUT_MS);
-    
+
     unsigned long start_time = millis();
     float settled_weight = 0.0f;
-    
+
     // Blocking loop - keep updating and checking until settled or timeout
     while (millis() - start_time < GRIND_SCALE_SETTLING_TIMEOUT_MS) {
         // Call update to ensure fresh samples are collected
         update();
-        
+
         if (check_settling_complete(window_ms, &settled_weight)) {
             // Calculate settle time
             if (settle_time_out) {
                 *settle_time_out = millis() - start_time;
             }
+            if (timed_out_out) {
+                *timed_out_out = false;
+            }
             LOG_SETTLING_DEBUG("Weight settled in %lums\n", millis() - start_time);
             return settled_weight;
         }
-        
+
         // Use load cell update interval from constants.h
         delay(SYS_TASK_LOADCELL_INTERVAL_MS);
     }
-    
+
     // Timeout occurred - return best available measurement
     LOG_SETTLING_DEBUG("Weight settling timed out after %lums\n", GRIND_SCALE_SETTLING_TIMEOUT_MS);
     if (settle_time_out) {
         *settle_time_out = GRIND_SCALE_SETTLING_TIMEOUT_MS;
+    }
+    if (timed_out_out) {
+        *timed_out_out = true;
     }
     return raw_to_weight(raw_filter.get_smoothed_raw(window_ms));
 }
@@ -783,22 +792,29 @@ bool WeightSensor::sample_and_feed_filter() {
                 if (tareTimes < DATA_SET) {
                     tareTimes++;
                 } else {
-                    // Use CircularBufferMath smoothed data instead of original smoothedData()
-                    int32_t smoothed_raw = raw_filter.get_smoothed_raw(250); // 250ms window for stability
-                    tare_offset = smoothed_raw;  // Set tare offset to smoothed raw ADC value
-                    tareTimes = 0;
+                    // Claim the request before applying it. A caller timing out concurrently
+                    // disarms it with the matching exchange(false) in tare(), so exactly one
+                    // side wins and the zero point can never move after the caller gave up.
+                    bool tare_armed = true;
+                    if (!doTare.compare_exchange_strong(tare_armed, false)) {
+                        tareTimes = 0;
+                    } else {
+                        // Use CircularBufferMath smoothed data instead of original smoothedData()
+                        int32_t smoothed_raw = raw_filter.get_smoothed_raw(250); // 250ms window for stability
+                        tare_offset = smoothed_raw;  // Set tare offset to smoothed raw ADC value
+                        tareTimes = 0;
 
-                    // CircularBufferMath and LoadCellNoiseMonitor are written
-                    // by this task. Reset them here so Core 1 never clears a
-                    // ring while Core 0 is appending to it. Re-seed both with
-                    // the tare point so readers never observe an empty filter.
-                    raw_filter.clear_all_samples();
-                    raw_filter.add_sample(smoothed_raw, timestamp);
-                    noise_monitor.clear();
-                    noise_monitor.add_sample(smoothed_raw, timestamp);
+                        // CircularBufferMath and LoadCellNoiseMonitor are written
+                        // by this task. Reset them here so Core 1 never clears a
+                        // ring while Core 0 is appending to it. Re-seed both with
+                        // the tare point so readers never observe an empty filter.
+                        raw_filter.clear_all_samples();
+                        raw_filter.add_sample(smoothed_raw, timestamp);
+                        noise_monitor.clear();
+                        noise_monitor.add_sample(smoothed_raw, timestamp);
 
-                    doTare.store(false);
-                    tareStatus.store(true);
+                        tareStatus.store(true);
+                    }
                 }
             }
             

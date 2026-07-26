@@ -59,6 +59,10 @@
 // so refreshing them per frame churns the shared internal heap for no visible benefit.
 #define SYS_MENU_STATUS_REFRESH_INTERVAL_MS 250                                // Menu status text refresh (4Hz) - Core 1
 
+// How long a self-dismissing failure notice stays on screen (BlockingOperationOverlay).
+// Long enough to read two short lines without making the user wait to retry.
+#define SYS_UI_ERROR_MESSAGE_DURATION_MS 2500                                  // Transient failure notice duration - Core 1
+
 // Legacy task scheduler intervals (deprecated - kept for compatibility)
 #define SYS_TASK_LOADCELL_INTERVAL_MS 20                                       // Load cell polling frequency (50Hz)
 

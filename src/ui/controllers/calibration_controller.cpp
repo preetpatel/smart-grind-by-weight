@@ -107,6 +107,11 @@ void CalibrationUIController::handle_ok() {
                 if (ui_manager_) {
                     ui_manager_->refresh_auto_action_settings();
                 }
+            },
+            []() {
+                // Stay on this step - advancing would calibrate against a stale zero
+                BlockingOperationOverlay::getInstance().show_message(
+                    "TARE FAILED\nScale not settled", SYS_UI_ERROR_MESSAGE_DURATION_MS);
             });
             break;
         case CAL_STEP_WEIGHT: {
@@ -117,6 +122,11 @@ void CalibrationUIController::handle_ok() {
                 if (ui_manager_) {
                     ui_manager_->refresh_auto_action_settings();
                 }
+            },
+            []() {
+                BlockingOperationOverlay::getInstance().show_message(
+                    "CALIBRATION FAILED\nKeeping previous factor",
+                    SYS_UI_ERROR_MESSAGE_DURATION_MS);
             });
             break;
         }

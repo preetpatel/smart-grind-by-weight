@@ -19,11 +19,13 @@ class BlockingOperationOverlay {
 private:
     lv_obj_t* overlay;
     lv_obj_t* label;
+    lv_obj_t* wait_label;
     lv_timer_t* operation_timer;
+    lv_timer_t* message_timer;
     OperationCallback completion_callback;
     OperationCallback operation_callback;
     bool is_visible;
-    
+
     static BlockingOperationOverlay* g_instance;
 
 public:
@@ -45,9 +47,19 @@ public:
     // Direct show/hide methods for non-blocking operations
     void show(const char* message);
     void hide();
-    
+
+    // Transient notice that dismisses itself. Unlike show()/show_and_execute() this drops the
+    // "Please Wait..." line, so it reads as a result rather than as work in progress. Safe to
+    // call from a completion callback - the operation overlay has already been torn down by
+    // then.
+    void show_message(const char* text, uint32_t duration_ms);
+
 private:
     const char* get_operation_message(BlockingOperation op_type, const char* custom_message);
     void cancel_pending_operation();
+    void cancel_operation_timer();
+    void cancel_pending_message();
+    void apply_blocking_style();
     static void operation_timer_cb(lv_timer_t* timer);
+    static void message_timer_cb(lv_timer_t* timer);
 };

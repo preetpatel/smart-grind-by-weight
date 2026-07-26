@@ -182,6 +182,10 @@ void MenuUIController::handle_scale_open() {
         if (ui_manager_->menu_screen.is_scale_page_active()) {
             ui_manager_->menu_screen.update_scale_weight(weight);
         }
+    },
+    []() {
+        BlockingOperationOverlay::getInstance().show_message(
+            "TARE FAILED\nScale not settled", SYS_UI_ERROR_MESSAGE_DURATION_MS);
     });
 }
 
@@ -199,6 +203,10 @@ void MenuUIController::handle_scale_tare() {
         if (ui_manager_->menu_screen.is_scale_page_active()) {
             ui_manager_->menu_screen.update_scale_weight(weight);
         }
+    },
+    []() {
+        BlockingOperationOverlay::getInstance().show_message(
+            "TARE FAILED\nScale not settled", SYS_UI_ERROR_MESSAGE_DURATION_MS);
     });
 }
 

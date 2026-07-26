@@ -37,16 +37,24 @@ void BlockingOperationOverlay::init() {
     lv_obj_set_style_text_color(label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 
-    lv_obj_t * wait_label = lv_label_create(content);
+    wait_label = lv_label_create(content);
     lv_label_set_text(wait_label, "Please Wait...");
     lv_obj_set_style_text_font(wait_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(wait_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_text_align(wait_label, LV_TEXT_ALIGN_CENTER, 0);
-    
+
     // Hide initially
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
     is_visible = false;
     operation_timer = nullptr;
+    message_timer = nullptr;
+}
+
+// Restores the in-progress presentation, undoing anything show_message() changed.
+void BlockingOperationOverlay::apply_blocking_style() {
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_clear_flag(wait_label, LV_OBJ_FLAG_HIDDEN);
 }
 
 void BlockingOperationOverlay::show_and_execute(BlockingOperation op_type, 
@@ -54,12 +62,16 @@ void BlockingOperationOverlay::show_and_execute(BlockingOperation op_type,
                                                 OperationCallback completion_func,
                                                 const char* custom_message) {
     
+    // A message left over from show_message() must not style this operation
+    cancel_pending_message();
+    apply_blocking_style();
+
     // Set appropriate message
     const char* message = get_operation_message(op_type, custom_message);
     lv_label_set_text(label, message);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(label, 240);
-    
+
     // Store callbacks
     completion_callback = completion_func;
     operation_callback = operation_func;
@@ -139,6 +151,8 @@ void BlockingOperationOverlay::show(const char* message) {
     // Cancel any operation still pending from a previous show_and_execute(), otherwise it
     // would fire against a message-only overlay and invoke a stale callback.
     cancel_pending_operation();
+    cancel_pending_message();
+    apply_blocking_style();
 
     // Set message
     lv_label_set_text(label, message);
@@ -149,19 +163,62 @@ void BlockingOperationOverlay::show(const char* message) {
     is_visible = true;
 }
 
+void BlockingOperationOverlay::show_message(const char* text, uint32_t duration_ms) {
+    // Deliberately not cancel_pending_operation(): this is normally called from a completion
+    // callback, and clearing completion_callback would destroy the std::function currently
+    // executing. Dropping the timer is enough to stop a queued operation overwriting us.
+    cancel_operation_timer();
+    cancel_pending_message();
+
+    lv_obj_add_flag(wait_label, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(THEME_COLOR_ERROR), 0);
+    lv_label_set_text(label, text);
+    lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(label, 240);
+
+    lv_obj_clear_flag(overlay, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_move_foreground(overlay);
+    is_visible = true;
+
+    message_timer = lv_timer_create(message_timer_cb, duration_ms, nullptr);
+    lv_timer_set_repeat_count(message_timer, 1);
+}
+
 void BlockingOperationOverlay::hide() {
     cancel_pending_operation();
+    cancel_pending_message();
+    apply_blocking_style();
 
     // Hide overlay
     lv_obj_add_flag(overlay, LV_OBJ_FLAG_HIDDEN);
     is_visible = false;
 }
 
-void BlockingOperationOverlay::cancel_pending_operation() {
+void BlockingOperationOverlay::message_timer_cb(lv_timer_t* timer) {
+    auto& instance = getInstance();
+    // LVGL retires this one-shot timer itself once the callback returns; forget it first so
+    // hide() does not try to delete a timer that is still running.
+    instance.message_timer = nullptr;
+    instance.hide();
+}
+
+void BlockingOperationOverlay::cancel_operation_timer() {
     if (operation_timer) {
         lv_timer_del(operation_timer);
         operation_timer = nullptr;
     }
+}
+
+void BlockingOperationOverlay::cancel_pending_operation() {
+    cancel_operation_timer();
     operation_callback = nullptr;
     completion_callback = nullptr;
+}
+
+void BlockingOperationOverlay::cancel_pending_message() {
+    if (message_timer) {
+        lv_timer_del(message_timer);
+        message_timer = nullptr;
+    }
 }

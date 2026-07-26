@@ -199,11 +199,16 @@ public:
     bool is_flow_rate_stable(uint32_t window_ms = 100) const; // Check if flow rate has stabilized
     
     // Settling methods - WARNING: These methods block execution!
-    float get_motor_settled_weight(float* settle_time_out = nullptr);     // Motor settling (300ms window) - for after motor vibrations
-    float get_precision_settled_weight(float* settle_time_out = nullptr); // Precision settling (500ms window) - for tare/calibration/final measurements
+    // settle_time_out receives the time taken; timed_out_out distinguishes a genuine settle
+    // from the timeout fallback, which the settle time alone cannot do at the boundary.
+    float get_motor_settled_weight(float* settle_time_out = nullptr,
+                                   bool* timed_out_out = nullptr);        // Motor settling (300ms window) - for after motor vibrations
+    float get_precision_settled_weight(float* settle_time_out = nullptr,
+                                       bool* timed_out_out = nullptr);    // Precision settling (500ms window) - for tare/calibration/final measurements
     
     // Legacy method for custom settling
-    float get_settled_weight(uint32_t window_ms, float* settle_time_out = nullptr);
+    float get_settled_weight(uint32_t window_ms, float* settle_time_out = nullptr,
+                             bool* timed_out_out = nullptr);
     
     // Status and information methods
     int get_sample_count() const;                            // Returns filter sample count
