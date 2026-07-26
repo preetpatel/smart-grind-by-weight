@@ -4,6 +4,7 @@
 #include <driver/rmt_encoder.h>
 #include <functional>
 #include "../config/constants.h"
+#include "rmt_pulse_timing.h"
 
 // Forward declarations
 struct GrindEventData;
@@ -20,6 +21,20 @@ private:
     rmt_encoder_handle_t current_encoder;
     bool pulse_active;
     bool rmt_initialized;
+    rmt_symbol_word_t continuous_symbol;
+
+    static constexpr size_t RMT_PULSE_SYMBOL_CAPACITY =
+        RmtPulseTiming::required_symbol_count(
+            static_cast<uint64_t>(GRIND_AUTOTUNE_PRIMING_PULSE_MS) * 1000ULL);
+    rmt_symbol_word_t pulse_symbols[RMT_PULSE_SYMBOL_CAPACITY];
+
+    static_assert(
+        RMT_PULSE_SYMBOL_CAPACITY <= 64,
+        "Pulse payload must fit in the configured RMT memory block");
+    static_assert(
+        (GRIND_AUTOTUNE_LATENCY_MAX_MS + GRIND_MOTOR_MAX_PULSE_DURATION_MS) * 1000.0f <=
+            RMT_PULSE_SYMBOL_CAPACITY * RmtPulseTiming::MAX_SYMBOL_DURATION_US,
+        "Correction pulse range exceeds the Grinder RMT payload capacity");
 
     // Motor settling tracking
     unsigned long motor_start_time;

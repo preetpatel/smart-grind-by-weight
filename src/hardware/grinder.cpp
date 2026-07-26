@@ -8,10 +8,13 @@
 void Grinder::init(int pin) {
     motor_pin = pin;
     grinding = false;
+    initialized = false;
     pulse_active = false;
     rmt_initialized = false;
+    rmt_channel = nullptr;
     current_encoder = nullptr;
     motor_start_time = 0;
+    continuous_symbol = {};
 
     // Initialize background indicator
     background_active = false;
@@ -68,17 +71,30 @@ void Grinder::start() {
     }
     
     // Use RMT infinite loop for continuous grinding
-    rmt_symbol_word_t continuous_data[1];
-    continuous_data[0].duration0 = 32767; // Maximum 15-bit duration per symbol (~32ms at 1MHz)
-    continuous_data[0].level0 = 1; // HIGH
-    continuous_data[0].duration1 = 0;
-    continuous_data[0].level1 = 0;
+    continuous_symbol = {};
+    continuous_symbol.duration0 = RmtPulseTiming::MAX_PHASE_DURATION_US;
+    continuous_symbol.level0 = 1;
+    continuous_symbol.duration1 = 0;
+    continuous_symbol.level1 = 0;
+
+    rmt_transmit_config_t tx_config = {};
+    tx_config.loop_count = -1; // Infinite loop
+    tx_config.flags.eot_level = 0;
     
-    rmt_transmit_config_t tx_config = {
-        .loop_count = -1, // Infinite loop
-    };
-    
-    rmt_transmit(rmt_channel, current_encoder, continuous_data, sizeof(continuous_data), &tx_config);
+    const esp_err_t transmit_result =
+        rmt_transmit(
+            rmt_channel,
+            current_encoder,
+            &continuous_symbol,
+            sizeof(continuous_symbol),
+            &tx_config);
+    if (transmit_result != ESP_OK) {
+        LOG_BLE("ERROR: Failed to start grinder RMT transmission: %d\n", transmit_result);
+        rmt_del_encoder(current_encoder);
+        current_encoder = nullptr;
+        return;
+    }
+
     grinding = true;
     emit_background_change(true);
 }
@@ -111,7 +127,7 @@ void Grinder::stop() {
 
 void Grinder::start_pulse_rmt(uint32_t duration_ms) {
 #if DEBUG_ENABLE_LOADCELL_MOCK
-    if (!initialized) return;
+    if (!initialized || duration_ms == 0) return;
     MockHX711Driver::notify_pulse(duration_ms);
     pulse_active = true;
     grinding = true;
@@ -120,6 +136,17 @@ void Grinder::start_pulse_rmt(uint32_t duration_ms) {
     return;
 #endif
     if (!initialized || !rmt_initialized) return;
+
+    const uint64_t duration_us = static_cast<uint64_t>(duration_ms) * 1000ULL;
+    const size_t symbol_count = RmtPulseTiming::required_symbol_count(duration_us);
+    if (symbol_count == 0 || symbol_count > RMT_PULSE_SYMBOL_CAPACITY) {
+        LOG_BLE(
+            "ERROR: Grinder pulse duration %lums exceeds supported range (1-%lums)\n",
+            static_cast<unsigned long>(duration_ms),
+            static_cast<unsigned long>(
+                (RMT_PULSE_SYMBOL_CAPACITY * RmtPulseTiming::MAX_SYMBOL_DURATION_US) / 1000));
+        return;
+    }
 
     motor_start_time = millis();
 
@@ -136,47 +163,39 @@ void Grinder::start_pulse_rmt(uint32_t duration_ms) {
         return;
     }
     
-    // Create RMT symbols for HIGH pulse + LOW end
-    rmt_symbol_word_t pulse_symbols[2];
-    uint32_t duration_us = duration_ms * 1000;
-    
-    // Handle long durations by using maximum duration and remainder
-    if (duration_us <= 32767) {
-        // Single symbol for short durations
-        pulse_symbols[0].level0 = 1;
-        pulse_symbols[0].duration0 = duration_us;
-        pulse_symbols[0].level1 = 0;
-        pulse_symbols[0].duration1 = 1; // Minimal LOW to end pulse
-        
-        rmt_transmit_config_t tx_config = {.loop_count = 0};
-        pulse_active = true;
-        grinding = true;
-        
-        rmt_transmit(rmt_channel, current_encoder, pulse_symbols, sizeof(rmt_symbol_word_t), &tx_config);
-        emit_background_change(true);
-    } else {
-        // For longer durations, use loop_count to repeat
-        uint32_t base_duration = 32767; // Max single symbol duration
-        uint32_t loop_count = (duration_us / base_duration) - 1; // -1 because first isn't a loop
-        uint32_t remainder = duration_us % base_duration;
-        
-        pulse_symbols[0].level0 = 1;
-        pulse_symbols[0].duration0 = base_duration;
-        pulse_symbols[0].level1 = 1;
-        pulse_symbols[0].duration1 = remainder > 0 ? remainder : 1;
-        
-        pulse_symbols[1].level0 = 0;
-        pulse_symbols[1].duration0 = 1; // Minimal LOW to end
-        pulse_symbols[1].level1 = 0;
-        pulse_symbols[1].duration1 = 0;
-        
-        rmt_transmit_config_t tx_config = {.loop_count = (int)loop_count};
-        pulse_active = true;
-        grinding = true;
-        
-        rmt_transmit(rmt_channel, current_encoder, pulse_symbols, sizeof(pulse_symbols), &tx_config);
-        emit_background_change(true);
+    for (size_t index = 0; index < symbol_count; ++index) {
+        const RmtPulseTiming::SymbolDurations durations =
+            RmtPulseTiming::symbol_durations(duration_us, index);
+
+        pulse_symbols[index] = {};
+        pulse_symbols[index].level0 = 1;
+        pulse_symbols[index].duration0 = durations.first_us;
+        pulse_symbols[index].level1 = durations.second_us > 0 ? 1 : 0;
+        pulse_symbols[index].duration1 = durations.second_us;
     }
+
+    rmt_transmit_config_t tx_config = {};
+    tx_config.loop_count = 0;
+    tx_config.flags.eot_level = 0;
+
+    const esp_err_t transmit_result =
+        rmt_transmit(
+            rmt_channel,
+            current_encoder,
+            pulse_symbols,
+            symbol_count * sizeof(pulse_symbols[0]),
+            &tx_config);
+    if (transmit_result != ESP_OK) {
+        LOG_BLE("ERROR: Failed to start %lums grinder pulse: %d\n",
+                static_cast<unsigned long>(duration_ms), transmit_result);
+        rmt_del_encoder(current_encoder);
+        current_encoder = nullptr;
+        return;
+    }
+
+    pulse_active = true;
+    grinding = true;
+    emit_background_change(true);
 }
 
 bool Grinder::is_pulse_complete() {
@@ -192,13 +211,17 @@ bool Grinder::is_pulse_complete() {
 #endif
     if (!pulse_active) return true;
     
-    // For simplicity, we'll use a transmission done callback approach
-    // Since RMT handles the pulse timing in hardware, we can check the GPIO state
-    // as a simple completion indicator
-    if (digitalRead(motor_pin) == LOW) {
+    const esp_err_t wait_result = rmt_tx_wait_all_done(rmt_channel, 0);
+    if (wait_result == ESP_OK) {
         pulse_active = false;
         grinding = false;
         emit_background_change(false);
+        return true;
+    }
+
+    if (wait_result != ESP_ERR_TIMEOUT) {
+        LOG_BLE("ERROR: Failed to query grinder pulse completion: %d\n", wait_result);
+        stop();
         return true;
     }
     

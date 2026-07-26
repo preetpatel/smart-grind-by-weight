@@ -4,10 +4,6 @@
 #include <cstring>
 #include <cstdarg>
 
-#if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)
-#include "../hardware/mock_hx711_driver.h"
-#endif
-
 AutoTuneController::AutoTuneController()
     : weight_sensor(nullptr)
     , grinder(nullptr)
@@ -108,8 +104,18 @@ bool AutoTuneController::start() {
 }
 
 void AutoTuneController::cancel() {
+    if (!is_running) {
+        return;
+    }
+
     LOG_BLE("AutoTune: User cancel requested\n");
     cancel_requested = true;
+
+    // The UI exits immediately, so stop an in-flight pulse here rather than
+    // waiting for the next controller update.
+    if (grinder && grinder->is_grinding()) {
+        grinder->stop();
+    }
 }
 
 void AutoTuneController::update() {
@@ -202,6 +208,10 @@ void AutoTuneController::update_priming_phase() {
 
         case AutoTuneSubPhase::TARING:
             update_tare();
+            break;
+
+        case AutoTuneSubPhase::RESULT_LOGGED:
+            complete_with_failure("Invalid priming state");
             break;
     }
 }
@@ -403,7 +413,18 @@ void AutoTuneController::update_verification_phase() {
                     return;
                 }
 
-                candidate_ms = candidate_ms + GRIND_AUTOTUNE_TARGET_ACCURACY_MS;
+                const float next_candidate_ms =
+                    candidate_ms + GRIND_AUTOTUNE_TARGET_ACCURACY_MS;
+                if (next_candidate_ms > GRIND_AUTOTUNE_LATENCY_MAX_MS) {
+                    LOG_BLE("AutoTune: Verification candidate would exceed %.1fms maximum\n",
+                            GRIND_AUTOTUNE_LATENCY_MAX_MS);
+                    log_message("\nMaximum %.0fms reached",
+                                (float)GRIND_AUTOTUNE_LATENCY_MAX_MS);
+                    complete_with_failure("Verification exceeded maximum pulse");
+                    return;
+                }
+
+                candidate_ms = next_candidate_ms;
                 current_pulse_ms = candidate_ms;
                 LOG_BLE("AutoTune: Increasing candidate to %.1fms for next round\n", candidate_ms);
                 log_message("Retry %.0fms", candidate_ms);
@@ -485,11 +506,6 @@ void AutoTuneController::start_pulse(float pulse_duration_ms) {
     active_pulse_ms = pulse_duration_ms;
 
     grinder->start_pulse_rmt(static_cast<uint32_t>(pulse_duration_ms));
-
-    // Notify mock driver for weight simulation
-#if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)
-    MockHX711Driver::notify_pulse(static_cast<uint32_t>(pulse_duration_ms));
-#endif
 
     switch_sub_phase(AutoTuneSubPhase::PULSE_EXECUTE);
 }
@@ -595,6 +611,12 @@ void AutoTuneController::switch_sub_phase(AutoTuneSubPhase new_sub_phase) {
 //==============================================================================
 
 void AutoTuneController::complete_with_success(float final_latency_ms) {
+    if (final_latency_ms < GRIND_AUTOTUNE_LATENCY_MIN_MS ||
+        final_latency_ms > GRIND_AUTOTUNE_LATENCY_MAX_MS) {
+        complete_with_failure("Result outside configured latency range");
+        return;
+    }
+
     LOG_BLE("=== AutoTune Complete: SUCCESS ===\n");
     LOG_BLE("Final motor latency: %.1fms (previous: %.1fms)\n",
             final_latency_ms, progress.previous_latency_ms);
@@ -624,12 +646,16 @@ void AutoTuneController::complete_with_success(float final_latency_ms) {
 }
 
 void AutoTuneController::complete_with_failure(const char* error_msg) {
+    if (grinder && grinder->is_grinding()) {
+        grinder->stop();
+    }
+
     LOG_BLE("=== AutoTune Complete: FAILURE ===\n");
     LOG_BLE("Error: %s\n", error_msg);
-    LOG_BLE("Using default latency: %.1fms\n", GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS);
+    LOG_BLE("Keeping previous latency: %.1fms\n", progress.previous_latency_ms);
 
     result.success = false;
-    result.latency_ms = GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS;
+    result.latency_ms = progress.previous_latency_ms;
     result.error_message = error_msg;
 
     current_phase = AutoTunePhase::COMPLETE_FAILURE;
@@ -640,7 +666,8 @@ void AutoTuneController::complete_with_failure(const char* error_msg) {
         autotune_log_file.println();
         autotune_log_file.println("=== Autotune Complete: FAILURE ===");
         autotune_log_file.printf("Error: %s\n", error_msg ? error_msg : "Unknown");
-        autotune_log_file.printf("Using Default Latency: %.1fms\n", GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS);
+        autotune_log_file.printf("Keeping Previous Latency: %.1fms\n",
+                                 progress.previous_latency_ms);
         autotune_log_file.close();
         LOG_BLE("AutoTune: Log file closed\n");
     }
