@@ -56,13 +56,11 @@ int32_t CircularBufferMath::get_smoothed_raw(uint32_t window_ms) const {
     
     // Calculate max samples needed for this window
     int max_samples = calculate_max_samples_for_window(window_ms);
-    
-    // Allocate temporary array on stack (reasonable size expected)
-    int32_t* samples = (int32_t*)alloca(max_samples * sizeof(int32_t));
-    
+
     // Get samples within time window
-    int actual_samples = get_samples_in_window(window_ms, samples);
-    
+    int32_t samples[WINDOW_SAMPLE_CAPACITY];
+    int actual_samples = get_samples_in_window(window_ms, samples, max_samples);
+
     if (actual_samples == 0) {
         return get_latest_sample(); // Fallback to latest sample
     }
@@ -71,17 +69,20 @@ int32_t CircularBufferMath::get_smoothed_raw(uint32_t window_ms) const {
     return apply_outlier_rejection(samples, actual_samples);
 }
 
-int CircularBufferMath::get_samples_in_window(uint32_t window_ms, int32_t* samples_out) const {
-    if (samples_count == 0) return 0;
-    
+int CircularBufferMath::get_samples_in_window(uint32_t window_ms, int32_t* samples_out, int capacity) const {
+    if (samples_count == 0 || capacity <= 0) return 0;
+
     uint32_t current_time = millis();
     uint32_t window_start = current_time - window_ms;
     int collected_samples = 0;
-    
-    // Walk backwards from most recent sample
-    for (int i = 0; i < samples_count; i++) {
+
+    // Walk backwards from most recent sample. Bounded by the caller's capacity as well as the
+    // sample count: capacity is derived from an assumed sample rate, and the ADC can feed the
+    // buffer faster than that (miswired cell, wrong RATE strap), which would otherwise write
+    // past the end of the caller's array.
+    for (int i = 0; i < samples_count && collected_samples < capacity; i++) {
         uint16_t index = (write_index - 1 - i + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
-        
+
         // Check if sample is within time window
         if (circular_buffer[index].timestamp_ms >= window_start) {
             samples_out[collected_samples] = circular_buffer[index].raw_value;
@@ -98,22 +99,20 @@ int32_t CircularBufferMath::apply_outlier_rejection(const int32_t* samples, int 
     if (count == 0) return 0;
     if (count == 1) return samples[0];
     if (count == 2) return (samples[0] + samples[1]) / 2;
+    if (count > WINDOW_SAMPLE_CAPACITY) count = WINDOW_SAMPLE_CAPACITY;
 
     // Decide how many to reject from each side
     int reject_each_side = 1; // (HW_LOADCELL_SAMPLE_RATE_SPS == 80) ? 8 : 1;
 
-    // Not enough samples left -> fallback to median
-    if (count <= 2 * reject_each_side) {
-        int32_t* sorted_samples = (int32_t*)alloca(count * sizeof(int32_t));
-        memcpy(sorted_samples, samples, count * sizeof(int32_t));
-        std::sort(sorted_samples, sorted_samples + count);
-        return sorted_samples[count / 2];
-    }
-
     // Copy and sort
-    int32_t* sorted_samples = (int32_t*)alloca(count * sizeof(int32_t));
+    int32_t sorted_samples[WINDOW_SAMPLE_CAPACITY];
     memcpy(sorted_samples, samples, count * sizeof(int32_t));
     std::sort(sorted_samples, sorted_samples + count);
+
+    // Not enough samples left -> fallback to median
+    if (count <= 2 * reject_each_side) {
+        return sorted_samples[count / 2];
+    }
 
     // Average trimmed values
     int samples_to_average = count - 2 * reject_each_side;
@@ -133,10 +132,11 @@ int CircularBufferMath::calculate_max_samples_for_window(uint32_t window_ms) con
     if (estimated_samples > (int)samples_count) {
         estimated_samples = samples_count;
     }
-    if (estimated_samples > MAX_BUFFER_SIZE) {
-        estimated_samples = MAX_BUFFER_SIZE;
+    // Never ask for more than the fixed scratch arrays the windowed helpers declare
+    if (estimated_samples > WINDOW_SAMPLE_CAPACITY) {
+        estimated_samples = WINDOW_SAMPLE_CAPACITY;
     }
-    
+
     return estimated_samples;
 }
 
@@ -265,9 +265,9 @@ bool CircularBufferMath::is_settled(uint32_t window_ms, int32_t threshold_raw_un
         // Get raw samples for display
         int max_samples = calculate_max_samples_for_window(window_ms);
         if (max_samples > 0) {
-            int32_t* samples = (int32_t*)alloca(max_samples * sizeof(int32_t));
-            int actual_samples = get_samples_in_window(window_ms, samples);
-            
+            int32_t samples[WINDOW_SAMPLE_CAPACITY];
+            int actual_samples = get_samples_in_window(window_ms, samples, max_samples);
+
             // Format raw samples on one line (limit to first 10 samples to avoid spam)
             char sample_str[256] = {0};
             int offset = 0;
@@ -306,13 +306,11 @@ float CircularBufferMath::get_standard_deviation_raw(uint32_t window_ms) const {
     // Calculate max samples needed
     int max_samples = calculate_max_samples_for_window(window_ms);
     if (max_samples == 0) return 0.0f;
-    
-    // Allocate temporary array
-    int32_t* samples = (int32_t*)alloca(max_samples * sizeof(int32_t));
-    
+
     // Get samples within time window
-    int actual_samples = get_samples_in_window(window_ms, samples);
-    
+    int32_t samples[WINDOW_SAMPLE_CAPACITY];
+    int actual_samples = get_samples_in_window(window_ms, samples, max_samples);
+
     return calculate_standard_deviation(samples, actual_samples);
 }
 
@@ -342,10 +340,10 @@ float CircularBufferMath::get_raw_flow_rate(uint32_t window_ms) const {
     int max_samples = calculate_max_samples_for_window(window_ms);
     if (max_samples < 2) return 0.0f;
     
-    // Allocate temporary arrays
-    int32_t* samples = (int32_t*)alloca(max_samples * sizeof(int32_t));
-    uint32_t* timestamps = (uint32_t*)alloca(max_samples * sizeof(uint32_t));
-    
+    // Temporary arrays
+    int32_t samples[WINDOW_SAMPLE_CAPACITY];
+    uint32_t timestamps[WINDOW_SAMPLE_CAPACITY];
+
     // Get samples and timestamps within window
     int collected = 0;
     uint32_t current_time = millis();
@@ -398,8 +396,8 @@ float CircularBufferMath::get_raw_flow_rate_95th_percentile(uint32_t window_ms) 
         return get_raw_flow_rate(effective_window_ms);
     }
 
-    int32_t* sample_values = (int32_t*)alloca(max_samples * sizeof(int32_t));
-    uint32_t* sample_times = (uint32_t*)alloca(max_samples * sizeof(uint32_t));
+    int32_t sample_values[WINDOW_SAMPLE_CAPACITY];
+    uint32_t sample_times[WINDOW_SAMPLE_CAPACITY];
     int collected_samples = 0;
     uint32_t current_time = millis();
     uint32_t window_start_time = current_time - effective_window_ms;
@@ -420,10 +418,10 @@ float CircularBufferMath::get_raw_flow_rate_95th_percentile(uint32_t window_ms) 
         return get_raw_flow_rate(effective_window_ms);
     }
 
-    // 2. Calculate the number of sub-windows and allocate space for their flow rates.
+    // 2. Calculate the number of sub-windows to score (bounded by MAX_SUB_WINDOWS).
     int num_sub_windows = (effective_window_ms > SUB_WINDOW_MS) ? 1 + (effective_window_ms - SUB_WINDOW_MS) / STEP_MS : 1;
     num_sub_windows = std::max(MIN_SUB_WINDOWS, std::min(MAX_SUB_WINDOWS, num_sub_windows));
-    float* flow_rates = (float*)alloca(num_sub_windows * sizeof(float));
+    float flow_rates[MAX_SUB_WINDOWS];
     int valid_flow_rates_count = 0;
 
     // 3. Iterate through sub-windows and calculate flow rate for each.
@@ -475,39 +473,53 @@ bool CircularBufferMath::raw_flowrate_is_stable(uint32_t window_ms) const {
     return abs(current_flow - recent_flow) <= threshold;
 }
 
-int32_t CircularBufferMath::get_min_raw(uint32_t window_ms) const {
-    int max_samples = calculate_max_samples_for_window(window_ms);
-    if (max_samples == 0) return 0;
-    
-    int32_t* samples = (int32_t*)alloca(max_samples * sizeof(int32_t));
-    int actual_samples = get_samples_in_window(window_ms, samples);
-    
-    if (actual_samples == 0) return 0;
-    
-    int32_t min_val = samples[0];
-    for (int i = 1; i < actual_samples; i++) {
-        if (samples[i] < min_val) {
-            min_val = samples[i];
+// Walks the ring buffer directly rather than copying the window into a scratch array. These are
+// the only queries used with a multi-minute window (the screen auto-dim activity check runs one
+// of each every UI frame with USER_SCREEN_AUTO_DIM_TIMEOUT_MS), so a scratch array here would
+// scale with the whole 1024-sample buffer and put 4KB on the caller's stack every frame.
+bool CircularBufferMath::get_window_min_max(uint32_t window_ms, int32_t* min_out, int32_t* max_out) const {
+    if (samples_count == 0) return false;
+
+    uint32_t window_start = millis() - window_ms;
+    bool found = false;
+    int32_t min_val = 0;
+    int32_t max_val = 0;
+
+    for (int i = 0; i < samples_count; i++) {
+        uint16_t index = (write_index - 1 - i + MAX_BUFFER_SIZE) % MAX_BUFFER_SIZE;
+
+        if (circular_buffer[index].timestamp_ms < window_start) {
+            break; // Samples are time-ordered, so we can stop here
+        }
+
+        int32_t value = circular_buffer[index].raw_value;
+        if (!found) {
+            min_val = value;
+            max_val = value;
+            found = true;
+        } else if (value < min_val) {
+            min_val = value;
+        } else if (value > max_val) {
+            max_val = value;
         }
     }
+
+    if (!found) return false;
+
+    if (min_out) *min_out = min_val;
+    if (max_out) *max_out = max_val;
+    return true;
+}
+
+int32_t CircularBufferMath::get_min_raw(uint32_t window_ms) const {
+    int32_t min_val = 0;
+    get_window_min_max(window_ms, &min_val, nullptr);
     return min_val;
 }
 
 int32_t CircularBufferMath::get_max_raw(uint32_t window_ms) const {
-    int max_samples = calculate_max_samples_for_window(window_ms);
-    if (max_samples == 0) return 0;
-    
-    int32_t* samples = (int32_t*)alloca(max_samples * sizeof(int32_t));
-    int actual_samples = get_samples_in_window(window_ms, samples);
-    
-    if (actual_samples == 0) return 0;
-    
-    int32_t max_val = samples[0];
-    for (int i = 1; i < actual_samples; i++) {
-        if (samples[i] > max_val) {
-            max_val = samples[i];
-        }
-    }
+    int32_t max_val = 0;
+    get_window_min_max(window_ms, nullptr, &max_val);
     return max_val;
 }
 

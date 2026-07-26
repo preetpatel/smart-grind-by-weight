@@ -25,6 +25,10 @@
 // Critical timing for FreeRTOS task architecture with 6 specialized tasks
 
 // Task Intervals (milliseconds)
+// The weight sampling interval is also the hard ceiling on how fast the load cell buffer can be
+// fed, whatever the ADC actually does. CircularBufferMath sizes its stack scratch arrays off that
+// ceiling rather than HW_LOADCELL_SAMPLE_RATE_SPS, so a load cell running faster than advertised
+// cannot overrun them.
 #define SYS_TASK_WEIGHT_SAMPLING_INTERVAL_MS 20                                // Weight sampling poll interval (50Hz poll; HX711 @10SPS) - Core 0
 #define SYS_TASK_GRIND_CONTROL_INTERVAL_MS 20                                  // Grind controller update interval (50Hz) - Core 0
 #define SYS_TASK_UI_INTERVAL_MS 16                                             // UI rendering frequency (60Hz) - Core 1  

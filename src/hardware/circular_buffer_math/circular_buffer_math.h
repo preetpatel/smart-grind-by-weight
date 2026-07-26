@@ -42,11 +42,26 @@ private:
     // Large fixed buffer - sized for 10+ seconds at 80 SPS = 800+ samples
     // Using 1024 for power-of-2 efficiency and future headroom
     static const uint16_t MAX_BUFFER_SIZE = 1024;
-    
+
+    // Capacity of the scratch arrays the windowed helpers copy samples into.
+    //
+    // These arrays live on the caller's stack, and the callers include the 8KB UI task, so the
+    // bound has to be a compile-time constant rather than a function of how full the ring buffer
+    // happens to be. The sampling task appends at most one sample per poll, so no window can hold
+    // more samples than the poll rate allows no matter what the ADC does - sizing off the poll
+    // ceiling keeps the bound valid even when the hardware runs faster than
+    // HW_LOADCELL_SAMPLE_RATE_SPS claims. 1000ms is the longest window any copy-based caller uses
+    // (get_raw_flow_rate_95th_percentile floors its window there).
+    static constexpr int MAX_POLL_RATE_SPS = 1000 / SYS_TASK_WEIGHT_SAMPLING_INTERVAL_MS;
+    static constexpr uint32_t MAX_ANALYSIS_WINDOW_MS = 1000;
+    static constexpr int WINDOW_SAMPLE_CAPACITY = 64;
+    static_assert(WINDOW_SAMPLE_CAPACITY >= (MAX_POLL_RATE_SPS * (int)MAX_ANALYSIS_WINDOW_MS) / 1000,
+                  "Window scratch buffers are smaller than the sampling task can fill");
+
     AdcSample circular_buffer[MAX_BUFFER_SIZE];
     uint16_t write_index;
     uint16_t samples_count;
-    
+
     // For asymmetric display filtering (fast up, slow down) on raw values
     int32_t display_filtered_raw;
     bool display_filter_initialized;
@@ -55,12 +70,16 @@ private:
     mutable uint32_t flow_stable_since_ms;  // When flow rate first became stable
     mutable bool flow_stability_initialized;
     
-    // Helper methods - using dynamic arrays based on window size
-    int get_samples_in_window(uint32_t window_ms, int32_t* samples_out) const;
+    // Helper methods - callers pass the capacity of samples_out so a faster-than-expected ADC
+    // can never overrun it
+    int get_samples_in_window(uint32_t window_ms, int32_t* samples_out, int capacity) const;
     int32_t apply_outlier_rejection(const int32_t* samples, int count) const;
     float calculate_standard_deviation(const int32_t* samples, int count) const;
     int32_t get_latest_sample() const;
     int calculate_max_samples_for_window(uint32_t window_ms) const;
+
+    // Single pass over the ring buffer, no scratch array - see get_min_raw()/get_max_raw()
+    bool get_window_min_max(uint32_t window_ms, int32_t* min_out, int32_t* max_out) const;
     
 public:
     CircularBufferMath();
