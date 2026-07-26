@@ -281,14 +281,35 @@ The system includes comprehensive load cell health monitoring accessible via **M
 
 **Noise Floor Diagnostics:**
 
-Access via **Menu → Diagnostics → Noise Floor**.
+Access via **Menu → Diagnostics → Noise Floor**. These readings tell you how much a resting scale
+wanders, which is what determines how many decimal places the weight display can honestly show and
+how reliably pulse corrections can land.
 
-**Three values displayed:**
-1. **Standard Deviation (grams)** - Noise level in calibrated weight units
-2. **Standard Deviation (ADC)** - Raw sensor noise values
-3. **Noise Level Indicator** - Shows if noise will cause slow taring (>2s) or timeouts
+Two separate series are reported. **Sample** describes a single raw ADC reading — the sensor's
+intrinsic noise. **Display** describes the smoothed series the UI is actually built from, which is
+what you would see move on screen.
 
-**Important:** Noise diagnostics require prior calibration as they're based on calibrated gram values. High noise readings indicate wiring issues (check shield connection, use shorter wire leads). Read diagnostics in a stable, vibration-free environment for accurate assessment.
+| Value | Meaning |
+|---|---|
+| **Resolution** | Weight of one ADC count. The hard quantisation floor — no amount of filtering gets below it |
+| **Sample rate** | Observed ADC rate. Should sit near 10 SPS; a very different number means the HX711 RATE pin is strapped wrong |
+| **Sample sigma** | Standard deviation of single readings over 5 s |
+| **Sample (ADC)** | The same figure in raw counts, useful when comparing setups before calibration |
+| **Sample p-p** | Largest peak-to-peak excursion over the last 30 s. Catches intermittent spikes that a standard deviation averages away |
+| **Display sigma** | Standard deviation of the smoothed series over 30 s |
+| **Display p-p** | Peak-to-peak of the smoothed series over 30 s |
+| **0.01g spread** | How many 0.01 g steps the display noise spans. **1 step** (green) means a hundredths digit would hold still; 2–3 (orange) means it would twitch; more (red) means that digit would show nothing but noise |
+| **Noise level** | Whether noise is bad enough to cause slow taring (>2 s) or timeouts |
+
+**Run 30s Noise Test** freezes a clean capture. Press it, then leave the scale completely
+undisturbed for 30 seconds — the result is held on screen afterwards so you can pick the machine
+back up and still read it. The same figures are also written to the BLE debug log, so
+`python3 tools/grinder.py debug` will capture them for a bug report.
+
+**Important:** Noise readings in grams require prior calibration, since they are derived from the
+calibration factor. High readings indicate wiring issues — check the shield connection and use
+shorter load cell leads. Run the test in a stable, vibration-free environment with a cup on the
+scale and hands off.
 
 ---
 

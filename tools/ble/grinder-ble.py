@@ -237,33 +237,52 @@ class GrinderBLETool:
             return None
     
     # === Connection Management ===
-    async def connect_to_device(self, device_name: str = DEVICE_NAME) -> bool:
-        address = await self.find_device(device_name)
-        
-        if not address:
-            return False
-        
-        try:
-            self.client = BleakClient(address)
-            await asyncio.wait_for(self.client.connect(), timeout=10)
-            
-            if not self.client.is_connected:
-                self.safe_print("[ERROR] Connection failed")
+    async def connect_to_device(
+        self,
+        device_name: str = DEVICE_NAME,
+        retry_until_connected: bool = False,
+        retry_delay: float = 2.0,
+    ) -> bool:
+        while True:
+            try:
+                address = await self.find_device(device_name)
+
+                if address:
+                    self.client = BleakClient(address)
+                    await asyncio.wait_for(self.client.connect(), timeout=10)
+
+                    if self.client.is_connected:
+                        self.safe_print("[OK] Connected")
+
+                        await self.client.start_notify(BLE_OTA_STATUS_CHAR_UUID, self.on_ota_status)
+                        await self.client.start_notify(BLE_DATA_TRANSFER_CHAR_UUID, self.on_data_received)
+                        await self.client.start_notify(BLE_DATA_STATUS_CHAR_UUID, self.on_data_status)
+                        await self.client.start_notify(BLE_DEBUG_TX_CHAR_UUID, self.on_debug_message)
+
+                        self.connected = True
+                        await asyncio.sleep(0.5)
+                        return True
+
+                    self.safe_print("[ERROR] Connection failed")
+            except Exception as e:
+                self.safe_print(f"[ERROR] Connection error: {e}")
+
+            self.connected = False
+            if self.client and self.client.is_connected:
+                try:
+                    await self.client.disconnect()
+                except Exception as e:
+                    self.safe_print(f"[WARNING] Disconnect error: {e}")
+            self.client = None
+
+            if not retry_until_connected:
                 return False
-            
-            self.safe_print(f"[OK] Connected")
-            
-            await self.client.start_notify(BLE_OTA_STATUS_CHAR_UUID, self.on_ota_status)
-            await self.client.start_notify(BLE_DATA_TRANSFER_CHAR_UUID, self.on_data_received)
-            await self.client.start_notify(BLE_DATA_STATUS_CHAR_UUID, self.on_data_status)
-            await self.client.start_notify(BLE_DEBUG_TX_CHAR_UUID, self.on_debug_message)
-            
-            self.connected = True
-            await asyncio.sleep(0.5)
-            return True
-        except Exception as e:
-            self.safe_print(f"[ERROR] Connection error: {e}")
-            return False
+
+            self.safe_print(
+                f"[INFO] Waiting for {device_name}; retrying connection in {retry_delay:g}s. "
+                "Press Ctrl+C to stop."
+            )
+            await asyncio.sleep(retry_delay)
     
     async def disconnect(self):
         if self.client and self.connected:
@@ -1225,7 +1244,11 @@ async def main():
             await tool.scan_devices()
         
         elif args.command in ['upload', 'export', 'analyse', 'connect', 'debug', 'info', 'diagnostics']:
-            if not await tool.connect_to_device(args.device): return 1
+            if not await tool.connect_to_device(
+                args.device,
+                retry_until_connected=args.command == 'upload',
+            ):
+                return 1
 
             if args.command == 'upload':
                 firmware_path = args.firmware or tool.find_firmware_file()

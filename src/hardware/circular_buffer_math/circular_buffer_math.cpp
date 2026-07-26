@@ -146,7 +146,9 @@ int32_t CircularBufferMath::get_raw_low_latency() const {
 
 int32_t CircularBufferMath::get_display_raw() {
     // Asymmetric display filter on raw values (fast up, slow down)
-    int32_t current_raw = get_smoothed_raw(300); // 300ms base window
+    // The window is shared with LoadCellNoiseMonitor so the reported noise figures describe the
+    // series the display is actually built from.
+    int32_t current_raw = get_smoothed_raw(SYS_DISPLAY_FILTER_WINDOW_MS);
     
     if (!display_filter_initialized) {
         display_filtered_raw = current_raw;

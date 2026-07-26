@@ -1,6 +1,7 @@
 #include "menu_screen.h"
 #include <Arduino.h>
 #include <algorithm>
+#include <math.h>
 #include "../../config/constants.h"
 #include "../../logging/grind_logging.h"
 #include "../../system/statistics_manager.h"
@@ -600,14 +601,33 @@ void MenuScreen::create_diagnostics_page(lv_obj_t* parent) {
     // Noise Floor separator
     create_separator(parent, "Noise Floor");
 
-    // Std dev readings (moved from System Info) - stacked for precision values
-    create_data_label(parent, "Std Dev (g):", &diag_std_dev_g_label);
-    create_data_label(parent, "Std Dev (ADC):", &diag_std_dev_adc_label);
+    // Quantisation floor and observed ADC rate - context for everything below
+    create_data_label(parent, "Resolution:", &diag_resolution_label);
+    create_data_label(parent, "Sample rate:", &diag_sample_rate_label);
+
+    // Single-sample noise: the sensor's intrinsic wander
+    create_data_label(parent, "Sample sigma:", &diag_std_dev_g_label);
+    create_data_label(parent, "Sample (ADC):", &diag_std_dev_adc_label);
+    create_data_label(parent, "Sample p-p:", &diag_sample_range_label);
+
+    // Display-path noise: how much a rendered weight would actually move
+    create_data_label(parent, "Display sigma:", &diag_display_std_dev_label);
+    create_data_label(parent, "Display p-p:", &diag_display_range_label);
+    create_data_label(parent, "0.01g spread:", &diag_display_spread_label);
+
     create_data_label(parent, "Noise level:", &diag_noise_level_label);
+
+    diag_noise_test_button = create_button(parent, "Run 30s Noise Test", lv_color_hex(THEME_COLOR_ACCENT));
+    lv_obj_set_style_margin_top(diag_noise_test_button, 10, 0);
+
+    // Frozen capture result - stacked so the multi-line summary has room
+    create_data_label(parent, "Last test:", &diag_noise_test_result_label, true);
 
     // Static info label about calibration dependency
     lv_obj_t* cal_info = lv_label_create(parent);
-    lv_label_set_text(cal_info, "Noise level readings depend on proper calibration.");
+    lv_label_set_text(cal_info,
+                      "Noise readings depend on proper calibration. Run the test with a cup on "
+                      "the scale and hands off.");
     lv_obj_set_style_text_font(cal_info, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(cal_info, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_set_style_margin_top(cal_info, 10, 0);
@@ -620,11 +640,15 @@ void MenuScreen::create_diagnostics_page(lv_obj_t* parent) {
     // Motor latency
     create_data_label(parent, "Motor Latency:", &diag_motor_latency_label, true);
 
-    // Register event for the button (done here because widgets are created lazily)
+    // Register events for the buttons (done here because widgets are created lazily)
     using ET = EventBridgeLVGL::EventType;
     if (diag_reset_button) {
         lv_obj_add_event_cb(diag_reset_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::MENU_DIAGNOSTIC_RESET)));
+    }
+    if (diag_noise_test_button) {
+        lv_obj_add_event_cb(diag_noise_test_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::MENU_NOISE_TEST)));
     }
 }
 
@@ -676,24 +700,127 @@ void MenuScreen::update_info(const WeightSensor* weight_sensor, unsigned long up
     set_label_text_int(memory_label, free_heap / 1024, "kB");
 }
 
+// How many display steps the noise band spans. 1 means a digit at that step would hold still.
+static int noise_display_steps(float range_g) {
+    if (range_g <= 0.0f) {
+        return 1;
+    }
+    int steps = (int)ceilf(range_g / SYS_NOISE_TARGET_DISPLAY_STEP_G);
+    return steps < 1 ? 1 : steps;
+}
+
+void MenuScreen::update_display_spread_label(float display_range_g) {
+    const int steps = noise_display_steps(display_range_g);
+
+    char buffer[32];
+    snprintf(buffer, sizeof(buffer), "%d step%s", steps, steps == 1 ? "" : "s");
+    set_label_text_if_changed(diag_display_spread_label, buffer);
+
+    // One step means the hundredths digit would be stable; a handful means it would twitch but
+    // stay readable; more than that and the digit is just showing noise.
+    lv_color_t color;
+    if (steps <= 1) {
+        color = lv_color_hex(THEME_COLOR_SUCCESS);
+    } else if (steps <= 3) {
+        color = lv_color_hex(THEME_COLOR_WARNING);
+    } else {
+        color = lv_color_hex(THEME_COLOR_ERROR);
+    }
+    set_label_text_color_if_changed(diag_display_spread_label, color);
+}
+
+void MenuScreen::update_noise_capture(const NoiseCaptureView& view) {
+    if (!visible) return;
+
+    switch (view.state) {
+        case NoiseCaptureView::State::IDLE:
+            set_label_text_if_changed(diag_noise_test_result_label, "not run yet");
+            set_label_text_color_if_changed(diag_noise_test_result_label,
+                                            lv_color_hex(THEME_COLOR_TEXT_SECONDARY));
+            if (diag_noise_test_button) {
+                lv_obj_clear_state(diag_noise_test_button, LV_STATE_DISABLED);
+            }
+            break;
+
+        case NoiseCaptureView::State::CAPTURING: {
+            char buffer[48];
+            snprintf(buffer, sizeof(buffer), "capturing... %lus left",
+                     (unsigned long)view.seconds_remaining);
+            set_label_text_if_changed(diag_noise_test_result_label, buffer);
+            set_label_text_color_if_changed(diag_noise_test_result_label,
+                                            lv_color_hex(THEME_COLOR_ACCENT));
+            if (diag_noise_test_button) {
+                lv_obj_add_state(diag_noise_test_button, LV_STATE_DISABLED);
+            }
+            break;
+        }
+
+        case NoiseCaptureView::State::COMPLETE: {
+            char buffer[96];
+            if (view.result.valid) {
+                snprintf(buffer, sizeof(buffer),
+                         "sigma %.4f g\np-p %.4f g\n%d step%s at 0.01g",
+                         view.result.display_std_dev_g,
+                         view.result.display_range_g,
+                         noise_display_steps(view.result.display_range_g),
+                         noise_display_steps(view.result.display_range_g) == 1 ? "" : "s");
+            } else {
+                snprintf(buffer, sizeof(buffer), "not enough samples");
+            }
+            set_label_text_if_changed(diag_noise_test_result_label, buffer);
+            set_label_text_color_if_changed(diag_noise_test_result_label,
+                                            lv_color_hex(THEME_COLOR_TEXT_PRIMARY));
+            if (diag_noise_test_button) {
+                lv_obj_clear_state(diag_noise_test_button, LV_STATE_DISABLED);
+            }
+            break;
+        }
+    }
+}
+
 void MenuScreen::update_diagnostics(WeightSensor* weight_sensor) {
     if (!visible || !diagnostics_controller || !weight_sensor) return;
 
-    // Update standard deviations only every 1 second to reduce noise
+    // Update the noise block only every 1 second. Each label rewrite is a heap free/malloc pair,
+    // and these are readings a human is squinting at rather than anything time critical.
     static unsigned long last_std_dev_update = 0;
     unsigned long now = millis();
     if (now - last_std_dev_update >= 1000) {  // Update every 1 second
         last_std_dev_update = now;
 
-        // Get standard deviations using same window as grind control precision settling
-        float std_dev_g = weight_sensor->get_standard_deviation_g(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);  // 500ms window
-        int32_t std_dev_adc = weight_sensor->get_standard_deviation_adc(GRIND_SCALE_PRECISION_SETTLING_TIME_MS);  // 500ms window
+        const LoadCellNoiseStats noise = weight_sensor->get_noise_stats();
+        char buffer[40];
 
-        char std_dev_g_text[32];
-        snprintf(std_dev_g_text, sizeof(std_dev_g_text), "%.4f", std_dev_g);
-        set_label_text_if_changed(diag_std_dev_g_label, std_dev_g_text);
+        snprintf(buffer, sizeof(buffer), "%.5f g", noise.grams_per_count);
+        set_label_text_if_changed(diag_resolution_label, buffer);
 
-        set_label_text_int(diag_std_dev_adc_label, std_dev_adc);
+        snprintf(buffer, sizeof(buffer), "%.1f SPS", noise.measured_sps);
+        set_label_text_if_changed(diag_sample_rate_label, buffer);
+
+        snprintf(buffer, sizeof(buffer), "%.4f g", noise.sample_std_dev_g);
+        set_label_text_if_changed(diag_std_dev_g_label, buffer);
+
+        set_label_text_int(diag_std_dev_adc_label, noise.sample_std_dev_adc);
+
+        snprintf(buffer, sizeof(buffer), "%.4f g", noise.sample_range_g);
+        set_label_text_if_changed(diag_sample_range_label, buffer);
+
+        // Display-path figures need a filled window before they mean anything
+        if (noise.valid) {
+            snprintf(buffer, sizeof(buffer), "%.4f g", noise.display_std_dev_g);
+            set_label_text_if_changed(diag_display_std_dev_label, buffer);
+
+            snprintf(buffer, sizeof(buffer), "%.4f g", noise.display_range_g);
+            set_label_text_if_changed(diag_display_range_label, buffer);
+
+            update_display_spread_label(noise.display_range_g);
+        } else {
+            set_label_text_if_changed(diag_display_std_dev_label, "collecting...");
+            set_label_text_if_changed(diag_display_range_label, "collecting...");
+            set_label_text_if_changed(diag_display_spread_label, "--");
+            set_label_text_color_if_changed(diag_display_spread_label,
+                                            lv_color_hex(THEME_COLOR_TEXT_SECONDARY));
+        }
 
         // Check noise level using WeightSensor diagnostic method
         bool noise_acceptable = weight_sensor->noise_level_diagnostic();

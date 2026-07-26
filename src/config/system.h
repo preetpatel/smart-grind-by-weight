@@ -74,6 +74,26 @@
 //------------------------------------------------------------------------------
 // Asymmetric display filter for smooth weight updates
 #define SYS_DISPLAY_FILTER_ALPHA_DOWN 0.9f                                     // Slower decay when weight decreases
+#define SYS_DISPLAY_FILTER_WINDOW_MS 300                                       // Smoothing window feeding the display filter
+
+//------------------------------------------------------------------------------
+// LOAD CELL NOISE FLOOR MONITORING
+//------------------------------------------------------------------------------
+// Feeds the Noise Floor readout on Menu -> Diagnostics. The point of these numbers is to answer
+// "how many grams does a resting scale wander by", which decides how many decimals the weight
+// display can honestly show.
+//
+// The standard-deviation window is deliberately short: CircularBufferMath copies a window into a
+// fixed 64-entry scratch array (WINDOW_SAMPLE_CAPACITY), and at HW_LOADCELL_SAMPLE_RATE_SPS=10 a
+// 5000ms window asks for 60 samples - just under that ceiling. Raising the ADC sample rate would
+// silently clamp this window to the newest 64 samples rather than break, which is an acceptable
+// degradation. The peak-to-peak window has no such limit because get_weight_range() walks the ring
+// buffer directly.
+#define SYS_NOISE_STDDEV_WINDOW_MS 5000                                        // Window for single-sample standard deviation
+#define SYS_NOISE_MONITOR_WINDOW_MS 30000                                      // Rolling window for peak-to-peak and display-path stats
+#define SYS_NOISE_CAPTURE_DURATION_MS 30000                                    // Duration of an on-demand frozen noise capture
+#define SYS_NOISE_TARGET_DISPLAY_STEP_G 0.01f                                  // Display step the "spread" verdict is measured against
+#define SYS_NOISE_MIN_SAMPLES_FOR_STATS 20                                     // Samples required before display-path stats are reported
 
 //------------------------------------------------------------------------------
 // JOG ACCELERATION CONFIGURATION

@@ -26,6 +26,7 @@ public:
         MENU_SCALE_TARE,
         MENU_AUTOTUNE,
         MENU_DIAGNOSTIC_RESET,
+        MENU_NOISE_TEST,
         MENU_BACK,
         MENU_REFRESH_STATS,
         BLE_TOGGLE,

@@ -3,10 +3,25 @@
 #include "../../config/constants.h"
 #include "../../bluetooth/manager.h"
 #include "../../controllers/grind_controller.h"
+#include "../../hardware/WeightSensor.h"
 #include "../../system/diagnostics_controller.h"
 #include "../ui_helpers.h"
 
 class GrindingScreen;  // Forward declaration
+
+// Render state for the on-demand noise capture. The timing lives in MenuUIController; this is
+// purely what the screen needs in order to draw it.
+struct NoiseCaptureView {
+    enum class State {
+        IDLE,       // No capture has been run since boot
+        CAPTURING,  // Counting down; readings must be left undisturbed
+        COMPLETE    // Frozen result available in `result`
+    };
+
+    State state = State::IDLE;
+    uint32_t seconds_remaining = 0;
+    LoadCellNoiseStats result = {};
+};
 
 class MenuScreen {
 private:
@@ -78,9 +93,17 @@ private:
     // Diagnostics tab elements
     lv_obj_t* diag_status_label;
     lv_obj_t* diag_calibration_factor_label;
+    lv_obj_t* diag_resolution_label;
+    lv_obj_t* diag_sample_rate_label;
     lv_obj_t* diag_std_dev_g_label;
     lv_obj_t* diag_std_dev_adc_label;
+    lv_obj_t* diag_sample_range_label;
+    lv_obj_t* diag_display_std_dev_label;
+    lv_obj_t* diag_display_range_label;
+    lv_obj_t* diag_display_spread_label;
     lv_obj_t* diag_noise_level_label;
+    lv_obj_t* diag_noise_test_button;
+    lv_obj_t* diag_noise_test_result_label;
     lv_obj_t* diag_motor_latency_label;
     lv_obj_t* diag_info_label;
     lv_obj_t* diag_reset_button;
@@ -104,6 +127,7 @@ public:
     void hide();
     void update_info(const WeightSensor* weight_sensor, unsigned long uptime_ms, size_t free_heap);
     void update_diagnostics(WeightSensor* weight_sensor);
+    void update_noise_capture(const NoiseCaptureView& view);
     void update_ble_status();
     void refresh_statistics(bool show_overlay = true);
     void update_brightness_labels(int normal_percent = -1, int screensaver_percent = -1); // Use negative value to leave unchanged
@@ -134,6 +158,7 @@ public:
     lv_obj_t* get_logging_toggle() const { return logging_toggle; }
     lv_obj_t* get_refresh_stats_button() const { return refresh_stats_button; }
     lv_obj_t* get_diag_reset_button() const { return diag_reset_button; }
+    lv_obj_t* get_diag_noise_test_button() const { return diag_noise_test_button; }
     lv_obj_t* get_brightness_normal_slider() const { return brightness_normal_slider; }
     lv_obj_t* get_brightness_screensaver_slider() const { return brightness_screensaver_slider; }
     lv_obj_t* get_grind_mode_radio_group() const { return grind_mode_radio_group; }
@@ -166,4 +191,8 @@ private:
     lv_obj_t *create_data_label(lv_obj_t *parent, const char *name,
                                 lv_obj_t **variable, bool stacked = false);
     lv_obj_t *create_description_label(lv_obj_t *parent, const char *text);
+
+    // Renders how many SYS_NOISE_TARGET_DISPLAY_STEP_G steps the display-path noise spans, and
+    // colours it by whether that many decimals would be readable.
+    void update_display_spread_label(float display_range_g);
 };

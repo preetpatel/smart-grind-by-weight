@@ -38,6 +38,7 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::MENU_SCALE_TARE, [this](lv_event_t*) { handle_scale_tare(); });
     EventBridgeLVGL::register_handler(ET::MENU_AUTOTUNE, [this](lv_event_t*) { handle_autotune(); });
     EventBridgeLVGL::register_handler(ET::MENU_DIAGNOSTIC_RESET, [this](lv_event_t*) { handle_diagnostics_reset(); });
+    EventBridgeLVGL::register_handler(ET::MENU_NOISE_TEST, [this](lv_event_t*) { handle_noise_test(); });
     EventBridgeLVGL::register_handler(ET::MENU_BACK, [this](lv_event_t*) { handle_back(); });
     EventBridgeLVGL::register_handler(ET::MENU_REFRESH_STATS, [this](lv_event_t*) { handle_refresh_stats(); });
 
@@ -90,11 +91,17 @@ void MenuUIController::update() {
     }
     last_status_refresh_ms_ = now;
 
+    // Advanced regardless of which page is showing, so navigating away mid-capture does not
+    // abandon it. The start time is absolute, so a capture that spans a period where update() was
+    // not running simply completes the moment it resumes.
+    update_noise_capture();
+
     if (menu_screen.is_info_page_active()) {
         menu_screen.update_info(sensor, now, ESP.getFreeHeap());
     }
     if (menu_screen.is_diagnostics_page_active()) {
         menu_screen.update_diagnostics(sensor);
+        menu_screen.update_noise_capture(noise_capture_);
     }
     if (menu_screen.is_bluetooth_page_active()) {
         menu_screen.update_ble_status();
@@ -239,6 +246,62 @@ void MenuUIController::handle_diagnostics_reset() {
         "CANCEL",
         [this]() { return_to_menu(); }
     );
+}
+
+void MenuUIController::handle_noise_test() {
+    if (!ui_manager_) return;
+
+    // Ignore a second press while one is already running rather than restarting the clock - the
+    // button is disabled during a capture, so this only guards against a queued double tap.
+    if (noise_capture_.state == NoiseCaptureView::State::CAPTURING) {
+        return;
+    }
+
+    noise_capture_start_ms_ = millis();
+    noise_capture_.state = NoiseCaptureView::State::CAPTURING;
+    noise_capture_.seconds_remaining = SYS_NOISE_CAPTURE_DURATION_MS / SYS_MS_PER_SECOND;
+    noise_capture_.result = {};
+
+    LOG_BLE("[%lums MENU] Noise capture started (%lums window)\n",
+            millis(), (unsigned long)SYS_NOISE_CAPTURE_DURATION_MS);
+}
+
+void MenuUIController::update_noise_capture() {
+    if (noise_capture_.state != NoiseCaptureView::State::CAPTURING) {
+        return;
+    }
+
+    const uint32_t elapsed_ms = millis() - noise_capture_start_ms_;
+
+    if (elapsed_ms < SYS_NOISE_CAPTURE_DURATION_MS) {
+        // Round up so the countdown reads "30s" immediately after the press and only hits zero
+        // when the window is genuinely complete.
+        const uint32_t remaining_ms = SYS_NOISE_CAPTURE_DURATION_MS - elapsed_ms;
+        noise_capture_.seconds_remaining =
+            (remaining_ms + SYS_MS_PER_SECOND - 1) / SYS_MS_PER_SECOND;
+        return;
+    }
+
+    // The rolling window now covers exactly the capture period, so the current stats are the
+    // capture result. Freeze them so they survive the user picking the machine back up.
+    auto* hardware = ui_manager_ ? ui_manager_->get_hardware_manager() : nullptr;
+    auto* sensor = hardware ? hardware->get_weight_sensor() : nullptr;
+
+    noise_capture_.seconds_remaining = 0;
+    noise_capture_.state = NoiseCaptureView::State::COMPLETE;
+    noise_capture_.result = sensor ? sensor->get_noise_stats() : LoadCellNoiseStats{};
+
+    LOG_BLE("[%lums MENU] Noise capture complete: sample sigma %.5fg (%ld ADC), sample p-p %.5fg, "
+            "display sigma %.5fg, display p-p %.5fg, %.5f g/count, %.1f SPS, %u samples\n",
+            millis(),
+            noise_capture_.result.sample_std_dev_g,
+            (long)noise_capture_.result.sample_std_dev_adc,
+            noise_capture_.result.sample_range_g,
+            noise_capture_.result.display_std_dev_g,
+            noise_capture_.result.display_range_g,
+            noise_capture_.result.grams_per_count,
+            noise_capture_.result.measured_sps,
+            (unsigned)noise_capture_.result.sample_count);
 }
 
 void MenuUIController::perform_diagnostics_reset() {

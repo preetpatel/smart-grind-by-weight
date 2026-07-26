@@ -2,6 +2,8 @@
 #include <lvgl.h>
 #include <cstdint>
 
+#include "../screens/menu_screen.h"
+
 class UIManager;
 
 // Handles the interactive menu: BLE/logging toggles, brightness sliders, maintenance actions, and stats
@@ -22,6 +24,7 @@ public:
     void handle_back();
     void handle_refresh_stats();
     void handle_diagnostics_reset();
+    void handle_noise_test();
     void handle_ble_toggle();
     void handle_ble_startup_toggle();
     void handle_logging_toggle();
@@ -47,6 +50,12 @@ private:
     lv_timer_t* motor_timer_{};
     uint32_t last_status_refresh_ms_{};
 
+    // On-demand noise capture. The sensor already keeps a rolling SYS_NOISE_MONITOR_WINDOW_MS of
+    // history, so a "capture" is just waiting that long from the button press and then freezing
+    // the rolling stats - by then the window contains nothing but the undisturbed period.
+    NoiseCaptureView noise_capture_{};
+    uint32_t noise_capture_start_ms_{};
+
     void perform_factory_reset();
     void execute_purge_operation();
     void run_motor_test();
@@ -55,4 +64,5 @@ private:
     static void static_motor_timer_cb(lv_timer_t* timer);
     void return_to_menu();
     void perform_diagnostics_reset();
+    void update_noise_capture();
 };

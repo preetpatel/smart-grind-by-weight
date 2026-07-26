@@ -257,6 +257,7 @@ void WeightSensor::tare() {
         // Clear buffer after tare completes for clean measurements
         raw_filter.clear_all_samples();
         raw_filter.reset_display_filter();
+        noise_monitor.clear();  // Pre-tare values would read as a huge fake noise spike
 
         // Ensure at least one sample is in the buffer after taring
         unsigned long sample_start = millis();
@@ -312,6 +313,7 @@ void WeightSensor::calibrate(float known_weight) {
     // Clear buffer after calibration operation for clean measurements
     raw_filter.clear_all_samples();
     raw_filter.reset_display_filter();
+    noise_monitor.clear();  // Values from the old calibration factor are no longer comparable
     
     LOG_BLE("Calibration completed. New factor: %.2f\n", cal_factor);
 }
@@ -740,7 +742,15 @@ bool WeightSensor::sample_and_feed_filter() {
 
             // Thread-safe sample feeding (CircularBufferMath is single-producer safe)
             raw_filter.add_sample(raw_adc, timestamp);
-            
+
+            // Feed the noise monitor the same smoothed value the display filter is built from,
+            // but taken before get_display_raw() applies its deadband and IIR. Those two hide
+            // jitter rather than remove it, so measuring ahead of them reports true stability -
+            // and the IIR is stateful, so driving it from Core 0 would corrupt the UI's copy.
+            noise_monitor.add_sample(raw_filter.get_smoothed_raw(SYS_DISPLAY_FILTER_WINDOW_MS),
+                                     timestamp);
+
+
             // Tare logic (hardware-independent)
             if (doTare) {
                 if (tareTimes < DATA_SET) {
@@ -846,6 +856,35 @@ int32_t WeightSensor::get_standard_deviation_adc(uint32_t window_ms) const {
     // Get raw standard deviation as integer
     float raw_std_dev = raw_filter.get_standard_deviation_raw(window_ms);
     return (int32_t)raw_std_dev;
+}
+
+LoadCellNoiseStats WeightSensor::get_noise_stats() const {
+    LoadCellNoiseStats stats = {};
+
+    const float counts_per_gram = fabsf(cal_factor);
+    if (counts_per_gram < 1e-6f) {
+        // No usable calibration factor - every gram figure would be a divide by zero
+        return stats;
+    }
+    stats.grams_per_count = 1.0f / counts_per_gram;
+
+    // Single-sample statistics come straight off the existing sample ring. The standard deviation
+    // window is bounded by CircularBufferMath's scratch capacity (see SYS_NOISE_STDDEV_WINDOW_MS),
+    // while the peak-to-peak walks the ring directly and so can span the full monitor window.
+    stats.sample_std_dev_g = get_standard_deviation_g(SYS_NOISE_STDDEV_WINDOW_MS);
+    stats.sample_std_dev_adc = get_standard_deviation_adc(SYS_NOISE_STDDEV_WINDOW_MS);
+    stats.sample_range_g = get_weight_range(SYS_NOISE_MONITOR_WINDOW_MS);
+
+    // Display-path statistics come from the noise monitor, which is the only place the smoothed
+    // series is retained.
+    const LoadCellNoiseMonitor::RawStats display = noise_monitor.get_stats();
+    stats.display_std_dev_g = display.std_dev_raw / counts_per_gram;
+    stats.display_range_g = (float)display.range_raw / counts_per_gram;
+    stats.measured_sps = display.measured_sps;
+    stats.sample_count = display.sample_count;
+    stats.valid = display.valid;
+
+    return stats;
 }
 
 // HX711_ADC exact tare methods

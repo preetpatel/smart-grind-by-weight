@@ -141,6 +141,8 @@ python3 tools/grinder.py scan
 python3 tools/grinder.py info
 ```
 
+Upload commands keep scanning and retrying the BLE connection until the grinder is available. Press `Ctrl+C` to stop waiting.
+
 ---
 
 ## 📦 Release Process

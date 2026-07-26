@@ -2,6 +2,7 @@
 
 #include "circular_buffer_math/circular_buffer_math.h"
 #include "load_cell_driver.h"
+#include "load_cell_noise_monitor.h"
 #include "hx711_driver.h"
 #include "../config/constants.h"
 #include <Preferences.h>
@@ -29,6 +30,26 @@
  * - Flow rate analysis and predictive grinding
  * - Multi-ADC hardware support
  */
+/*
+ * Noise floor snapshot, in calibrated units.
+ *
+ * Two series are reported because they answer different questions:
+ * - "sample" describes a single raw ADC reading, i.e. the sensor's intrinsic noise.
+ * - "display" describes the smoothed series the UI renders, i.e. how much a displayed weight
+ *   would actually wander. This is the one that decides how many decimals are honest.
+ */
+struct LoadCellNoiseStats {
+    float    sample_std_dev_g;     // Single-sample standard deviation over SYS_NOISE_STDDEV_WINDOW_MS
+    int32_t  sample_std_dev_adc;   // Same, in raw ADC counts
+    float    sample_range_g;       // Single-sample peak-to-peak over SYS_NOISE_MONITOR_WINDOW_MS
+    float    display_std_dev_g;    // Standard deviation of the display-path series
+    float    display_range_g;      // Peak-to-peak of the display-path series
+    float    grams_per_count;      // Weight of one ADC count - the hard quantisation floor
+    float    measured_sps;         // Observed ADC sample rate
+    uint16_t sample_count;         // Samples behind the display-path figures
+    bool     valid;                // False until enough samples have accumulated
+};
+
 class WeightSensor {
 public:
     enum class HardwareFault {
@@ -37,14 +58,17 @@ public:
         NO_DATA,
         INVALID_SAMPLE_RATE
     };
-    
+
 private:
     // HX711 hardware driver
     std::unique_ptr<LoadCellDriver> adc_driver;
-    
+
     // CircularBufferMath for advanced filtering and analysis
     CircularBufferMath raw_filter;
-    
+
+    // Rolling noise statistics for the display path (Menu -> Diagnostics -> Noise Floor)
+    LoadCellNoiseMonitor noise_monitor;
+
     // Calibration parameters
     float cal_factor;
     int32_t tare_offset;
@@ -228,6 +252,10 @@ public:
     // Diagnostic methods for noise analysis
     float get_standard_deviation_g(uint32_t window_ms = 500) const;     // Standard deviation in grams
     int32_t get_standard_deviation_adc(uint32_t window_ms = 500) const; // Standard deviation in raw ADC units
+
+    // Full noise floor snapshot for the diagnostics UI. Combines raw statistics read straight off
+    // the sample ring with display-path statistics from the noise monitor.
+    LoadCellNoiseStats get_noise_stats() const;
     
 #if SYS_ENABLE_REALTIME_HEARTBEAT
     // SPS performance monitoring
