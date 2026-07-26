@@ -40,7 +40,12 @@
  * - LV_STDLIB_RTTHREAD:    RT-Thread implementation
  * - LV_STDLIB_CUSTOM:      Implement the functions externally
  */
-#define LV_USE_STDLIB_MALLOC    LV_STDLIB_CLIB
+/* BUILTIN, not CLIB: CLIB routes every LVGL allocation through malloc(), and the Arduino core is
+ * built with CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096, so every sub-4kB allocation is forced into
+ * internal DRAM. LVGL's widget tree, label text buffers and styles are thousands of small
+ * allocations, which exhausted internal DRAM and left Bluedroid unable to initialise. BUILTIN
+ * takes a single pool up front (see LV_MEM_POOL_ALLOC below) and suballocates inside it. */
+#define LV_USE_STDLIB_MALLOC    LV_STDLIB_BUILTIN
 
 /** Possible values
  * - LV_STDLIB_BUILTIN:     LVGL's built in implementation
@@ -68,19 +73,23 @@
 #define LV_STDARG_INCLUDE       <stdarg.h>
 
 #if LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN
-    /** Size of memory available for `lv_malloc()` in bytes (>= 2kB) */
-    #define LV_MEM_SIZE (96U * 1024U)          /**< [bytes] */
+    /** Size of memory available for `lv_malloc()` in bytes (>= 2kB).
+     * This whole pool comes out of PSRAM (8MB on this board), so it is sized for generous
+     * headroom rather than scarcity - running out here is a hard LV_ASSERT_MALLOC halt. */
+    #define LV_MEM_SIZE (512U * 1024U)         /**< [bytes] */
 
     /** Size of the memory expand for `lv_malloc()` in bytes */
     #define LV_MEM_POOL_EXPAND_SIZE 0
 
     /** Set an address for the memory pool instead of allocating it as a normal array. Can be in external SRAM too. */
     #define LV_MEM_ADR 0     /**< 0: unused*/
-    /* Instead of an address give a memory allocator that will be called to get a memory pool for LVGL. E.g. my_malloc */
-    #if LV_MEM_ADR == 0
-        #undef LV_MEM_POOL_INCLUDE
-        #undef LV_MEM_POOL_ALLOC
-    #endif
+    /* Instead of an address give a memory allocator that will be called to get a memory pool for LVGL.
+     * Taking the pool from PSRAM keeps the entire LVGL widget tree out of internal DRAM, which is
+     * the scarce pool that Bluedroid, the task stacks and the DMA staging buffer all compete for.
+     * Nothing LVGL allocates here is ever DMA'd - display_manager.cpp copies through its own
+     * internal-DRAM staging buffer before handing pixels to the panel. */
+    #define LV_MEM_POOL_INCLUDE <esp_heap_caps.h>
+    #define LV_MEM_POOL_ALLOC(size) heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
 #endif  /*LV_USE_STDLIB_MALLOC == LV_STDLIB_BUILTIN*/
 
 /*====================
