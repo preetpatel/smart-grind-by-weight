@@ -12,7 +12,7 @@ This single script handles:
 Usage:
     ./grinder-ble upload firmware.bin          # Upload firmware via BLE OTA
     ./grinder-ble export [--db file.db]        # Export grind data to SQLite
-    ./grinder-ble analyse [--db file.db]       # Export data and launch Streamlit report
+    ./grinder-ble analyse [--db file.db]       # Pull data + system info + diagnostics, launch Streamlit report
     ./grinder-ble scan                         # Scan for BLE devices
     ./grinder-ble connect [--interactive]      # Connect and run commands
     ./grinder-ble debug                        # Stream live debug logs
@@ -943,10 +943,44 @@ class GrinderBLETool:
                 [(m['session_id'], m['sequence_id'], m['timestamp_ms'], m['weight_grams'], m['weight_delta'], m['flow_rate_g_per_s'], m['motor_is_on'], m['phase_id'], m['phase_name'], m['motor_stop_target_weight']) for m in measurements])
             
             conn.commit()
-    
-    # === Analyze Data (Export + Streamlit Report) ===
+
+    def _store_device_reports(self, db_path: str, system_info: Dict, diagnostics_report: str) -> bool:
+        """Persist the latest device health snapshot (system info + diagnostics).
+
+        Stored in the same SQLite file as the grind data so the Streamlit report
+        can show device health alongside session analysis. Each pull replaces the
+        previous snapshot.
+        """
+        captured_at = time.strftime('%Y-%m-%d %H:%M:%S')
+        reports = []
+        if system_info:
+            reports.append(('system_info', captured_at, json.dumps(system_info, indent=2)))
+        if diagnostics_report:
+            reports.append(('diagnostics', captured_at, diagnostics_report))
+
+        if not reports:
+            self.safe_print("[WARNING] No device health data captured, nothing to store")
+            return False
+
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS device_reports (
+                    kind TEXT PRIMARY KEY,
+                    captured_at TIMESTAMP,
+                    content TEXT
+                );""")
+            conn.executemany(
+                "INSERT OR REPLACE INTO device_reports (kind, captured_at, content) VALUES (?,?,?)",
+                reports
+            )
+            conn.commit()
+
+        self.safe_print(f"[OK] Device health snapshot stored: {', '.join(kind for kind, _, _ in reports)}")
+        return True
+
+    # === Analyze Data (Export + Device Health + Streamlit Report) ===
     async def analyze_data(self, db_path: str = None, skip_export: bool = False) -> bool:
-        """Export data from grinder and launch Streamlit report."""
+        """Pull grind data and a device health snapshot, then launch the Streamlit report."""
         # Get the absolute path to ensure the database can be found
         tools_dir = Path(__file__).parent.parent
         streamlit_dir = tools_dir / "streamlit-reports"
@@ -963,12 +997,23 @@ class GrinderBLETool:
         self.safe_print("[INFO] Starting data analysis workflow...")
         
         if not skip_export:
-            # First, export the data
-            if not await self.export_data(str(db_full_path)):
-                self.safe_print("[ERROR] Data export failed, cannot launch report")
+            # Pull everything over the single connection: sessions, system info, diagnostics
+            export_ok = await self.export_data(str(db_full_path))
+            if not export_ok:
+                self.safe_print("[WARNING] Session data export failed, continuing with device health capture")
+
+            self.safe_print("[INFO] Reading system information...")
+            system_info = await self.get_system_info()
+
+            self.safe_print("[INFO] Capturing diagnostic report...")
+            diagnostics_report = await self.get_diagnostic_report()
+
+            stored_reports = self._store_device_reports(str(db_full_path), system_info, diagnostics_report)
+            if not export_ok and not stored_reports:
+                self.safe_print("[ERROR] Nothing could be pulled from the device, cannot launch report")
                 return False
-            
-            # Close BLE connection after successful data export
+
+            # Close BLE connection once everything has been pulled
             self.safe_print("[INFO] Closing BLE connection...")
             await self.disconnect()
         else:
@@ -1225,7 +1270,7 @@ async def main():
     upload_parser.add_argument('--force-full', action='store_true', help='Force full update')
     export_parser = subparsers.add_parser('export', help='Export grind data')
     export_parser.add_argument('--db', default=None, help='Output database file (default: tools/database/grinder_data.db)')
-    analyse_parser = subparsers.add_parser('analyse', help='Export data and launch Streamlit report')
+    analyse_parser = subparsers.add_parser('analyse', help='Pull data + system info + diagnostics, launch Streamlit report')
     analyse_parser.add_argument('--db', default=None, help='Output database file (default: tools/database/grinder_data.db)')
     connect_parser = subparsers.add_parser('connect', help='Connect to device')
     debug_parser = subparsers.add_parser('debug', help='Stream live debug logs from the device')

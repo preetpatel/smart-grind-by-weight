@@ -10,7 +10,8 @@ All development tasks use the unified cross-platform Python tool:
 # Build and upload
 python3 tools/grinder.py build-upload
 
-# Data analysis (exports data and launches Streamlit report)  
+# Data analysis (pulls grind data + system info + diagnostics over one BLE
+# connection, stores a device health snapshot in the DB, launches Streamlit report)  
 python3 tools/grinder.py analyze
 ```
 
@@ -20,6 +21,7 @@ python3 tools/grinder.py analyze
 - `python3 tools/grinder.py upload` - Upload latest firmware via BLE
 - `python3 tools/grinder.py export` - Export grind data to database
 - `python3 tools/grinder.py report` - Launch Streamlit report from existing data
+- `python3 tools/grinder.py diagnostics` - Print device diagnostic report to the terminal (also captured by `analyze` into the dashboard's Device Health view)
 - `python3 tools/grinder.py scan` - Scan for BLE devices
 - `python3 tools/grinder.py info` - Get device system information
 - `python3 tools/grinder.py clean` - Clean build artifacts

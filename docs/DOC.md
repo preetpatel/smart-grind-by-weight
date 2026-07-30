@@ -524,7 +524,8 @@ python3 tools/grinder.py diagnostics --save diagnostic-report.txt
 
 ### Launch Interactive Dashboard
 ```bash
-# Export data and launch Streamlit dashboard
+# Pull grind data + system info + diagnostics over one BLE connection,
+# then launch the Streamlit dashboard (Device Health view shows the snapshot)
 python3 tools/grinder.py analyze
 
 # Or view reports from existing data

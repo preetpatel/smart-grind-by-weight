@@ -1,5 +1,6 @@
 import streamlit as st
 import sqlite3
+import json
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -31,9 +32,24 @@ if not os.path.exists(DB_FILE):
 @st.cache_data
 def load_session_list():
     """Loads just the list of sessions from the database."""
-    with sqlite3.connect(DB_FILE) as conn:
-        sessions = pd.read_sql_query("SELECT * FROM grind_sessions", conn)
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            sessions = pd.read_sql_query("SELECT * FROM grind_sessions", conn)
+    except Exception:
+        # A database created by a pull that found no sessions only holds the
+        # device health snapshot; treat it as an empty session list.
+        sessions = pd.DataFrame()
     return sessions
+
+@st.cache_data
+def load_device_reports():
+    """Loads the device health snapshot (system info + diagnostics) from the last pull."""
+    try:
+        with sqlite3.connect(DB_FILE) as conn:
+            return pd.read_sql_query("SELECT kind, captured_at, content FROM device_reports", conn)
+    except Exception:
+        # Databases exported before device health capture existed have no device_reports table.
+        return pd.DataFrame(columns=['kind', 'captured_at', 'content'])
 
 @st.cache_data
 def load_session_details(session_id):
@@ -313,9 +329,93 @@ sessions_df = load_session_list()
 
 # --- Sidebar ---
 st.sidebar.header("Analysis Mode")
-analysis_mode = st.sidebar.radio("Choose analysis type", 
-                                 ["Single Session", "Multi-Session Analysis"],
-                                 help="Single Session: Detailed analysis of one grind session with time series, phase breakdowns, and vibration analysis. Multi-Session: Comparative analysis of multiple sessions focusing on pulse effectiveness and correlation statistics.")
+analysis_mode = st.sidebar.radio("Choose analysis type",
+                                 ["Single Session", "Multi-Session Analysis", "Device Health"],
+                                 help="Single Session: Detailed analysis of one grind session with time series, phase breakdowns, and vibration analysis. Multi-Session: Comparative analysis of multiple sessions focusing on pulse effectiveness and correlation statistics. Device Health: Firmware, memory, task performance and diagnostics snapshot captured during the last data pull.")
+
+if analysis_mode == "Device Health":
+    st.header("Device Health")
+    reports_df = load_device_reports()
+    if reports_df.empty:
+        st.info("No device health snapshot found in this database. Run `python3 tools/grinder.py analyze` "
+                "to pull grind data, system info and diagnostics from the grinder in one go.")
+        st.stop()
+
+    reports = {row['kind']: row for _, row in reports_df.iterrows()}
+
+    system_report = reports.get('system_info')
+    if system_report is not None:
+        try:
+            device_info = json.loads(system_report['content'])
+        except (TypeError, json.JSONDecodeError):
+            device_info = {}
+        system = device_info.get('system', {})
+        performance = device_info.get('performance', {})
+        hardware = device_info.get('hardware', {})
+        session_stats = device_info.get('sessions', {})
+
+        st.caption(f"Snapshot captured {system_report['captured_at']} — refreshed on every `analyze` pull.")
+
+        st.subheader("Firmware & System")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Firmware Version", system.get('version', 'Unknown'))
+        c2.metric("Build", f"#{system.get('build', '?')}")
+        c3.metric("Uptime", f"{system.get('uptime_h', 0):02d}:{system.get('uptime_m', 0):02d}:{system.get('uptime_s', 0):02d}",
+                  help="Hours:minutes:seconds since the last reboot, at capture time.")
+        c4.metric("CPU Frequency", f"{system.get('cpu_freq', '?')} MHz")
+
+        st.subheader("Memory")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Heap Free", f"{system.get('heap_free', 0) // 1024:,} KB")
+        c2.metric("Heap Total", f"{system.get('heap_total', 0) // 1024:,} KB")
+        c3.metric("Heap Used", f"{system.get('heap_used_pct', 0):.1f}%")
+        c4.metric("Flash Size", f"{system.get('flash_size', 0) // 1024 // 1024:,} MB")
+
+        st.subheader("Task Performance")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("System", "✅ Healthy" if performance.get('system_healthy') else "⚠️ Stressed",
+                  help="Reported by the firmware task scheduler. Stressed means one or more tasks are missing their target update intervals.")
+        c2.metric("Load Cell", f"{performance.get('load_cell_freq_hz', 0)} Hz",
+                  help="Target is 40 Hz (25ms interval) while grinding.")
+        c3.metric("Grind Control", f"{performance.get('grind_control_freq_hz', 0)} Hz",
+                  help="Target is 50 Hz (20ms interval).")
+        c4.metric("UI Updates", f"{performance.get('ui_freq_hz', 0)} Hz",
+                  help="Target is 20 Hz (50ms interval).")
+
+        st.subheader("Hardware")
+        hardware_checks = [
+            ("Load Cell", hardware.get('load_cell_active')),
+            ("Motor", hardware.get('motor_available')),
+            ("Display", hardware.get('display_active')),
+            ("Touch", hardware.get('touch_active')),
+            ("Bluetooth", hardware.get('ble_enabled')),
+        ]
+        cols = st.columns(len(hardware_checks))
+        for col, (name, is_ok) in zip(cols, hardware_checks):
+            col.metric(name, "✅ OK" if is_ok else "❌ Fault")
+
+        st.subheader("Stored Session Data")
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Sessions on Device", session_stats.get('total_sessions', 0),
+                  help="Grind sessions held in flash on the grinder at capture time.")
+        c2.metric("Data Available", "✅ Yes" if session_stats.get('data_available') else "❌ No")
+        c3.metric("Export", "Active" if session_stats.get('export_active') else "Idle")
+    else:
+        st.warning("System info was not captured during the last pull. "
+                   "Re-run `python3 tools/grinder.py analyze` with the grinder powered on.")
+
+    st.subheader("Diagnostic Report")
+    diagnostics_report = reports.get('diagnostics')
+    if diagnostics_report is not None:
+        st.caption(f"Captured {diagnostics_report['captured_at']}")
+        st.code(diagnostics_report['content'], language=None)
+        st.download_button("Download report", diagnostics_report['content'],
+                           file_name="grinder_diagnostics.txt", mime="text/plain",
+                           help="Save the raw report, e.g. for attaching to a GitHub issue.")
+    else:
+        st.warning("No diagnostic report was captured during the last pull.")
+
+    st.stop()
 
 if sessions_df.empty:
     st.warning("No sessions found in the database.")

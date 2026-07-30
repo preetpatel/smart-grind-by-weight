@@ -88,13 +88,13 @@ If you want to modify the code or contribute to development, see **[DEVELOPMENT.
 
 [<img src="media/analytics.png" alt="Analytics Dashboard" width="50%">](media/analytics.png)
 
-Export your grind data and analyze it with the included Streamlit dashboard:
+Pull everything from the grinder over one BLE connection — grind data, system info, and the diagnostics report — and analyze it with the included Streamlit dashboard:
 
 ```bash
 python3 tools/grinder.py analyze
 ```
 
-Track accuracy, flow rates, grind times, and optimize your coffee workflow with detailed session analytics.
+Track accuracy, flow rates, grind times, and optimize your coffee workflow with detailed session analytics. The dashboard's **Device Health** view shows the firmware, memory, task performance, and diagnostics snapshot captured during the pull.
 
 ---
 

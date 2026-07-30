@@ -320,7 +320,7 @@ class GrinderTool:
         return await self.run_async_command(cmd)
     
     async def cmd_analyze(self, args: argparse.Namespace) -> int:
-        """Export data and launch Streamlit report."""
+        """Pull grind data + device health over one BLE connection, launch Streamlit report."""
         self.print_header("Data Analysis Workflow")
         
         if not self.check_venv():
@@ -514,7 +514,7 @@ def create_parser() -> argparse.ArgumentParser:
 {COLORS['YELLOW']}Examples:{COLORS['RESET']}
   python3 grinder.py build-upload              # Build and upload firmware
   python3 grinder.py build-upload --force-full # Build and force full firmware update
-  python3 grinder.py analyze                   # Export data and show interactive report
+  python3 grinder.py analyze                   # Pull data + diagnostics and show interactive report
   python3 grinder.py report                    # Just show report from existing data
   python3 grinder.py export --db session1.db  # Export to custom database
   python3 grinder.py upload --device MyGrinder # Upload to specific device
@@ -544,7 +544,7 @@ def create_parser() -> argparse.ArgumentParser:
     export_parser.add_argument('--db', help='Specify database file (default: grinder_data.db)')
     export_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     
-    analyze_parser = subparsers.add_parser('analyze', help='Export data and launch Streamlit report')
+    analyze_parser = subparsers.add_parser('analyze', help='Pull grind data + system info + diagnostics over BLE and launch Streamlit report')
     analyze_parser.add_argument('--db', help='Specify database file (default: grinder_data.db)')
     analyze_parser.add_argument('--device', default='GrindByWeight', help='Specify device name')
     
