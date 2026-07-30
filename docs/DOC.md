@@ -203,7 +203,7 @@ ESP32-S3 GND       →    Pin 4 (Ground)
 ## 🚀 Firmware Installation
 
 ### 🌐 Web Flasher (Recommended)
-**[🔗 Open Web Flasher Tool](https://jaapp.github.io/smart-grind-by-weight)**
+**[🔗 Open Web Flasher Tool](https://preetpatel.github.io/smart-grind-by-weight)**
 
 **Browser Compatibility:**
 - ✅ **Chrome** (Desktop & Android) - Full support
@@ -243,7 +243,7 @@ python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 ```
 
-**Manual firmware download:** [Releases page](https://github.com/jaapp/smart-grind-by-weight/releases)  
+**Manual firmware download:** [Releases page](https://github.com/preetpatel/smart-grind-by-weight/releases)  
 **Build from source:** See [DEVELOPMENT.md](DEVELOPMENT.md)
 
 ---
@@ -490,7 +490,7 @@ Generate a comprehensive diagnostic report from your device for troubleshooting 
 ### Access Methods
 
 **Web Flasher (Recommended):**
-1. Visit the [Web Flasher Tool](https://jaapp.github.io/smart-grind-by-weight)
+1. Visit the [Web Flasher Tool](https://preetpatel.github.io/smart-grind-by-weight)
 2. Navigate to the **Diagnostics** tab
 3. Click "Connect & Get Diagnostics"
 4. Copy to clipboard or download the report as a text file

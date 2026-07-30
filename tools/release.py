@@ -23,6 +23,16 @@ def get_current_version():
     latest_tag = run_command("git describe --tags --abbrev=0 2>/dev/null")
     return latest_tag if latest_tag else "v0.0.0"
 
+def get_repo_web_url():
+    """Get the web URL of the origin remote so links point at this repo, not upstream"""
+    url = run_command("git remote get-url origin") or ""
+    url = url.strip()
+    if url.endswith(".git"):
+        url = url[:-4]
+    if url.startswith("git@github.com:"):
+        url = "https://github.com/" + url[len("git@github.com:"):]
+    return url or "https://github.com"
+
 def increment_version(version, increment_type):
     """Increment version number based on type (major, minor, patch)"""
     # Remove 'v' prefix if present
@@ -417,7 +427,7 @@ def create_release():
     print("  2. Create GitHub release with your custom release notes")
     print("  3. Include automatic changelog from commits")
     print("  4. Upload firmware binaries for users")
-    print(f"\nCheck the progress at: https://github.com/jaapp/smart-grind-by-weight/actions")
+    print(f"\nCheck the progress at: {get_repo_web_url()}/actions")
     
     return True
 

@@ -73,6 +73,11 @@ jobs:
               firmware_root = "tools/web-flasher/firmware"
               entries = []
 
+              # Derive the GitHub Pages base URL from the repository running
+              # this workflow so forks deploy against their own Pages site.
+              owner, repo_name = os.environ["GITHUB_REPOSITORY"].split("/", 1)
+              pages_base = f"https://{owner}.github.io/{repo_name}"
+
               def wait_for(url, retries=30, delay=30):
                   for attempt in range(retries):
                       try:
@@ -106,8 +111,8 @@ jobs:
                   prerelease = any(key in tag for key in ("-rc", "-beta", "-alpha"))
                   version = tag.lstrip('v')
 
-                  manifest_url = f"https://jaapp.github.io/smart-grind-by-weight/{manifest_rel}"
-                  ota_url = f"https://jaapp.github.io/smart-grind-by-weight/{ota_rel}"
+                  manifest_url = f"{pages_base}/{manifest_rel}"
+                  ota_url = f"{pages_base}/{ota_rel}"
 
                   if not wait_for(manifest_url) or not wait_for(ota_url):
                       continue
