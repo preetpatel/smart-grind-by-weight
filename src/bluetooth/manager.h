@@ -86,6 +86,7 @@ private:
     // Connection state
     bool device_connected;
     bool ble_enabled;
+    bool enable_in_progress;
     bool debug_stream_active;
     unsigned long enable_time;
     unsigned long timeout_ms;
@@ -116,6 +117,8 @@ private:
     bool diagnostic_report_in_progress;
 
     // Private methods
+    void setup_gatt_services();
+    void configure_advertising();
     void update_ui_status(const char* status);
     void enqueue_ui_status(const char* status);
     void set_ota_status(BLEOTAStatus status);

@@ -40,7 +40,7 @@ BluetoothManager::BluetoothManager()
     , sysinfo_sessions_characteristic(nullptr)
     , sysinfo_diagnostics_characteristic(nullptr)
     , device_connected(false)
-    , ble_enabled(false), debug_stream_active(false)
+    , ble_enabled(false), enable_in_progress(false), debug_stream_active(false)
     , enable_time(0)
     , timeout_ms(BLE_AUTO_DISABLE_TIMEOUT_MS)
     , last_disconnect_time(0)
@@ -103,8 +103,13 @@ bool BluetoothManager::dequeue_ui_status(char* out, size_t out_len) {
 }
 
 void BluetoothManager::enable(unsigned long timeout_ms) {
-    if (ble_enabled) return;
-    
+    // The in-progress flag guards the multi-second first-time setup below:
+    // ble_enabled only becomes true at the end, so without it a second caller
+    // (e.g. the menu toggle during the bootup enable) would re-run the GATT
+    // setup and duplicate every service within the same stack session.
+    if (ble_enabled || enable_in_progress) return;
+    enable_in_progress = true;
+
     // Use default timeout if none specified
     if (timeout_ms == 0) {
         timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
@@ -112,25 +117,50 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     this->timeout_ms = timeout_ms;
     unsigned long timeout_minutes = timeout_ms / 60000;
     log("Bluetooth: Enabling BLE with reduced power settings (%lum timeout)\n", timeout_minutes);
-    
+
     // Enable reduced power mode for BLE
     ota_handler.enable_ble_power_mode();
     enable_time = millis();
     last_disconnect_time = enable_time; // Start disconnected timeout from enable time
-    
-    // Initialize BLE with delays for power stability
-    BLEDevice::init(BLE_DEVICE_NAME);
-    
-    // Request a larger MTU to improve throughput when the client supports it.
-    // Some platforms (e.g., macOS/iOS) may ignore this request and keep a lower MTU.
-    // That's fine — we also keep chunk sizes small and paced below.
-    BLEDevice::setMTU(517);
-    delay(BLE_INIT_STACK_DELAY_MS);
-    
+
+    // The BLE stack is initialized once and then stays up for the lifetime of
+    // the device: Bluedroid rebuilds an empty GATT table on every
+    // deinit()/init() cycle and the Arduino wrapper never re-registers its
+    // persistent server object with the fresh stack, so the services would be
+    // gone after a re-init while the wrapper still holds their objects.
+    // Toggling Bluetooth therefore only starts and stops advertising.
+    if (ble_server == nullptr) {
+        // Initialize BLE with delays for power stability
+        BLEDevice::init(BLE_DEVICE_NAME);
+
+        // Request a larger MTU to improve throughput when the client supports it.
+        // Some platforms (e.g., macOS/iOS) may ignore this request and keep a lower MTU.
+        // That's fine — we also keep chunk sizes small and paced below.
+        BLEDevice::setMTU(517);
+        delay(BLE_INIT_STACK_DELAY_MS);
+
+        setup_gatt_services();
+        configure_advertising();
+        delay(BLE_INIT_ADVERTISING_DELAY_MS);
+    }
+
+    ble_enabled = true;
+    enable_in_progress = false;
+    set_ota_status(BLE_OTA_READY);
+
+    // Initialize system information
+    refresh_system_info();
+    sessions_info_dirty = true;
+
+    start_advertising();
+    log("Bluetooth: Ready - device is advertising (%lum timeout)\n", timeout_minutes);
+}
+
+void BluetoothManager::setup_gatt_services() {
     ble_server = BLEDevice::createServer();
     delay(BLE_INIT_SERVER_DELAY_MS);
     ble_server->setCallbacks(this);
-    
+
     // Create OTA service
     ota_service = ble_server->createService(BLE_OTA_SERVICE_UUID);
     delay(BLE_INIT_SERVICE_DELAY_MS);
@@ -249,15 +279,24 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     sysinfo_service->start();
     delay(BLE_INIT_START_DELAY_MS);
     
+    // The advertised service list is kept by the wrapper across enable
+    // cycles, so register it once alongside the services themselves.
     BLEAdvertising* advertising = BLEDevice::getAdvertising();
     advertising->addServiceUUID(BLE_OTA_SERVICE_UUID);
     advertising->addServiceUUID(BLE_DEBUG_SERVICE_UUID);
     advertising->addServiceUUID(BLE_DATA_SERVICE_UUID);
     advertising->addServiceUUID(BLE_SYSINFO_SERVICE_UUID);
+}
+
+void BluetoothManager::configure_advertising() {
+    // Configured once, right after the stack comes up. The raw payload set
+    // here lives in the BLE stack; BLEAdvertising::start() does not rebuild
+    // it, which is fine because the stack is never deinitialized.
+    BLEAdvertising* advertising = BLEDevice::getAdvertising();
     advertising->setScanResponse(true);
     advertising->setMinPreferred(0x06);
     advertising->setMinPreferred(0x12);
-    
+
     // Set advertised name in both advertising data and scan response data
     advertising->setName(BLE_DEVICE_NAME);
     BLEAdvertisementData adv;
@@ -266,18 +305,6 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     BLEAdvertisementData sr;
     sr.setName(BLE_DEVICE_NAME);
     advertising->setScanResponseData(sr);
-    
-    delay(BLE_INIT_ADVERTISING_DELAY_MS);
-    
-    ble_enabled = true;
-    set_ota_status(BLE_OTA_READY);
-    
-    // Initialize system information
-    refresh_system_info();
-    sessions_info_dirty = true;
-    
-    start_advertising();
-    log("Bluetooth: Ready - device is advertising (%lum timeout)\n", timeout_minutes);
 }
 
 void BluetoothManager::enable_during_bootup() {
@@ -291,46 +318,38 @@ void BluetoothManager::enable_during_bootup() {
 
 void BluetoothManager::disable() {
     if (!ble_enabled) return;
-    
+
     log("Bluetooth: Disabling BLE and restoring normal power...\n");
-    
+
     if (ota_handler.is_ota_active()) {
         ota_handler.abort_ota();
     }
-    
+
     if (data_export_in_progress) {
         stop_data_export();
     }
-    
+
+    // Clear the enabled flag first so the onDisconnect callback below does not
+    // restart advertising while we are shutting down.
+    ble_enabled = false;
+    debug_stream_active = false;
+
+    // Drop any connected client so the radio actually goes quiet
+    if (device_connected && ble_server) {
+        ble_server->disconnect(ble_server->getConnId());
+        delay(BLE_SHUTDOWN_ADVERTISING_DELAY_MS);
+    }
+    device_connected = false;
+
     stop_advertising();
     delay(BLE_SHUTDOWN_ADVERTISING_DELAY_MS);
-    
-    log("Bluetooth: Deinitializing BLE stack...\n");
-    BLEDevice::deinit(false);
-    delay(BLE_SHUTDOWN_DEINIT_DELAY_MS);
-    
-    ble_enabled = false;
-    device_connected = false;
-    ble_server = nullptr;
-    ota_service = nullptr;
-    data_service = nullptr;
-    debug_service = nullptr;
-    sysinfo_service = nullptr;
-    ota_data_characteristic = nullptr;
-    ota_control_characteristic = nullptr;
-    ota_status_characteristic = nullptr;
-    build_number_characteristic = nullptr;
-    data_control_characteristic = nullptr;
-    data_transfer_characteristic = nullptr;
-    data_status_characteristic = nullptr;
-    debug_rx_characteristic = nullptr;
-    debug_tx_characteristic = nullptr;
-    sysinfo_system_characteristic = nullptr;
-    sysinfo_performance_characteristic = nullptr;
-    sysinfo_hardware_characteristic = nullptr;
-    sysinfo_sessions_characteristic = nullptr;
-    debug_stream_active = false;
-    
+
+    // The BLE stack, server and GATT table deliberately stay alive (see
+    // enable()): deinitializing Bluedroid wipes the GATT table while the
+    // Arduino wrapper keeps serving its stale objects, so the next enable
+    // cycle would expose an empty or duplicated table. Not advertising is
+    // what turns Bluetooth "off" externally.
+
     // Restore normal power settings
     ota_handler.restore_normal_power_mode();
     log("Bluetooth: Disable complete\n");
@@ -380,7 +399,9 @@ void BluetoothManager::start_advertising() {
 }
 
 void BluetoothManager::stop_advertising() {
-    if (ble_enabled) {
+    // Guarded by the server (not ble_enabled): disable() clears the enabled
+    // flag before stopping advertising to keep onDisconnect from restarting it.
+    if (ble_server) {
         BLEDevice::stopAdvertising();
     }
 }
