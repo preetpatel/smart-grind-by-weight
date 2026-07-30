@@ -210,6 +210,62 @@
         #browserWarning {
             display: none;
         }
+
+        .btn-row {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .btn-row .btn {
+            width: auto;
+            flex: 1;
+        }
+
+        .table-hint {
+            color: #718096;
+            font-size: 0.9em;
+        }
+
+        .table-scroll {
+            overflow-x: auto;
+            max-width: 100%;
+            margin-bottom: 20px;
+        }
+
+        .table-scroll.tall {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .data-table {
+            border-collapse: collapse;
+            width: 100%;
+            font-size: 14px;
+        }
+
+        .data-table th, .data-table td {
+            border: 1px solid #e2e8f0;
+            padding: 6px 10px;
+            text-align: left;
+            white-space: nowrap;
+        }
+
+        .data-table thead th {
+            background: #f7fafc;
+            color: #4a5568;
+            position: sticky;
+            top: 0;
+        }
+
+        .data-table tbody tr:hover {
+            background: #f0f4ff;
+            cursor: pointer;
+        }
+
+        .data-table tr.selected {
+            background: #e6ecff;
+        }
     </style>
 </head>
 <body>
@@ -233,6 +289,7 @@
             <button class="tab active" onclick="showTab('ota')">OTA Update (BLE)</button>
             <button class="tab" onclick="showTab('initial')">Initial Setup (USB)</button>
             <button class="tab" onclick="showTab('diagnostics')">Diagnostics</button>
+            <button class="tab" onclick="showTab('analytics')">Analytics</button>
         </div>
         
         <!-- Initial Setup Tab -->
@@ -336,9 +393,37 @@
                 <div id="diagnosticsStatus"></div>
             </div>
         </div>
+
+        <!-- Analytics Tab -->
+        <div id="analyticsTab" class="tab-content">
+            <div class="section">
+                <h3>📊 Grind Analytics</h3>
+                <p>Pull grind session data from your grinder over Bluetooth and analyze it right here — no local tools needed. Data is stored in your browser, so you can revisit it without re-pulling.</p>
+            </div>
+
+            <button class="btn" id="analyticsPullBtn">Connect &amp; Pull Data</button>
+
+            <div id="analyticsStatus" class="status info" style="display: none; margin-top: 15px;"></div>
+
+            <div class="progress" id="analyticsProgressContainer" style="display: none;">
+                <div class="progress-bar" id="analyticsProgressBar"></div>
+            </div>
+
+            <div class="btn-row">
+                <button class="btn" id="analyticsExportBtn">Export JSON</button>
+                <button class="btn" id="analyticsImportBtn">Import JSON</button>
+                <button class="btn" id="analyticsClearBtn">Clear Stored Data</button>
+            </div>
+            <input type="file" id="analyticsImportInput" accept=".json,application/json" style="display: none;">
+
+            <div id="analyticsSummary"></div>
+            <div id="analyticsSessionsContainer"></div>
+            <div id="analyticsDetailContainer"></div>
+        </div>
     </div>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
     <script src="flasher.js"></script>
+    <script type="module" src="analytics/app.js"></script>
 </body>
 </html>
