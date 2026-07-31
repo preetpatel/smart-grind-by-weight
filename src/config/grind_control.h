@@ -43,6 +43,7 @@ enum class GrinderPurgeMode {
 // Prime phase behavior
 #define GRIND_PRIME_TARGET_WEIGHT_G 1.0f                                   // Amount of coffee delivered during chute priming
 #define GRIND_PRIME_MAX_DURATION_MS 5000                                   // Safety timeout for chute priming run
+#define GRIND_PRIME_COAST_COMPENSATION_MS 300.0f                           // Grounds keep arriving roughly this long after the prime motor stops (measured ~380-410ms on logged sessions; kept conservative so the purge never under-delivers). The stop threshold is lowered by flow * this time so the configured amount is what actually lands, not what triggers the stop.
 
 //------------------------------------------------------------------------------
 // SCALE CALIBRATION AND SETTLING

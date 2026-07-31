@@ -381,8 +381,14 @@ void GrindController::update() {
                 grinder->start();
             }
 
-            // Use configurable grinder purge amount
-            bool reached_weight = loop_data.current_weight >= grinder_purge_amount_g_for_session;
+            // Stop early by the mass still in flight: grounds keep arriving for
+            // ~GRIND_PRIME_COAST_COMPENSATION_MS after motor-off, so triggering at
+            // the configured amount delivered nearly double it (logged sessions:
+            // 1.0g configured, ~1.9g landed).
+            float coast_g = max(0.0f, loop_data.flow_rate) *
+                            (GRIND_PRIME_COAST_COMPENSATION_MS / 1000.0f);
+            bool reached_weight = loop_data.current_weight >=
+                                  (grinder_purge_amount_g_for_session - coast_g);
             bool exceeded_duration = (loop_data.now - phase_start_time) >= GRIND_PRIME_MAX_DURATION_MS;
             if (reached_weight || exceeded_duration) {
                 grinder->stop();
