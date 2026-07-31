@@ -12,7 +12,7 @@ import {
     buildOverviewFigure, filterForDisplay, grindTimeSeconds,
     DEFAULT_HIDDEN_PHASES, PHASE_DESCRIPTIONS,
 } from './charts.js';
-import { renderPredictiveTab, renderPulseTab, renderControllerTab } from './views-single.js';
+import { renderPredictiveTab, renderPulseTab, renderVibrationTab, renderControllerTab } from './views-single.js';
 
 const TOLERANCE_G = 0.03; // grind accuracy tolerance, as in the Streamlit report
 const PLOTLY_CDN = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
@@ -26,12 +26,14 @@ const viewOptions = {
     smoothingMs: 500,
     hiddenPhases: new Set(DEFAULT_HIDDEN_PHASES),
     detailTab: 'overall',
+    vibration: { showIir: false, alpha: 0.25, showNotch: false, notchFreq: 0.2, q: 5 },
 };
 
 const DETAIL_TABS = [
     ['overall', 'Overall'],
     ['predictive', 'Predictive Phase'],
     ['pulse', 'Pulse Phase'],
+    ['vibration', 'Vibration'],
     ['controller', 'Controller'],
 ];
 
@@ -348,6 +350,9 @@ function renderDetail() {
             break;
         case 'pulse':
             renderPulseTab(content, record, viewOptions, plot);
+            break;
+        case 'vibration':
+            renderVibrationTab(content, record, viewOptions, plot);
             break;
         case 'controller':
             renderControllerTab(content, record, viewOptions);
