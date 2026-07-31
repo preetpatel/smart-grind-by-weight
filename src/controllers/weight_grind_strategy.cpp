@@ -1,6 +1,7 @@
 #include "weight_grind_strategy.h"
 
 #include "grind_controller.h"
+#include "pulse_flow_feedback.h"
 #include "../hardware/WeightSensor.h"
 #include "../hardware/grinder.h"
 #include "../logging/grind_logging.h"
@@ -127,6 +128,27 @@ void WeightGrindStrategy::run_pulse_decision_phase(GrindController& controller,
     float settled_weight;
     if (!controller.weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS, &settled_weight)) {
         return;
+    }
+
+    // Close the loop on the previous pulse: its settled yield is a direct
+    // measurement of the flow the duration model assumed, so feed it back for
+    // the next pulse instead of trusting the predictive-phase estimate all session.
+    if (controller.pulse_attempts > 0) {
+        PulseReport& prev_pulse = controller.pulse_history[controller.pulse_attempts - 1];
+        prev_pulse.end_weight = settled_weight;
+
+        float measured_flow;
+        if (PulseFlowFeedback::measured_flow_from_pulse(settled_weight - prev_pulse.start_weight,
+                                                        prev_pulse.duration_ms,
+                                                        controller.get_motor_response_latency(),
+                                                        GRIND_FLOW_RATE_MIN_SANE_GPS,
+                                                        GRIND_FLOW_RATE_MAX_SANE_GPS,
+                                                        &measured_flow)) {
+            LOG_BLE("[PULSE_DECISION] Pulse #%d delivered %.3fg -> flow %.2fg/s (was %.2fg/s)\n",
+                    controller.pulse_attempts, settled_weight - prev_pulse.start_weight,
+                    measured_flow, controller.pulse_flow_rate);
+            controller.pulse_flow_rate = measured_flow;
+        }
     }
 
     float conservative_target = controller.target_weight - GRIND_ACCURACY_TOLERANCE_G;
