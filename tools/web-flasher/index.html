@@ -266,6 +266,86 @@
         .data-table tr.selected {
             background: #e6ecff;
         }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 10px;
+            margin: 15px 0;
+        }
+
+        .metric {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .metric-label {
+            color: #718096;
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+
+        .metric-value {
+            color: #2d3748;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .metric-delta {
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 2px;
+        }
+
+        .metric-delta.good { color: #22543d; }
+        .metric-delta.bad { color: #c53030; }
+
+        .controls-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 16px;
+            align-items: center;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            font-size: 14px;
+            color: #4a5568;
+        }
+
+        .controls-row .control {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-weight: 600;
+            margin-bottom: 0;
+        }
+
+        .controls-row select {
+            width: auto;
+            padding: 4px 8px;
+            font-size: 14px;
+        }
+
+        .chart-container {
+            width: 100%;
+            min-height: 450px;
+            margin-bottom: 20px;
+        }
+
+        details {
+            margin: 20px 0;
+        }
+
+        details summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #4a5568;
+            padding: 8px 0;
+        }
     </style>
 </head>
 <body>

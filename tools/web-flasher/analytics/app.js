@@ -3,14 +3,43 @@
 // the same stored records.
 
 import { GrinderDataClient, isWebBluetoothSupported } from './ble-data.js';
-import { MODE_MAP, PROFILE_MAP } from './parser.js';
+import { MODE_MAP, PROFILE_MAP, TERMINATION_REASON_MAP } from './parser.js';
 import {
     saveSessions, loadSessions, clearAll, saveMeta, loadMeta,
     buildExportJson, parseImportJson,
 } from './store.js';
+import {
+    buildOverviewFigure, filterForDisplay, grindTimeSeconds,
+    DEFAULT_HIDDEN_PHASES, PHASE_DESCRIPTIONS,
+} from './charts.js';
+
+const TOLERANCE_G = 0.03; // grind accuracy tolerance, as in the Streamlit report
+const PLOTLY_CDN = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
 
 let records = [];
 let selectedSessionId = null;
+
+// Chart view options, shared across sessions like the Streamlit sidebar state.
+const viewOptions = {
+    includeTaring: false,
+    smoothingMs: 500,
+    hiddenPhases: new Set(DEFAULT_HIDDEN_PHASES),
+};
+
+let plotlyPromise = null;
+function loadPlotly() {
+    if (window.Plotly) return Promise.resolve(window.Plotly);
+    if (!plotlyPromise) {
+        plotlyPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = PLOTLY_CDN;
+            script.onload = () => resolve(window.Plotly);
+            script.onerror = () => reject(new Error('Failed to load the Plotly chart library (offline?)'));
+            document.head.appendChild(script);
+        });
+    }
+    return plotlyPromise;
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -149,6 +178,120 @@ function buildRawTable(items, columns) {
     return el('div', { class: 'table-scroll tall' }, [el('table', { class: 'data-table' }, [thead, el('tbody', {}, rows)])]);
 }
 
+function metricTile(label, value, delta = null, deltaClass = '') {
+    const children = [
+        el('div', { class: 'metric-label', text: label }),
+        el('div', { class: 'metric-value', text: value }),
+    ];
+    if (delta !== null) {
+        children.push(el('div', { class: `metric-delta ${deltaClass}`, text: delta }));
+    }
+    return el('div', { class: 'metric' }, children);
+}
+
+function buildMetricsGrid(record) {
+    const s = record.session;
+    const mode = MODE_MAP[s.grind_mode] ?? 'WEIGHT';
+    const measurements = filterForDisplay(record.measurements, viewOptions.includeTaring);
+    const grindTime = grindTimeSeconds(record.events);
+    const resolution = grindTime > 0 ? (measurements.length / grindTime).toFixed(1) : '0';
+
+    const tiles = [];
+    if (mode === 'TIME') {
+        const timeErrorS = s.time_error_ms / 1000;
+        tiles.push(
+            metricTile('Target Time (s)', (s.target_time_ms / 1000).toFixed(2),
+                `${timeErrorS >= 0 ? '+' : ''}${timeErrorS.toFixed(2)} s`, timeErrorS > 0 ? 'bad' : 'good'),
+            metricTile('Motor On Time (s)', (s.total_motor_on_time_ms / 1000).toFixed(2)),
+            metricTile('Session Duration (s)', (s.total_time_ms / 1000).toFixed(2)),
+            metricTile('Termination', TERMINATION_REASON_MAP[s.termination_reason] ?? s.result_status),
+            metricTile('Final Weight (g)', s.final_weight.toFixed(2)),
+            metricTile('Data Resolution', `${resolution} meas/sec`),
+        );
+    } else {
+        const error = s.final_weight - s.target_weight;
+        const withinTolerance = Math.abs(error) < TOLERANCE_G;
+        tiles.push(
+            metricTile('Target (g)', s.target_weight.toFixed(2),
+                `${error >= 0 ? '+' : ''}${error.toFixed(2)} g`, withinTolerance ? 'good' : 'bad'),
+            metricTile('Final (g)', s.final_weight.toFixed(2)),
+            metricTile('Grind Time (s)', grindTime.toFixed(1)),
+            metricTile('Result', s.result_status),
+            metricTile('Pulse Count', String(s.pulse_count)),
+            metricTile('Data Resolution', `${resolution} meas/sec`),
+        );
+    }
+    return el('div', { class: 'metric-grid' }, tiles);
+}
+
+function buildChartControls(record, onChange) {
+    const controls = el('div', { class: 'controls-row' });
+
+    // Include-taring toggle
+    const taringLabel = el('label', { class: 'control' });
+    const taringBox = el('input', { type: 'checkbox' });
+    taringBox.checked = viewOptions.includeTaring;
+    taringBox.addEventListener('change', () => {
+        viewOptions.includeTaring = taringBox.checked;
+        onChange(true); // phase list may change
+    });
+    taringLabel.appendChild(taringBox);
+    taringLabel.appendChild(document.createTextNode(' Include taring'));
+    controls.appendChild(taringLabel);
+
+    // Flow smoothing selector
+    const smoothingLabel = el('label', { class: 'control', text: 'Flow smoothing ' });
+    const smoothingSelect = el('select', {});
+    for (const [label, value] of [['None', 0], ['100 ms', 100], ['500 ms', 500], ['1000 ms', 1000], ['1500 ms', 1500]]) {
+        const option = el('option', { value: String(value), text: label });
+        if (value === viewOptions.smoothingMs) option.selected = true;
+        smoothingSelect.appendChild(option);
+    }
+    smoothingSelect.addEventListener('change', () => {
+        viewOptions.smoothingMs = Number(smoothingSelect.value);
+        onChange(false);
+    });
+    smoothingLabel.appendChild(smoothingSelect);
+    controls.appendChild(smoothingLabel);
+
+    // Per-phase event marker toggles
+    const phases = [...new Set(filterForDisplay(record.events, viewOptions.includeTaring).map((e) => e.phase_name))].sort();
+    for (const phase of phases) {
+        const label = el('label', { class: 'control', title: PHASE_DESCRIPTIONS[phase] || phase });
+        const box = el('input', { type: 'checkbox' });
+        box.checked = !viewOptions.hiddenPhases.has(phase);
+        box.addEventListener('change', () => {
+            if (box.checked) viewOptions.hiddenPhases.delete(phase);
+            else viewOptions.hiddenPhases.add(phase);
+            onChange(false);
+        });
+        label.appendChild(box);
+        label.appendChild(document.createTextNode(` ${phase}`));
+        controls.appendChild(label);
+    }
+
+    return controls;
+}
+
+async function renderChart(record) {
+    const chartDiv = $('analyticsChart');
+    if (!chartDiv) return;
+    try {
+        const Plotly = await loadPlotly();
+        const phases = [...new Set(filterForDisplay(record.events, viewOptions.includeTaring).map((e) => e.phase_name))];
+        const visiblePhases = phases.filter((p) => !viewOptions.hiddenPhases.has(p));
+        const { traces, layout, config } = buildOverviewFigure(record, {
+            includeTaring: viewOptions.includeTaring,
+            smoothingMs: viewOptions.smoothingMs,
+            visiblePhases,
+        });
+        await Plotly.react(chartDiv, traces, layout, config);
+    } catch (error) {
+        chartDiv.textContent = `Chart unavailable: ${error.message}`;
+        console.error('Chart render error:', error);
+    }
+}
+
 function renderDetail() {
     const container = $('analyticsDetailContainer');
     container.textContent = '';
@@ -156,28 +299,41 @@ function renderDetail() {
     const record = records.find((r) => r.session_id === selectedSessionId);
     if (!record) return;
 
-    container.appendChild(el('h3', { text: `Session #${record.session_id} — Raw Data` }));
+    const rerender = (controlsChanged) => {
+        if (controlsChanged) renderDetail();
+        else renderChart(record);
+    };
 
+    container.appendChild(el('h3', { text: `Session #${record.session_id} — Overall Analysis` }));
+    container.appendChild(buildMetricsGrid(record));
+    container.appendChild(buildChartControls(record, rerender));
+    container.appendChild(el('div', { id: 'analyticsChart', class: 'chart-container' }));
+
+    // Raw data lives in a collapsed section below the analysis.
+    const rawDetails = el('details', {}, [el('summary', { text: 'Raw data for this session' })]);
     const sessionRows = Object.entries(record.session).map(([key, value]) => el('tr', {}, [
         el('th', { text: key }),
         el('td', { text: typeof value === 'number' && !Number.isInteger(value) ? value.toFixed(4) : String(value) }),
     ]));
-    container.appendChild(el('div', { class: 'table-scroll' }, [el('table', { class: 'data-table' }, [el('tbody', {}, sessionRows)])]));
+    rawDetails.appendChild(el('div', { class: 'table-scroll' }, [el('table', { class: 'data-table' }, [el('tbody', {}, sessionRows)])]));
 
     if (record.events.length) {
-        container.appendChild(el('h4', { text: `Events (${record.events.length})` }));
+        rawDetails.appendChild(el('h4', { text: `Events (${record.events.length})` }));
         const eventColumns = ['event_sequence_id', 'timestamp_ms', 'phase_name', 'duration_ms', 'start_weight', 'end_weight',
             'motor_stop_target_weight', 'pulse_attempt_number', 'pulse_duration_ms', 'grind_latency_ms',
             'settling_duration_ms', 'pulse_flow_rate', 'loop_count', 'event_flags'];
-        container.appendChild(buildRawTable(record.events, eventColumns));
+        rawDetails.appendChild(buildRawTable(record.events, eventColumns));
     }
 
     if (record.measurements.length) {
-        container.appendChild(el('h4', { text: `Measurements (${record.measurements.length})` }));
+        rawDetails.appendChild(el('h4', { text: `Measurements (${record.measurements.length})` }));
         const measurementColumns = ['sequence_id', 'timestamp_ms', 'weight_grams', 'weight_delta', 'flow_rate_g_per_s',
             'motor_is_on', 'phase_name', 'motor_stop_target_weight'];
-        container.appendChild(buildRawTable(record.measurements, measurementColumns));
+        rawDetails.appendChild(buildRawTable(record.measurements, measurementColumns));
     }
+    container.appendChild(rawDetails);
+
+    renderChart(record);
 }
 
 async function pullData() {
