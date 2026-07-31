@@ -28,6 +28,10 @@
 #define BLE_DATA_TRANSFER_CHAR_UUID "44556677-8899-aabb-ccdd-eeffaabbccdd"    // Data transfer characteristic
 #define BLE_DATA_STATUS_CHAR_UUID "55667788-99aa-bbcc-ddee-ffaabbccddee"      // Status notifications characteristic
 #define BLE_DATA_CHUNK_SIZE_BYTES 512                                          // Per-chunk payload size for data export
+#define BLE_DATA_CHUNK_DELAY_MS 5                                              // Pause between confirmed chunks (indications self-throttle to link speed)
+#define BLE_DATA_CHUNK_RETRY_DELAY_MS 50                                       // Back-off before re-sending an unconfirmed chunk
+#define BLE_DATA_CHUNK_RETRY_LIMIT 8                                           // Unconfirmed re-sends of one chunk before aborting the export
+#define BLE_DATA_CHUNK_ACK_TIMEOUT_MS 2000                                     // Wait for the client's indication acknowledgement per send
 
 //------------------------------------------------------------------------------
 // BLE DEBUG SERVICE (Nordic UART Service)

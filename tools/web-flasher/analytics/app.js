@@ -42,6 +42,17 @@ function setProgress(percent) {
     $('analyticsProgressBar').style.width = `${percent}%`;
 }
 
+// Device status notifications arrive with every 512-byte chunk (up to ~40/s).
+// Throttle the resulting DOM writes so the main thread stays free to service
+// incoming BLE notification events during a transfer.
+let lastProgressUpdate = 0;
+function setProgressThrottled(percent) {
+    const now = Date.now();
+    if (now - lastProgressUpdate < 100) return;
+    lastProgressUpdate = now;
+    setProgress(percent);
+}
+
 function formatUptime(totalSeconds) {
     const h = Math.floor(totalSeconds / 3600);
     const m = Math.floor((totalSeconds % 3600) / 60);
@@ -183,7 +194,7 @@ async function pullData() {
 
     client.onFileProgress = (percent) => {
         if (totalFiles > 0) {
-            setProgress(((currentFileIndex + percent / 100) / totalFiles) * 100);
+            setProgressThrottled(((currentFileIndex + percent / 100) / totalFiles) * 100);
         }
     };
 

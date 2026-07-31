@@ -105,6 +105,16 @@ private:
     bool sessions_info_dirty;
     uint32_t last_session_storage_version;
     bool last_reported_export_state;
+
+    // Confirmed chunk delivery: data chunks go out as indications, and a chunk
+    // is only released once the client acknowledged it (see onStatus).
+    uint8_t pending_chunk[BLE_DATA_CHUNK_SIZE_BYTES];
+    size_t pending_chunk_size;
+    bool pending_chunk_valid;
+    uint8_t chunk_retry_count;
+    volatile Status last_transfer_status;
+    volatile bool transfer_ack_seen;
+    volatile bool file_list_pending;
     
     // UI status callback
     UIStatusCallback ui_status_callback;
@@ -128,6 +138,7 @@ private:
     void handle_debug_command(BLECharacteristic* characteristic);
     void handle_data_control_command(BLECharacteristic* characteristic);
     void send_next_data_chunk();
+    bool send_transfer_payload(const uint8_t* data, size_t size);
     void send_measurement_count();
     void send_log_message(const char* message);
     void clear_measurement_data();
@@ -232,6 +243,7 @@ public:
     void onDisconnect(BLEServer* server) override;
     void onWrite(BLECharacteristic* characteristic) override;
     void onRead(BLECharacteristic* characteristic) override;
+    void onStatus(BLECharacteristic* characteristic, Status status, uint32_t code) override;
 
     // Drain a status message queued from BLE task; called by UI task
     bool dequeue_ui_status(char* out, size_t out_len);

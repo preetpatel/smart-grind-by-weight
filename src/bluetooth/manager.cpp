@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cstdarg>
 #include <Arduino.h>
+#include <host/ble_hs_mbuf.h>  // raw NimBLE indication send (see send_transfer_payload)
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include <LittleFS.h>
@@ -49,6 +50,12 @@ BluetoothManager::BluetoothManager()
     , current_chunk(0)
     , next_chunk_time(0)
     , current_file_session_id(0)
+    , pending_chunk_size(0)
+    , pending_chunk_valid(false)
+    , chunk_retry_count(0)
+    , last_transfer_status(Status::ERROR_NO_CLIENT)
+    , transfer_ack_seen(false)
+    , file_list_pending(false)
     , sessions_info_dirty(true)
     , last_session_storage_version(0)
     , last_reported_export_state(false)
@@ -203,10 +210,17 @@ void BluetoothManager::setup_gatt_services() {
     data_control_characteristic->setCallbacks(this);
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
+    // Indications, not notifications: data chunks must survive congested
+    // links, and the stack silently discards unacknowledged notifications when
+    // its buffers fill up. Indications are confirmed per-chunk by the client
+    // (see send_transfer_payload), so a transfer throttles instead of losing
+    // chunks. Clients (Web Bluetooth, bleak) subscribe to indications
+    // transparently through the same start-notifications APIs.
     data_transfer_characteristic = data_service->createCharacteristic(
         BLE_DATA_TRANSFER_CHAR_UUID,
-        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_INDICATE
     );
+    data_transfer_characteristic->setCallbacks(this);
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     data_status_characteristic = data_service->createCharacteristic(
@@ -372,6 +386,13 @@ void BluetoothManager::handle() {
         timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
     }
     
+    // Send a queued file list from this task, where indication ACKs can be
+    // awaited without blocking the NimBLE host task (see the command handler).
+    if (device_connected && file_list_pending) {
+        file_list_pending = false;
+        send_file_list();
+    }
+
     // Handle data export updates
     update_data_export();
     process_sessions_info_updates();
@@ -457,6 +478,8 @@ void BluetoothManager::stop_data_export() {
     current_chunk = 0;
     next_chunk_time = 0;
     current_file_session_id = 0;
+    pending_chunk_valid = false;
+    chunk_retry_count = 0;
     mark_sessions_info_dirty();
     
     // Clean shutdown of stream
@@ -472,21 +495,60 @@ void BluetoothManager::update_data_export() {
     }
 }
 
+// Sends one payload on the data transfer characteristic as an indication and
+// reports whether the client confirmed it.
+//
+// The indication is sent through NimBLE directly instead of the wrapper's
+// indicate(): that call waits on a confirmation semaphore its own ACK event
+// handler never releases, so it burns its full 1s timeout on every send and
+// then misreports the outcome. The acknowledgement does reach the application
+// as an async onStatus() callback (BLE_GAP_EVENT_NOTIFY_TX -> BLE_HS_EDONE),
+// so this sends raw and waits on the flag onStatus() sets.
+bool BluetoothManager::send_transfer_payload(const uint8_t* data, size_t size) {
+    if (!data_transfer_characteristic || !device_connected || !ble_server) {
+        return false;
+    }
+
+    last_transfer_status = Status::ERROR_NO_CLIENT;
+    transfer_ack_seen = false;
+
+    // ble_gatts_indicate_custom consumes the mbuf in both success and error paths.
+    os_mbuf* om = ble_hs_mbuf_from_flat(data, size);
+    if (!om) {
+        log("Bluetooth Data: Failed to allocate mbuf for %u byte chunk\n", (unsigned)size);
+        return false;
+    }
+    int rc = ble_gatts_indicate_custom(ble_server->getConnId(), data_transfer_characteristic->getHandle(), om);
+    if (rc != 0) {
+        log("Bluetooth Data: ble_gatts_indicate_custom failed rc=%d\n", rc);
+        return false;
+    }
+
+    unsigned long start = millis();
+    while (millis() - start < BLE_DATA_CHUNK_ACK_TIMEOUT_MS) {
+        if (transfer_ack_seen) {
+            return last_transfer_status == Status::SUCCESS_INDICATE;
+        }
+        if (!device_connected) {
+            return false;
+        }
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+    return false;
+}
+
 void BluetoothManager::send_next_data_chunk() {
     if (!data_export_in_progress || !data_transfer_characteristic) {
         return;
     }
 
-    // If client dropped mid-transfer, stop cleanly and avoid further notify attempts
+    // If client dropped mid-transfer, stop cleanly and avoid further send attempts
     if (!device_connected) {
         stop_data_export();
         set_data_status(BLE_DATA_ERROR);
         return;
     }
-    
-    uint8_t buffer[BLE_DATA_CHUNK_SIZE_BYTES];
-    size_t actual_size = 0;
-    
+
     // Per-file streaming only
     if (current_file_session_id == 0) {
         log("Bluetooth Data: No file session active for chunk request\n");
@@ -494,18 +556,36 @@ void BluetoothManager::send_next_data_chunk() {
         set_data_status(BLE_DATA_ERROR);
         return;
     }
-    
-    bool has_data = data_stream.read_file_chunk(buffer, sizeof(buffer), &actual_size);
-    
-    if (has_data && actual_size > 0) {
-        // Send the data chunk
-        data_transfer_characteristic->setValue(buffer, actual_size);
-        data_transfer_characteristic->notify();
-        
+
+    // Only read the next chunk once the previous one was confirmed; an
+    // unconfirmed chunk stays pending and is re-sent as-is.
+    if (!pending_chunk_valid) {
+        size_t actual_size = 0;
+        bool has_data = data_stream.read_file_chunk(pending_chunk, sizeof(pending_chunk), &actual_size);
+
+        if (!has_data) {
+            log("Bluetooth Data: File transfer complete for session %lu - sent %d chunks.\n", current_file_session_id, current_chunk);
+            data_export_in_progress = false;
+            current_chunk = 0;
+            current_file_session_id = 0;
+            mark_sessions_info_dirty();
+
+            data_stream.close_stream();
+
+            delay(200); // Give the BLE buffer time to clear
+            set_data_status(BLE_DATA_COMPLETE);
+            return;
+        }
+
+        pending_chunk_size = actual_size;
+        pending_chunk_valid = true;
+        chunk_retry_count = 0;
+    }
+
+    if (send_transfer_payload(pending_chunk, pending_chunk_size)) {
+        pending_chunk_valid = false;
         current_chunk++;
-        
-        // Chunk sent (reduced logging)
-        
+
         // Update progress
         uint8_t progress = data_stream.get_progress_percent();
         uint8_t status_data[2] = { (uint8_t)BLE_DATA_EXPORTING, progress };
@@ -513,24 +593,22 @@ void BluetoothManager::send_next_data_chunk() {
             data_status_characteristic->setValue(status_data, 2);
             data_status_characteristic->notify();
         }
-        
-        // Pace notifications to avoid overflowing BLE buffers/OS queues.
-        // Combined with smaller chunk size this greatly reduces blocking in notify().
-        next_chunk_time = millis() + 25; // ~6.4 KB/s at 160 B per 25 ms
-    }
-    
-    // Check if file transfer is complete
-    if (!has_data) {
-        log("Bluetooth Data: File transfer complete for session %lu - sent %d chunks.\n", current_file_session_id, current_chunk);
-        data_export_in_progress = false;
-        current_chunk = 0;
-        current_file_session_id = 0;
-        mark_sessions_info_dirty();
-        
-        data_stream.close_stream();
-        
-        delay(200); // Give the BLE buffer time to clear
-        set_data_status(BLE_DATA_COMPLETE);
+
+        // Indications are confirmed per-chunk, so delivery self-throttles to
+        // link speed; this delay just yields the BLE task between chunks.
+        next_chunk_time = millis() + BLE_DATA_CHUNK_DELAY_MS;
+    } else {
+        chunk_retry_count++;
+        if (chunk_retry_count >= BLE_DATA_CHUNK_RETRY_LIMIT) {
+            log("Bluetooth Data: Chunk %d unconfirmed after %d attempts (status %d), aborting transfer for session %lu\n",
+                current_chunk, chunk_retry_count, (int)last_transfer_status, current_file_session_id);
+            stop_data_export();
+            set_data_status(BLE_DATA_ERROR);
+            return;
+        }
+        log("Bluetooth Data: Chunk %d unconfirmed (status %d), retry %d/%d\n",
+            current_chunk, (int)last_transfer_status, chunk_retry_count, BLE_DATA_CHUNK_RETRY_LIMIT);
+        next_chunk_time = millis() + BLE_DATA_CHUNK_RETRY_DELAY_MS;
     }
 }
 
@@ -614,18 +692,27 @@ void BluetoothManager::send_file_list() {
         buffer[offset + 3] = (session_ids[i] >> 24) & 0xFF;
     }
     
-    // Send the file list
-    data_transfer_characteristic->setValue(buffer, total_size);
-    data_transfer_characteristic->notify();
-    
-    log("Bluetooth Data: Sent file list with %lu sessions\n", session_count);
-    
+    // Send the file list as a confirmed indication, retrying briefly if the
+    // client does not acknowledge it.
+    bool delivered = false;
+    for (int attempt = 0; attempt < 3 && !delivered; attempt++) {
+        delivered = send_transfer_payload(buffer, total_size);
+        if (!delivered) {
+            delay(BLE_DATA_CHUNK_RETRY_DELAY_MS);
+        }
+    }
+
     free(session_ids);
     free(buffer);
-    
-    // Give the BLE buffer time to transmit the data before sending status
-    delay(100);
-    
+
+    if (!delivered) {
+        log("Bluetooth Data: File list not confirmed by client\n");
+        set_data_status(BLE_DATA_ERROR);
+        return;
+    }
+
+    log("Bluetooth Data: Sent file list with %lu sessions\n", session_count);
+
     // Mark transfer complete so client stops waiting
     set_data_status(BLE_DATA_COMPLETE);
 }
@@ -839,8 +926,12 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
             break;
             
         case BLE_DATA_CMD_GET_FILE_LIST:
-            log("Bluetooth Data: Getting file list\n");
-            send_file_list();
+            // Deferred to the bluetooth task: this handler runs on the NimBLE
+            // host task, and send_file_list waits for an indication ACK that
+            // only the host task can process — sending here would deadlock
+            // until the ACK timeout.
+            log("Bluetooth Data: Queuing file list request\n");
+            file_list_pending = true;
             break;
             
         case BLE_DATA_CMD_REQUEST_FILE:
@@ -871,6 +962,7 @@ void BluetoothManager::onConnect(BLEServer* server) {
 
 void BluetoothManager::onDisconnect(BLEServer* server) {
     device_connected = false;
+    file_list_pending = false;
     last_disconnect_time = millis(); // Reset timeout countdown from now
     
     log("BLE: Client disconnected - timeout countdown resumed\n");
@@ -911,6 +1003,15 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
 
 void BluetoothManager::onRead(BLECharacteristic* characteristic) {
     // Reserved for future use
+}
+
+void BluetoothManager::onStatus(BLECharacteristic* characteristic, Status status, uint32_t code) {
+    // Fired from the NimBLE host task when the client acknowledges (or the
+    // stack gives up on) an indication. send_transfer_payload polls the flag.
+    if (characteristic == data_transfer_characteristic) {
+        last_transfer_status = status;
+        transfer_ack_seen = true;
+    }
 }
 
 String BluetoothManager::check_ota_failure_after_boot() {
