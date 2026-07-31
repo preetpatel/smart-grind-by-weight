@@ -54,6 +54,37 @@ export function resampleLast(measurements, binMs = 100) {
         .map(([bin, m]) => ({ ...m, timestamp_ms: bin }));
 }
 
+// Pearson correlation coefficient, matching pandas DataFrame.corr().
+export function pearson(xs, ys) {
+    const n = Math.min(xs.length, ys.length);
+    if (n < 2) return NaN;
+    const meanX = xs.reduce((s, v) => s + v, 0) / n;
+    const meanY = ys.reduce((s, v) => s + v, 0) / n;
+    let cov = 0;
+    let varX = 0;
+    let varY = 0;
+    for (let i = 0; i < n; i++) {
+        const dx = xs[i] - meanX;
+        const dy = ys[i] - meanY;
+        cov += dx * dy;
+        varX += dx * dx;
+        varY += dy * dy;
+    }
+    if (varX === 0 || varY === 0) return NaN;
+    return cov / Math.sqrt(varX * varY);
+}
+
+export function mean(values) {
+    return values.length ? values.reduce((s, v) => s + v, 0) / values.length : 0;
+}
+
+// Sample standard deviation (ddof=1), matching pandas Series.std().
+export function stddev(values) {
+    if (values.length < 2) return NaN;
+    const m = mean(values);
+    return Math.sqrt(values.reduce((s, v) => s + (v - m) * (v - m), 0) / (values.length - 1));
+}
+
 export function groupBy(items, keyFn) {
     const groups = new Map();
     for (const item of items) {

@@ -13,6 +13,7 @@ import {
     DEFAULT_HIDDEN_PHASES, PHASE_DESCRIPTIONS,
 } from './charts.js';
 import { renderPredictiveTab, renderPulseTab, renderVibrationTab, renderControllerTab } from './views-single.js';
+import { renderMultiView } from './views-multi.js';
 
 const TOLERANCE_G = 0.03; // grind accuracy tolerance, as in the Streamlit report
 const PLOTLY_CDN = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
@@ -27,6 +28,8 @@ const viewOptions = {
     hiddenPhases: new Set(DEFAULT_HIDDEN_PHASES),
     detailTab: 'overall',
     vibration: { showIir: false, alpha: 0.25, showNotch: false, notchFreq: 0.2, q: 5 },
+    analysisMode: 'single',
+    multi: { profile: 'All', mode: 'All', idMin: 0, idMax: 0, tab: 'overview' },
 };
 
 const DETAIL_TABS = [
@@ -117,9 +120,41 @@ function sessionErrorLabel(session) {
 
 async function refreshFromStore() {
     records = await loadSessions();
+    if (records.length) {
+        viewOptions.multi.idMin = Math.min(...records.map((r) => r.session_id));
+        viewOptions.multi.idMax = Math.max(...records.map((r) => r.session_id));
+    }
     renderSummary();
-    renderSessionsTable();
-    renderDetail();
+    renderMain();
+}
+
+function renderMain() {
+    const sessionsContainer = $('analyticsSessionsContainer');
+    const detailContainer = $('analyticsDetailContainer');
+    sessionsContainer.textContent = '';
+    detailContainer.textContent = '';
+    if (!records.length) return;
+
+    // Single / Multi-Session switcher
+    const switcher = el('div', { class: 'sub-tabs' });
+    for (const [key, label] of [['single', 'Single Session'], ['multi', 'Multi-Session Analysis']]) {
+        const button = el('button', { class: `sub-tab ${viewOptions.analysisMode === key ? 'active' : ''}`, text: label });
+        button.addEventListener('click', () => {
+            viewOptions.analysisMode = key;
+            renderMain();
+        });
+        switcher.appendChild(button);
+    }
+    sessionsContainer.appendChild(switcher);
+
+    if (viewOptions.analysisMode === 'multi') {
+        const host = el('div', {});
+        sessionsContainer.appendChild(host);
+        renderMultiView(host, records, viewOptions.multi, plot, renderMain);
+    } else {
+        renderSessionsTable(sessionsContainer);
+        renderDetail();
+    }
 }
 
 async function renderSummary() {
@@ -142,9 +177,7 @@ async function renderSummary() {
     }));
 }
 
-function renderSessionsTable() {
-    const container = $('analyticsSessionsContainer');
-    container.textContent = '';
+function renderSessionsTable(container) {
     if (!records.length) return;
 
     const headers = ['ID', 'Started (uptime)', 'Mode', 'Profile', 'Target', 'Final (g)', 'Error', 'Pulses', 'Result', 'Events', 'Samples'];
@@ -167,8 +200,7 @@ function renderSessionsTable() {
         ]);
         row.addEventListener('click', () => {
             selectedSessionId = s.session_id === selectedSessionId ? null : s.session_id;
-            renderSessionsTable();
-            renderDetail();
+            renderMain();
         });
         return row;
     });
