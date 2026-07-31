@@ -26,7 +26,12 @@ export const CHART_INK = '#ecf1f7';
 export const CHART_INK_MUTED = '#7a8490';
 export const CHART_FONT = { family: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', size: 11, color: '#a8b2bd' };
 
-export const CHART_CONFIG = { responsive: true, displaylogo: false };
+// The modebar camera button exports the chart as PNG at 2x for sharing.
+export const CHART_CONFIG = {
+    responsive: true,
+    displaylogo: false,
+    toImageButtonOptions: { format: 'png', filename: 'grind-chart', scale: 2 },
+};
 
 // Base layout for the small single-purpose charts (histograms, scatters, FFTs).
 export function chartLayout(title, xTitle, yTitle) {

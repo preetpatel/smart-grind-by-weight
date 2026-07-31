@@ -16,6 +16,7 @@ import {
 import { renderPredictiveTab, renderPulseTab, renderVibrationTab, renderControllerTab } from './views-single.js';
 import { renderMultiView } from './views-multi.js';
 import { renderDeviceHealth } from './views-health.js';
+import { renderTrendsView, renderCompareView } from './views-trends.js';
 
 const TOLERANCE_G = 0.03; // grind accuracy tolerance, as in the Streamlit report
 const PLOTLY_CDN = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
@@ -33,6 +34,8 @@ const viewOptions = {
     vibration: { showIir: false, alpha: 0.25, showNotch: false, notchFreq: 0.2, q: 5 },
     analysisMode: 'single',
     multi: { profile: 'All', mode: 'All', idMin: 0, idMax: 0, tab: 'overview' },
+    compare: { selected: new Set(), showFlow: false, initialized: false },
+    tableExpanded: false,
 };
 
 const DETAIL_TABS = [
@@ -43,17 +46,28 @@ const DETAIL_TABS = [
     ['controller', 'Controller'],
 ];
 
+function loadScript(src) {
+    return new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error(`Failed to load ${src}`));
+        document.head.appendChild(script);
+    });
+}
+
+// Plotly is vendored so the analytics tab works offline; the CDN is only a
+// fallback for deployments that strip the vendor directory.
 let plotlyPromise = null;
 function loadPlotly() {
     if (window.Plotly) return Promise.resolve(window.Plotly);
     if (!plotlyPromise) {
-        plotlyPromise = new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = PLOTLY_CDN;
-            script.onload = () => resolve(window.Plotly);
-            script.onerror = () => reject(new Error('Failed to load the Plotly chart library (offline?)'));
-            document.head.appendChild(script);
-        });
+        plotlyPromise = loadScript('vendor/plotly.min.js')
+            .catch(() => loadScript(PLOTLY_CDN))
+            .then(() => {
+                if (!window.Plotly) throw new Error('Failed to load the Plotly chart library');
+                return window.Plotly;
+            });
     }
     return plotlyPromise;
 }
@@ -104,6 +118,23 @@ function formatUptime(totalSeconds) {
     const m = Math.floor((totalSeconds % 3600) / 60);
     const s = totalSeconds % 60;
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+// session_timestamp carries a real Unix epoch once the device clock has been
+// synced over BLE, and uptime seconds otherwise. Distinguish by magnitude
+// (2020-01-01 epoch is far above any plausible uptime).
+const EPOCH_THRESHOLD = 1577836800;
+
+export function isEpochTimestamp(ts) {
+    return ts >= EPOCH_THRESHOLD;
+}
+
+function sessionStartLabel(session) {
+    const ts = session.session_timestamp;
+    if (isEpochTimestamp(ts)) {
+        return new Date(ts * 1000).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+    }
+    return `${formatUptime(ts)} uptime`;
 }
 
 function sessionTargetLabel(session) {
@@ -161,7 +192,9 @@ function renderMain() {
 
     const modes = [
         ['single', 'Single Session'],
-        ['multi', 'Multi-Session Analysis'],
+        ['compare', 'Compare'],
+        ['multi', 'Multi-Session'],
+        ['trends', 'Trends'],
         ['health', 'Device Health'],
     ];
     const switcher = el('div', { class: 'sub-tabs' });
@@ -185,6 +218,14 @@ function renderMain() {
         const host = el('div', {});
         sessionsContainer.appendChild(host);
         renderMultiView(host, records, viewOptions.multi, plot, renderMain);
+    } else if (viewOptions.analysisMode === 'trends') {
+        const host = el('div', {});
+        sessionsContainer.appendChild(host);
+        renderTrendsView(host, records, deviceReports, plot);
+    } else if (viewOptions.analysisMode === 'compare') {
+        const host = el('div', {});
+        sessionsContainer.appendChild(host);
+        renderCompareView(host, records, viewOptions.compare, plot, renderMain);
     } else {
         renderSessionsTable(sessionsContainer);
         renderDetail();
@@ -249,11 +290,15 @@ function buildLatestPanel(record) {
     const mode = MODE_MAP[s.grind_mode] ?? 'WEIGHT';
     const panel = el('div', { class: 'hero-latest' });
 
-    panel.appendChild(el('div', { class: 'session-line' }, [
+    const sessionLine = el('div', { class: 'session-line' }, [
         el('span', { text: `LATEST · #${s.session_id}` }),
         el('span', { text: mode }),
         el('span', { text: PROFILE_MAP[s.profile_id] ?? `P${s.profile_id}` }),
-    ]));
+    ]);
+    if (isEpochTimestamp(s.session_timestamp)) {
+        sessionLine.appendChild(el('span', { text: sessionStartLabel(s) }));
+    }
+    panel.appendChild(sessionLine);
 
     const weight = el('div', { class: 'hero-weight' });
     weight.appendChild(document.createTextNode(s.final_weight.toFixed(2)));
@@ -316,6 +361,17 @@ function buildFleetPanel() {
 async function renderSummary() {
     const summary = $('analyticsSummary');
     summary.textContent = '';
+
+    // Grind logging is a device-side toggle; when it's off the grinder records
+    // nothing, so surface that loudly instead of letting data silently vanish.
+    if (deviceReports?.system_info?.sessions?.logging_enabled === false) {
+        summary.appendChild(el('div', {
+            class: 'status warning',
+            text: 'Grind logging is OFF on the device — grinds are not being recorded. '
+                + 'Enable it under Menu → Logs & Data on the grinder.',
+        }));
+    }
+
     if (!records.length) {
         summary.appendChild(el('div', {
             class: 'status info',
@@ -339,13 +395,20 @@ async function renderSummary() {
     }));
 }
 
+const TABLE_ROW_LIMIT = 25;
+
 function renderSessionsTable(container) {
     if (!records.length) return;
 
-    const headers = ['ID', 'Started (uptime)', 'Mode', 'Profile', 'Target', 'Final (g)', 'Error', 'Pulses', 'Result', 'Events', 'Samples'];
+    const headers = ['ID', 'Started', 'Mode', 'Profile', 'Target', 'Final (g)', 'Error', 'Pulses', 'Result', 'Events', 'Samples'];
     const thead = el('thead', {}, [el('tr', {}, headers.map((h) => el('th', { text: h })))]);
 
-    const rows = records.map((record) => {
+    // Newest first; recent grinds are what gets scanned. KPIs, sparkline and
+    // trends always compute over the full set regardless of this cap.
+    const newestFirst = [...records].reverse();
+    const visibleRecords = viewOptions.tableExpanded ? newestFirst : newestFirst.slice(0, TABLE_ROW_LIMIT);
+
+    const rows = visibleRecords.map((record) => {
         const s = record.session;
         const errorCell = el('td', { text: sessionErrorLabel(s) });
         if ((MODE_MAP[s.grind_mode] ?? 'WEIGHT') === 'WEIGHT') {
@@ -353,7 +416,7 @@ function renderSessionsTable(container) {
         }
         const row = el('tr', { class: s.session_id === selectedSessionId ? 'selected' : '' }, [
             el('td', { text: `#${s.session_id}` }),
-            el('td', { text: formatUptime(s.session_timestamp) }),
+            el('td', { text: sessionStartLabel(s) }),
             el('td', { text: MODE_MAP[s.grind_mode] ?? 'UNKNOWN' }),
             el('td', { text: PROFILE_MAP[s.profile_id] ?? `P${s.profile_id}` }),
             el('td', { text: sessionTargetLabel(s) }),
@@ -375,6 +438,20 @@ function renderSessionsTable(container) {
     container.appendChild(el('p', { class: 'table-hint', text: 'Click a session to open its full analysis below.' }));
     const wrapper = el('div', { class: 'table-scroll' }, [el('table', { class: 'data-table' }, [thead, el('tbody', {}, rows)])]);
     container.appendChild(wrapper);
+
+    if (records.length > TABLE_ROW_LIMIT) {
+        const toggle = el('button', {
+            class: 'btn-ghost',
+            text: viewOptions.tableExpanded
+                ? `Show latest ${TABLE_ROW_LIMIT} only`
+                : `Show all ${records.length} sessions`,
+        });
+        toggle.addEventListener('click', () => {
+            viewOptions.tableExpanded = !viewOptions.tableExpanded;
+            renderMain();
+        });
+        container.appendChild(toggle);
+    }
 }
 
 function buildRawTable(items, columns) {
@@ -715,7 +792,13 @@ function init() {
         $('analyticsPullBtn').disabled = true;
     }
 
-    refreshFromStore();
+    // Returning users with stored data are almost always here for the data:
+    // land on Analytics. First-time visitors keep the flasher as the default.
+    refreshFromStore().then(() => {
+        if (records.length && typeof window.showTab === 'function') {
+            window.showTab('analytics');
+        }
+    });
 }
 
 if (document.readyState === 'loading') {

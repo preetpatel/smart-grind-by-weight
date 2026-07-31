@@ -22,8 +22,14 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
   next to a fleet KPI strip (accuracy rate, mean error, σ, avg grind time) and an
   error-per-session sparkline; the newest session's full analysis opens automatically
 - Full in-browser analysis dashboard: single-session phase charts (overall, predictive,
-  pulse, vibration/FFT, controller), multi-session statistics, and Device Health
-- Data persists in the browser (IndexedDB) between visits; JSON export/import for sharing
+  pulse, vibration/FFT, controller), session-overlay Compare view (curves aligned at grind
+  start, recency-colored), multi-session statistics, long-term Trends (error/flow/latency/
+  pulse drift + a burr-wear odometer from the device's lifetime stats), and Device Health
+- Syncs the grinder's wall clock on every connect; sessions ground afterwards show real
+  dates instead of device uptime. Warns when grind logging is disabled on the device
+- Data persists in the browser (IndexedDB) between visits; JSON export/import for sharing;
+  Plotly is vendored (`vendor/plotly.min.js`) so charts work offline; the page lands on
+  Analytics when stored data exists
 - Binary session parsing in `analytics/parser.js` — must stay aligned with
   `src/logging/grind_logging.h` (see `tools/ble/CLAUDE.md`)
 

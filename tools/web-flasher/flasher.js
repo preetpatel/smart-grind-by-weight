@@ -72,25 +72,20 @@ window.addEventListener('load', () => {
     loadReleases();
 });
 
-// Tab switching
+// Tab switching. Looks the button up by name (rather than relying on the
+// click event) so it also works when called programmatically, e.g. to land on
+// Analytics when stored grind data exists.
 function showTab(tabName) {
-    // Hide all tab contents
-    const tabContents = document.querySelectorAll('.tab-content');
-    tabContents.forEach(content => {
+    document.querySelectorAll('.tab-content').forEach(content => {
         content.classList.remove('active');
     });
-    
-    // Remove active class from all tabs
-    const tabs = document.querySelectorAll('.tab');
-    tabs.forEach(tab => {
+    document.querySelectorAll('.tab').forEach(tab => {
         tab.classList.remove('active');
     });
-    
-    // Show selected tab content
+
     document.getElementById(tabName + 'Tab').classList.add('active');
-    
-    // Add active class to selected tab
-    event.target.classList.add('active');
+    const button = document.querySelector(`.tab[onclick="showTab('${tabName}')"]`);
+    if (button) button.classList.add('active');
 }
 
 // Status update functions

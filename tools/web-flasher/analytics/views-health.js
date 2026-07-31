@@ -63,11 +63,17 @@ export function renderDeviceHealth(container, deviceReports) {
         const hardware = info.hardware || {};
         const sessionStats = info.sessions || {};
 
+        const clockTile = system.time_synced
+            ? metricTile('Device Clock', statusBadge('good', 'SYNCED'),
+                system.epoch ? new Date(system.epoch * 1000).toLocaleString() : null)
+            : metricTile('Device Clock', statusBadge('warning', 'NOT SYNCED'), 'syncs on every BLE connect');
+
         section(container, 'Firmware & System', [
             metricTile('Firmware Version', system.version ?? 'Unknown'),
             metricTile('Build', `#${system.build ?? '?'}`),
             metricTile('Uptime', `${pad(system.uptime_h ?? 0)}:${pad(system.uptime_m ?? 0)}:${pad(system.uptime_s ?? 0)}`),
             metricTile('CPU Frequency', `${system.cpu_freq ?? '?'} MHz`),
+            clockTile,
         ]);
 
         section(container, 'Memory', [
@@ -94,12 +100,24 @@ export function renderDeviceHealth(container, deviceReports) {
         ].map(([name, ok]) => metricTile(name, ok
             ? statusBadge('good', 'OK') : statusBadge('critical', 'FAULT'))));
 
-        section(container, 'Stored Session Data', [
+        const sessionTiles = [
             metricTile('Sessions on Device', String(sessionStats.total_sessions ?? 0)),
             metricTile('Data Available', sessionStats.data_available
                 ? statusBadge('good', 'YES') : statusBadge('critical', 'NO')),
             metricTile('Export', sessionStats.export_active ? 'Active' : 'Idle'),
-        ]);
+        ];
+        if (sessionStats.logging_enabled !== undefined) {
+            sessionTiles.unshift(metricTile('Grind Logging', sessionStats.logging_enabled
+                ? statusBadge('good', 'ON') : statusBadge('warning', 'OFF'),
+                sessionStats.logging_enabled ? null : 'grinds are not being recorded'));
+        }
+        if (sessionStats.fs_total_kb) {
+            const usedPct = (sessionStats.fs_used_kb / sessionStats.fs_total_kb) * 100;
+            sessionTiles.push(metricTile('Session Storage',
+                `${usedPct.toFixed(0)}%`,
+                `${sessionStats.fs_used_kb.toLocaleString()} / ${sessionStats.fs_total_kb.toLocaleString()} KB`));
+        }
+        section(container, 'Stored Session Data', sessionTiles);
     } else {
         container.appendChild(el('div', {
             class: 'status warning',

@@ -22,6 +22,7 @@ const BLE_SYSINFO_PERFORMANCE_CHAR_UUID = '99001122-ccdd-eeff-1122-334455667788'
 const BLE_SYSINFO_HARDWARE_CHAR_UUID = '00112233-ddee-ff11-2233-445566778899';
 const BLE_SYSINFO_SESSIONS_CHAR_UUID = '11223344-eeff-1122-3344-556677889900';
 const BLE_SYSINFO_DIAGNOSTICS_CHAR_UUID = '22334455-ff00-1111-2222-334455667788';
+const BLE_SYSINFO_TIMESYNC_CHAR_UUID = '33445566-ff00-1111-2222-334455667788';
 const BLE_DEBUG_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 const BLE_DEBUG_TX_CHAR_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 
@@ -100,6 +101,26 @@ export class GrinderDataClient {
         this.statusChar.addEventListener('characteristicvaluechanged', (event) => {
             this._onStatusUpdate(event.target.value);
         });
+
+        await this.syncDeviceTime();
+    }
+
+    // Writes the wall clock to the grinder: [epoch_utc:u32 LE][tz_offset_min:i16 LE].
+    // The device has no RTC battery; sessions started after this sync carry
+    // real epoch timestamps. Best-effort — older firmware lacks the
+    // characteristic and is left on uptime timestamps.
+    async syncDeviceTime() {
+        try {
+            const service = await this.server.getPrimaryService(BLE_SYSINFO_SERVICE_UUID);
+            const characteristic = await service.getCharacteristic(BLE_SYSINFO_TIMESYNC_CHAR_UUID);
+            const payload = new ArrayBuffer(6);
+            const view = new DataView(payload);
+            view.setUint32(0, Math.floor(Date.now() / 1000), true);
+            view.setInt16(4, -new Date().getTimezoneOffset(), true);
+            await characteristic.writeValue(payload);
+        } catch (error) {
+            console.log('Device clock sync unavailable:', error.message);
+        }
     }
 
     disconnect() {
