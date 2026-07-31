@@ -69,8 +69,8 @@ void ReadyScreen::update_clock() {
         lv_obj_add_flag(clock_label, LV_OBJ_FLAG_HIDDEN);
         return;
     }
-    char text[8];
-    TimeSync::format_local_time(text, sizeof(text), "%H:%M");
+    char text[sizeof(clock_text)];
+    TimeSync::format_local_clock(text, sizeof(text));
     if (strcmp(text, clock_text) != 0) {
         strncpy(clock_text, text, sizeof(clock_text) - 1);
         clock_text[sizeof(clock_text) - 1] = '\0';

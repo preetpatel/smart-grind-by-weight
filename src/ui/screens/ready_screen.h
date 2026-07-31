@@ -11,7 +11,7 @@ private:
     lv_obj_t* weight_labels[3];
     lv_obj_t* menu_tab;
     lv_obj_t* clock_label;
-    char clock_text[8];
+    char clock_text[12];  // "12:34 PM" plus slack
     bool visible;
 
 public:
@@ -19,7 +19,7 @@ public:
     void show();
     void hide();
     void update_profile_values(const float values[3], GrindMode mode);
-    void update_clock();  // Shows HH:MM once the clock has synced over BLE
+    void update_clock();  // Shows the wall clock once it has synced over BLE or WiFi
     void set_active_tab(int tab);
     void set_profile_long_press_handler(lv_event_cb_t handler);
     

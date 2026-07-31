@@ -6,8 +6,40 @@
 #include "../ui_helpers.h"
 #include "../ui_manager.h"
 
+namespace {
+    constexpr lv_coord_t kStatusRowMarginRight = 10;  // Matches the ready screen clock inset
+    constexpr lv_coord_t kStatusRowMarginTop = 10;
+    constexpr lv_coord_t kStatusIconGap = 8;          // Snug enough to read as one cluster
+}
+
 StatusIndicatorController::StatusIndicatorController(UIManager* manager)
     : ui_manager_(manager) {}
+
+lv_obj_t* StatusIndicatorController::create_status_row() {
+    lv_obj_t* row = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(row, LV_ALIGN_TOP_RIGHT, -kStatusRowMarginRight, kStatusRowMarginTop);
+    lv_obj_set_style_bg_opa(row, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(row, 0, 0);
+    lv_obj_set_style_pad_all(row, 0, 0);
+    lv_obj_set_style_pad_gap(row, kStatusIconGap, 0);
+    lv_obj_set_layout(row, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    return row;
+}
+
+lv_obj_t* StatusIndicatorController::create_status_icon(const char* symbol, uint32_t color) {
+    lv_obj_t* icon = lv_label_create(status_row_);
+    lv_label_set_text(icon, symbol);
+    lv_obj_set_style_text_font(icon, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(icon, lv_color_hex(color), 0);
+    lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    return icon;
+}
 
 void StatusIndicatorController::build() {
     if (!ui_manager_) {
@@ -18,33 +50,13 @@ void StatusIndicatorController::build() {
         return;
     }
 
-    // Create BLE status icon (rightmost)
-    ble_status_icon_ = lv_label_create(lv_scr_act());
-    lv_label_set_text(ble_status_icon_, LV_SYMBOL_BLUETOOTH);
-    lv_obj_set_style_text_font(ble_status_icon_, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(ble_status_icon_, lv_color_hex(THEME_COLOR_ACCENT), 0);
-    lv_obj_align(ble_status_icon_, LV_ALIGN_TOP_RIGHT, -10, 10);
-    lv_obj_add_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(ble_status_icon_, LV_OBJ_FLAG_CLICKABLE);
+    status_row_ = create_status_row();
 
-    // Create warning icon (left of BLE icon)
-    warning_icon_ = lv_label_create(lv_scr_act());
-    lv_label_set_text(warning_icon_, LV_SYMBOL_WARNING);
-    lv_obj_set_style_text_font(warning_icon_, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(warning_icon_, lv_color_hex(THEME_COLOR_WARNING), 0);
-    lv_obj_align(warning_icon_, LV_ALIGN_TOP_RIGHT, -45, 10);
-    lv_obj_add_flag(warning_icon_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(warning_icon_, LV_OBJ_FLAG_CLICKABLE);
-
-    // Create WiFi status icon (left of the warning icon). Only visible for
-    // the few seconds per day the radio is actually up.
-    wifi_status_icon_ = lv_label_create(lv_scr_act());
-    lv_label_set_text(wifi_status_icon_, LV_SYMBOL_WIFI);
-    lv_obj_set_style_text_font(wifi_status_icon_, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(wifi_status_icon_, lv_color_hex(THEME_COLOR_ACCENT), 0);
-    lv_obj_align(wifi_status_icon_, LV_ALIGN_TOP_RIGHT, -80, 10);
-    lv_obj_add_flag(wifi_status_icon_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(wifi_status_icon_, LV_OBJ_FLAG_CLICKABLE);
+    // Laid out left to right in creation order: WiFi, warning, BLE. The WiFi
+    // icon only shows for the few seconds per day the radio is actually up.
+    wifi_status_icon_ = create_status_icon(LV_SYMBOL_WIFI, THEME_COLOR_ACCENT);
+    warning_icon_ = create_status_icon(LV_SYMBOL_WARNING, THEME_COLOR_WARNING);
+    ble_status_icon_ = create_status_icon(LV_SYMBOL_BLUETOOTH, THEME_COLOR_ACCENT);
 
     update_ble_status_icon();
     update_warning_icon();

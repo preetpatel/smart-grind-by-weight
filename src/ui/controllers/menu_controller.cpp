@@ -13,6 +13,7 @@
 #include "../../logging/grind_logging.h"
 #include "../../system/diagnostics_controller.h"
 #include "../../system/statistics_manager.h"
+#include "../../system/time_sync.h"
 #include "../../system/wifi_service.h"
 #include "../components/blocking_overlay.h"
 #include "../components/ui_operations.h"
@@ -63,6 +64,7 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_NORMAL_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_normal_slider_released(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER, [this](lv_event_t*) { handle_brightness_screensaver_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_screensaver_slider_released(); });
+    EventBridgeLVGL::register_handler(ET::CLOCK_24H_TOGGLE, [this](lv_event_t*) { handle_clock_24h_toggle(); });
 
     // Note: Event registration for menu widgets is done in the page creation functions
     // (menu_screen.cpp) because those widgets do not exist yet when this runs. The menu is
@@ -681,6 +683,25 @@ void MenuUIController::handle_brightness_screensaver_slider_released() {
     float normal = get_normal_brightness();
     ui_manager_->get_hardware_manager()->get_display()->set_brightness(normal);
     LOG_DEBUG_PRINTF("Touch released - restored normal brightness to %.2f\n", normal);
+}
+
+void MenuUIController::handle_clock_24h_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_clock_24h_toggle();
+    if (!toggle) return;
+
+    bool use_24h = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    TimeSync::set_use_24h(use_24h);
+
+    // The System Info page shows the same clock; refresh it so the change is
+    // visible immediately rather than at the next status refresh tick.
+    auto* sensor = ui_manager_->hardware_manager ? ui_manager_->hardware_manager->get_weight_sensor() : nullptr;
+    if (ui_manager_->menu_screen.is_info_page_active()) {
+        ui_manager_->menu_screen.update_info(sensor, millis(), ESP.getFreeHeap());
+    }
+
+    LOG_DEBUG_PRINTLN(use_24h ? "Clock set to 24-hour" : "Clock set to AM/PM");
 }
 
 void MenuUIController::perform_factory_reset() {

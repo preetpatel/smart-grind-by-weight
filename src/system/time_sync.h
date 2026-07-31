@@ -19,6 +19,9 @@
 //     fallback for devices never WiFi-provisioned).
 // Everything stored or exported stays in UTC epoch seconds either way.
 namespace TimeSync {
+    // Loads the persisted display preferences (12/24 hour clock). Call once at boot.
+    void init();
+
     void set_epoch(uint32_t epoch_utc_seconds, int16_t tz_offset_minutes);
 
     // Marks the clock synced after SNTP has already set the system time.
@@ -35,7 +38,17 @@ namespace TimeSync {
     uint32_t last_sync_epoch();  // Epoch recorded at the most recent sync, 0 if never
     int16_t tz_offset_minutes(); // Effective local-time offset (from TZ rule when set)
 
+    // Clock display style, persisted in the "clock" NVS namespace. Defaults to
+    // 12-hour (AM/PM); the toggle lives in Menu -> Settings -> Display.
+    void set_use_24h(bool use_24h);
+    bool use_24h();
+
     // Formats the current local time with strftime. Writes an empty string
     // when the clock has never been synced.
     void format_local_time(char* out, size_t len, const char* fmt);
+
+    // Formats the wall clock in the user's chosen style: "14:05" or "2:05 PM",
+    // optionally prefixed with the ISO date. Needs 9 bytes without the date,
+    // 20 with it. Writes an empty string when the clock has never been synced.
+    void format_local_clock(char* out, size_t len, bool include_date = false);
 }

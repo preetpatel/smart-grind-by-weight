@@ -5,6 +5,7 @@
 #include "hardware/hardware_manager.h"
 #include "system/state_machine.h"
 #include "system/statistics_manager.h"
+#include "system/time_sync.h"
 #include "system/wifi_service.h"
 #include "controllers/profile_controller.h"
 #include "controllers/grind_controller.h"
@@ -78,6 +79,10 @@ void setup() {
     }
     
     hardware_manager.init();
+
+    // Clock display style (12/24 hour) - needed before the first UI frame
+    TimeSync::init();
+
     profile_controller.init(hardware_manager.get_preferences());
     statistics_manager.init(hardware_manager.get_preferences());
     grind_controller.init(hardware_manager.get_load_cell(), hardware_manager.get_grinder(), hardware_manager.get_preferences());

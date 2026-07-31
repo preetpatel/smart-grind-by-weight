@@ -374,6 +374,10 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
     create_slider_row(parent, "Brightness", &brightness_normal_label, &brightness_normal_slider);
     create_slider_row(parent, "Screensaver", &brightness_screensaver_label, &brightness_screensaver_slider, lv_color_hex(THEME_COLOR_WARNING));
 
+    create_separator(parent, "Clock");
+    create_description_label(parent, "Show the time as 24-hour instead of AM/PM.");
+    create_toggle_row(parent, "24-Hour", &clock_24h_toggle);
+
     // Register events for the sliders (done here because widgets are created lazily)
     using ET = EventBridgeLVGL::EventType;
     if (brightness_normal_slider) {
@@ -387,6 +391,10 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::BRIGHTNESS_SCREENSAVER_SLIDER)));
         lv_obj_add_event_cb(brightness_screensaver_slider, EventBridgeLVGL::dispatch_event, LV_EVENT_RELEASED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::BRIGHTNESS_SCREENSAVER_SLIDER_RELEASED)));
+    }
+    if (clock_24h_toggle) {
+        lv_obj_add_event_cb(clock_24h_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::CLOCK_24H_TOGGLE)));
     }
 }
 
@@ -710,6 +718,7 @@ void MenuScreen::show() {
     update_brightness_sliders();
     update_bluetooth_startup_toggle();
     update_logging_toggle();
+    update_clock_format_toggle();
     update_grind_mode_toggles();
 
     LOG_BLE("[%lums MENU] Menu screen shown successfully\n", millis());
@@ -751,7 +760,7 @@ void MenuScreen::update_info(const WeightSensor* weight_sensor, unsigned long up
     // Wall clock, synced over BLE on client connect or over WiFi via SNTP
     if (TimeSync::is_synced()) {
         char time_text[32];
-        TimeSync::format_local_time(time_text, sizeof(time_text), "%Y-%m-%d %H:%M");
+        TimeSync::format_local_clock(time_text, sizeof(time_text), true);
         set_label_text_if_changed(time_label, time_text);
     } else {
         set_label_text_if_changed(time_label, "not synced");
@@ -1296,6 +1305,16 @@ void MenuScreen::update_logging_toggle() {
         lv_obj_add_state(logging_toggle, LV_STATE_CHECKED);
     } else {
         lv_obj_clear_state(logging_toggle, LV_STATE_CHECKED);
+    }
+}
+
+void MenuScreen::update_clock_format_toggle() {
+    if (!clock_24h_toggle) return;
+
+    if (TimeSync::use_24h()) {
+        lv_obj_add_state(clock_24h_toggle, LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(clock_24h_toggle, LV_STATE_CHECKED);
     }
 }
 

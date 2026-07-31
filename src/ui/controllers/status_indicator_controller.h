@@ -1,5 +1,6 @@
 #pragma once
 #include <lvgl.h>
+#include <cstdint>
 
 class UIManager;
 
@@ -20,7 +21,14 @@ private:
     void update_warning_icon();
     void update_wifi_status_icon();
 
+    // Transparent flex row pinned to the top-right corner. Hidden children are
+    // skipped by the flex layout, so the visible icons always sit shoulder to
+    // shoulder instead of leaving a gap where a hidden icon used to be.
+    lv_obj_t* create_status_row();
+    lv_obj_t* create_status_icon(const char* symbol, uint32_t color);
+
     UIManager* ui_manager_;
+    lv_obj_t* status_row_ = nullptr;
     lv_obj_t* ble_status_icon_ = nullptr;
     lv_obj_t* warning_icon_ = nullptr;
     lv_obj_t* wifi_status_icon_ = nullptr;

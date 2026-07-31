@@ -407,7 +407,8 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   |
     |   +-- Display
     |   |   |-- Normal brightness slider
-    |   |   \-- Screensaver brightness slider
+    |   |   |-- Screensaver brightness slider
+    |   |   \-- 24-Hour clock toggle (off = AM/PM, the default)
     |   |
     |   \-- Grind Settings
     |       |-- Swipe Gestures toggle (enable/disable vertical swipes)
