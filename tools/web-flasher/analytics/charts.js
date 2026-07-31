@@ -284,6 +284,74 @@ export function buildOverviewFigure(record, options) {
     return { traces, layout, config: { responsive: true, displaylogo: false } };
 }
 
+// Generic phase-detail chart (create_phase_chart port): weight + flow for a
+// measurement subset, with motor-on bands from the whole session and optional
+// reference lines and extra traces.
+export function buildPhaseFigure({
+    title, measurements, flowValues, fullMeasurements, events = [],
+    extraTraces = [], hlines = [],
+}) {
+    const timestamps = measurements.map((m) => m.timestamp_ms);
+    const traces = [
+        {
+            x: timestamps, y: measurements.map((m) => m.weight_grams),
+            mode: 'lines', name: 'Weight', line: { color: COLOR_WEIGHT, width: 2 },
+            hovertemplate: 'Weight: %{y:.3f}g<extra></extra>',
+        },
+        {
+            x: timestamps, y: flowValues,
+            mode: 'lines', name: 'Flow Rate', line: { color: COLOR_FLOW, width: 1.5 }, yaxis: 'y2',
+            hovertemplate: 'Flow: %{y:.2f}g/s<extra></extra>',
+        },
+    ];
+
+    const shapes = motorOnShapes(fullMeasurements);
+    const annotations = [];
+
+    for (const hline of hlines) {
+        shapes.push({
+            type: 'line', xref: 'paper', yref: 'y',
+            x0: 0, x1: 1, y0: hline.y, y1: hline.y,
+            line: { color: hline.color, width: 1.5, dash: 'dash' },
+        });
+        annotations.push({
+            xref: 'paper', yref: 'y', x: 0.99, y: hline.y,
+            text: hline.text, showarrow: false, yanchor: 'top',
+            font: { size: 11, color: hline.color },
+        });
+    }
+
+    const markers = eventMarkerLayers(events, measurements);
+    traces.push(...markers.traces, ...extraTraces);
+    shapes.push(...markers.shapes);
+    annotations.push(...markers.annotations);
+
+    const layout = {
+        title: { text: title, font: { size: 16 } },
+        xaxis: { title: { text: 'Time (milliseconds)' }, gridcolor: '#eef0f3', zeroline: false },
+        yaxis: { title: { text: 'Weight (grams)' }, gridcolor: '#eef0f3', zeroline: false },
+        yaxis2: { title: { text: 'Flow Rate (g/s)' }, overlaying: 'y', side: 'right', showgrid: false, zeroline: false },
+        hovermode: 'x unified',
+        legend: { yanchor: 'top', y: 0.99, xanchor: 'left', x: 0.01, bgcolor: 'rgba(255,255,255,0.7)' },
+        shapes,
+        annotations,
+        paper_bgcolor: '#ffffff',
+        plot_bgcolor: '#ffffff',
+        margin: { t: 50, r: 60, b: 50, l: 60 },
+    };
+
+    // Zoom to the phase window with a 5% (min 50ms) pad; the motor bands from
+    // the rest of the session stay outside the view.
+    if (timestamps.length) {
+        const xMin = Math.min(...timestamps);
+        const xMax = Math.max(...timestamps);
+        const pad = Math.max((xMax - xMin) * 0.05, 50);
+        layout.xaxis.range = [xMin - pad, xMax + pad];
+    }
+
+    return { traces, layout, config: { responsive: true, displaylogo: false } };
+}
+
 // Total active grind time in seconds: predictive start to the end of the last
 // settling phase, as in the Streamlit summary.
 export function grindTimeSeconds(events) {

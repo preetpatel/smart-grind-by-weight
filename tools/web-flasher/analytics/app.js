@@ -12,6 +12,7 @@ import {
     buildOverviewFigure, filterForDisplay, grindTimeSeconds,
     DEFAULT_HIDDEN_PHASES, PHASE_DESCRIPTIONS,
 } from './charts.js';
+import { renderPredictiveTab, renderPulseTab, renderControllerTab } from './views-single.js';
 
 const TOLERANCE_G = 0.03; // grind accuracy tolerance, as in the Streamlit report
 const PLOTLY_CDN = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
@@ -24,7 +25,15 @@ const viewOptions = {
     includeTaring: false,
     smoothingMs: 500,
     hiddenPhases: new Set(DEFAULT_HIDDEN_PHASES),
+    detailTab: 'overall',
 };
+
+const DETAIL_TABS = [
+    ['overall', 'Overall'],
+    ['predictive', 'Predictive Phase'],
+    ['pulse', 'Pulse Phase'],
+    ['controller', 'Controller'],
+];
 
 let plotlyPromise = null;
 function loadPlotly() {
@@ -224,22 +233,22 @@ function buildMetricsGrid(record) {
     return el('div', { class: 'metric-grid' }, tiles);
 }
 
-function buildChartControls(record, onChange) {
+// Shared controls (taring + smoothing) apply to every analysis tab; the
+// per-phase marker toggles are specific to the overview chart.
+function buildSharedControls(onChange) {
     const controls = el('div', { class: 'controls-row' });
 
-    // Include-taring toggle
     const taringLabel = el('label', { class: 'control' });
     const taringBox = el('input', { type: 'checkbox' });
     taringBox.checked = viewOptions.includeTaring;
     taringBox.addEventListener('change', () => {
         viewOptions.includeTaring = taringBox.checked;
-        onChange(true); // phase list may change
+        onChange();
     });
     taringLabel.appendChild(taringBox);
     taringLabel.appendChild(document.createTextNode(' Include taring'));
     controls.appendChild(taringLabel);
 
-    // Flow smoothing selector
     const smoothingLabel = el('label', { class: 'control', text: 'Flow smoothing ' });
     const smoothingSelect = el('select', {});
     for (const [label, value] of [['None', 0], ['100 ms', 100], ['500 ms', 500], ['1000 ms', 1000], ['1500 ms', 1500]]) {
@@ -249,12 +258,17 @@ function buildChartControls(record, onChange) {
     }
     smoothingSelect.addEventListener('change', () => {
         viewOptions.smoothingMs = Number(smoothingSelect.value);
-        onChange(false);
+        onChange();
     });
     smoothingLabel.appendChild(smoothingSelect);
     controls.appendChild(smoothingLabel);
 
-    // Per-phase event marker toggles
+    return controls;
+}
+
+function buildPhaseToggles(record, onChange) {
+    const controls = el('div', { class: 'controls-row' });
+    controls.appendChild(el('span', { class: 'control', text: 'Event markers:' }));
     const phases = [...new Set(filterForDisplay(record.events, viewOptions.includeTaring).map((e) => e.phase_name))].sort();
     for (const phase of phases) {
         const label = el('label', { class: 'control', title: PHASE_DESCRIPTIONS[phase] || phase });
@@ -263,33 +277,44 @@ function buildChartControls(record, onChange) {
         box.addEventListener('change', () => {
             if (box.checked) viewOptions.hiddenPhases.delete(phase);
             else viewOptions.hiddenPhases.add(phase);
-            onChange(false);
+            onChange();
         });
         label.appendChild(box);
         label.appendChild(document.createTextNode(` ${phase}`));
         controls.appendChild(label);
     }
-
     return controls;
 }
 
-async function renderChart(record) {
-    const chartDiv = $('analyticsChart');
-    if (!chartDiv) return;
+// Renders a Plotly figure into a div, loading the library on first use.
+async function plot(div, figure) {
     try {
         const Plotly = await loadPlotly();
-        const phases = [...new Set(filterForDisplay(record.events, viewOptions.includeTaring).map((e) => e.phase_name))];
-        const visiblePhases = phases.filter((p) => !viewOptions.hiddenPhases.has(p));
-        const { traces, layout, config } = buildOverviewFigure(record, {
-            includeTaring: viewOptions.includeTaring,
-            smoothingMs: viewOptions.smoothingMs,
-            visiblePhases,
-        });
-        await Plotly.react(chartDiv, traces, layout, config);
+        await Plotly.react(div, figure.traces, figure.layout, figure.config);
     } catch (error) {
-        chartDiv.textContent = `Chart unavailable: ${error.message}`;
+        div.textContent = `Chart unavailable: ${error.message}`;
         console.error('Chart render error:', error);
     }
+}
+
+function renderOverviewChart(record) {
+    const chartDiv = $('analyticsChart');
+    if (!chartDiv) return;
+    const phases = [...new Set(filterForDisplay(record.events, viewOptions.includeTaring).map((e) => e.phase_name))];
+    const visiblePhases = phases.filter((p) => !viewOptions.hiddenPhases.has(p));
+    plot(chartDiv, buildOverviewFigure(record, {
+        includeTaring: viewOptions.includeTaring,
+        smoothingMs: viewOptions.smoothingMs,
+        visiblePhases,
+    }));
+}
+
+function renderOverallTab(container, record) {
+    container.appendChild(buildMetricsGrid(record));
+    container.appendChild(buildPhaseToggles(record, () => renderOverviewChart(record)));
+    container.appendChild(el('div', { id: 'analyticsChart', class: 'chart-container' }));
+    container.appendChild(buildRawDataSection(record));
+    renderOverviewChart(record);
 }
 
 function renderDetail() {
@@ -299,17 +324,40 @@ function renderDetail() {
     const record = records.find((r) => r.session_id === selectedSessionId);
     if (!record) return;
 
-    const rerender = (controlsChanged) => {
-        if (controlsChanged) renderDetail();
-        else renderChart(record);
-    };
+    container.appendChild(el('h3', { text: `Session #${record.session_id} — Analysis` }));
+    container.appendChild(buildSharedControls(renderDetail));
 
-    container.appendChild(el('h3', { text: `Session #${record.session_id} — Overall Analysis` }));
-    container.appendChild(buildMetricsGrid(record));
-    container.appendChild(buildChartControls(record, rerender));
-    container.appendChild(el('div', { id: 'analyticsChart', class: 'chart-container' }));
+    // Sub-tab bar mirroring the Streamlit report's tab layout
+    const tabBar = el('div', { class: 'sub-tabs' });
+    for (const [key, label] of DETAIL_TABS) {
+        const button = el('button', { class: `sub-tab ${viewOptions.detailTab === key ? 'active' : ''}`, text: label });
+        button.addEventListener('click', () => {
+            viewOptions.detailTab = key;
+            renderDetail();
+        });
+        tabBar.appendChild(button);
+    }
+    container.appendChild(tabBar);
 
-    // Raw data lives in a collapsed section below the analysis.
+    const content = el('div', {});
+    container.appendChild(content);
+
+    switch (viewOptions.detailTab) {
+        case 'predictive':
+            renderPredictiveTab(content, record, viewOptions, plot);
+            break;
+        case 'pulse':
+            renderPulseTab(content, record, viewOptions, plot);
+            break;
+        case 'controller':
+            renderControllerTab(content, record, viewOptions);
+            break;
+        default:
+            renderOverallTab(content, record);
+    }
+}
+
+function buildRawDataSection(record) {
     const rawDetails = el('details', {}, [el('summary', { text: 'Raw data for this session' })]);
     const sessionRows = Object.entries(record.session).map(([key, value]) => el('tr', {}, [
         el('th', { text: key }),
@@ -331,9 +379,7 @@ function renderDetail() {
             'motor_is_on', 'phase_name', 'motor_stop_target_weight'];
         rawDetails.appendChild(buildRawTable(record.measurements, measurementColumns));
     }
-    container.appendChild(rawDetails);
-
-    renderChart(record);
+    return rawDetails;
 }
 
 async function pullData() {

@@ -40,6 +40,20 @@ export function interpolateAt(x, xs, ys) {
     return ys[lo] + t * (ys[hi] - ys[lo]);
 }
 
+// Downsample to fixed time bins keeping the last sample per bin, matching
+// pandas `resample('100ms').last().dropna()` with the bin's left edge as the
+// resulting timestamp.
+export function resampleLast(measurements, binMs = 100) {
+    const bins = new Map();
+    for (const m of measurements) {
+        const bin = Math.floor(m.timestamp_ms / binMs) * binMs;
+        bins.set(bin, m); // measurements arrive time-sorted, so last write wins
+    }
+    return [...bins.entries()]
+        .sort((a, b) => a[0] - b[0])
+        .map(([bin, m]) => ({ ...m, timestamp_ms: bin }));
+}
+
 export function groupBy(items, keyFn) {
     const groups = new Map();
     for (const item of items) {
