@@ -53,8 +53,8 @@ float WeightGrindStrategy::get_clamped_pulse_flow_rate(const GrindController& co
 
     if (flow_rate < GRIND_FLOW_RATE_MIN_SANE_GPS) {
         flow_rate = GRIND_PULSE_FLOW_RATE_FALLBACK_GPS;
-    } else if (flow_rate > GRIND_FLOW_RATE_MAX_SANE_GPS) {
-        flow_rate = GRIND_FLOW_RATE_MAX_SANE_GPS;
+    } else if (flow_rate > GRIND_PULSE_FLOW_MAX_SANE_GPS) {
+        flow_rate = GRIND_PULSE_FLOW_MAX_SANE_GPS;
     }
 
     return flow_rate;
@@ -114,7 +114,11 @@ void WeightGrindStrategy::run_predictive_phase(GrindController& controller,
         loop_data.current_weight >= (controller.target_weight - controller.motor_stop_target_weight)) {
         controller.grinder->stop();
         controller.predictive_end_weight = loop_data.current_weight;
-        controller.pulse_flow_rate = controller.weight_sensor->get_flow_rate_95th_percentile(2500);
+        // Seed the first pulse with the learned gain: the steady-state percentile
+        // under-predicts pulse yield (spin-down coast), and in-session feedback
+        // can only correct from the second pulse on.
+        controller.pulse_flow_base = controller.weight_sensor->get_flow_rate_95th_percentile(2500);
+        controller.pulse_flow_rate = controller.pulse_flow_base * controller.get_pulse_gain();
         controller.switch_phase(GrindPhase::PULSE_SETTLING, loop_data);
     }
 }
@@ -142,12 +146,13 @@ void WeightGrindStrategy::run_pulse_decision_phase(GrindController& controller,
                                                         prev_pulse.duration_ms,
                                                         controller.get_motor_response_latency(),
                                                         GRIND_FLOW_RATE_MIN_SANE_GPS,
-                                                        GRIND_FLOW_RATE_MAX_SANE_GPS,
+                                                        GRIND_PULSE_FLOW_MAX_SANE_GPS,
                                                         &measured_flow)) {
             LOG_BLE("[PULSE_DECISION] Pulse #%d delivered %.3fg -> flow %.2fg/s (was %.2fg/s)\n",
                     controller.pulse_attempts, settled_weight - prev_pulse.start_weight,
                     measured_flow, controller.pulse_flow_rate);
             controller.pulse_flow_rate = measured_flow;
+            controller.observe_pulse_gain_sample(measured_flow);
         }
     }
 

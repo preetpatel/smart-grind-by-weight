@@ -1,5 +1,6 @@
 #include "grind_controller.h"
 #include "grind_events.h"
+#include "pulse_flow_feedback.h"
 #include "../hardware/circular_buffer_math/circular_buffer_math.h"
 #include "../config/constants.h"
 #include "../system/diagnostics_controller.h"
@@ -102,6 +103,7 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
 
     // Load motor response latency from preferences
     load_motor_latency();
+    load_pulse_gain();
 }
 
 void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
@@ -156,6 +158,7 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
 
     // Initialize dynamic pulse algorithm variables
     pulse_flow_rate = 0.0f;
+    pulse_flow_base = 0.0f;
     
     // Initialize loop counters
     current_phase_loop_count = 0;
@@ -805,6 +808,7 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
             if (preferences) {
                 preferences->putULong64(PREF_KEY_LAST_GRIND_RUNTIME, last_purge_runtime_ms);
             }
+            persist_pulse_gain_if_dirty();
         }
 
         event_data.event = UIGrindEvent::COMPLETED;
@@ -1180,4 +1184,49 @@ void GrindController::set_motor_response_latency(float value) {
 
     motor_response_latency_ms = value;
     LOG_BLE("Motor latency: Set to %.1fms (not saved to NVS)\n", value);
+}
+
+//==============================================================================
+// Cross-Session Pulse Gain Learning
+//==============================================================================
+
+void GrindController::observe_pulse_gain_sample(float measured_flow_gps) {
+    float updated = PulseFlowFeedback::updated_gain_ewma(pulse_gain_ewma,
+                                                         measured_flow_gps,
+                                                         pulse_flow_base,
+                                                         GRIND_PULSE_GAIN_EWMA_ALPHA,
+                                                         GRIND_PULSE_GAIN_MIN,
+                                                         GRIND_PULSE_GAIN_MAX);
+    if (updated != pulse_gain_ewma) {
+        LOG_BLE("Pulse gain: %.3f -> %.3f (measured %.2fg/s vs base %.2fg/s)\n",
+                pulse_gain_ewma, updated, measured_flow_gps, pulse_flow_base);
+        pulse_gain_ewma = updated;
+        pulse_gain_dirty = true;
+    }
+}
+
+void GrindController::load_pulse_gain() {
+    pulse_gain_ewma = GRIND_PULSE_GAIN_DEFAULT;
+    if (preferences) {
+        pulse_gain_ewma = preferences->getFloat("pulse_gain", GRIND_PULSE_GAIN_DEFAULT);
+    }
+    if (pulse_gain_ewma < GRIND_PULSE_GAIN_MIN || pulse_gain_ewma > GRIND_PULSE_GAIN_MAX) {
+        LOG_BLE("Warning: Invalid pulse gain %.3f in preferences, using default %.3f\n",
+                pulse_gain_ewma, GRIND_PULSE_GAIN_DEFAULT);
+        pulse_gain_ewma = GRIND_PULSE_GAIN_DEFAULT;
+    }
+    pulse_gain_dirty = false;
+    LOG_BLE("Pulse gain: Loaded %.3f\n", pulse_gain_ewma);
+}
+
+void GrindController::persist_pulse_gain_if_dirty() {
+    if (!pulse_gain_dirty || !preferences) {
+        return;
+    }
+    if (preferences->putFloat("pulse_gain", pulse_gain_ewma) == 0) {
+        LOG_BLE("ERROR: Failed to save pulse gain to NVS\n");
+        return;
+    }
+    pulse_gain_dirty = false;
+    LOG_BLE("Pulse gain: Saved %.3f to NVS\n", pulse_gain_ewma);
 }

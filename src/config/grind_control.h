@@ -62,8 +62,21 @@ enum class GrinderPurgeMode {
 // FLOW RATE PARAMETERS
 //------------------------------------------------------------------------------
 #define GRIND_FLOW_RATE_MIN_SANE_GPS 1.0f                                         // Minimum reasonable flow rate
-#define GRIND_FLOW_RATE_MAX_SANE_GPS 3.0f                                         // Maximum reasonable flow rate
+#define GRIND_FLOW_RATE_MAX_SANE_GPS 3.0f                                         // Maximum reasonable steady-state flow rate
 #define GRIND_PULSE_FLOW_RATE_FALLBACK_GPS 1.5f                                   // Fallback pulse flow rate when measured rate is invalid or too low
+#define GRIND_PULSE_FLOW_MAX_SANE_GPS 4.0f                                        // Ceiling for EFFECTIVE pulse flow (yield incl. spin-down coast / productive ms). Legitimately exceeds the steady-state max - logged pulses ran up to ~1.4x steady flow - so pulse measurements and the seeded estimate clamp here, not at GRIND_FLOW_RATE_MAX_SANE_GPS
+
+// Cross-session pulse gain learning. The first pulse of a session used to rely on
+// the steady-state 95th-percentile flow alone, which under-predicts pulse yield
+// (spin-down coast is unmodeled) - every logged first pulse over-delivered by
+// 8-40%. The gain is the dimensionless ratio (effective pulse flow / steady-state
+// estimate), learned as an EWMA and persisted to NVS ("pulse_gain"), so it
+// survives bean changes (which shift absolute flow but not the ratio) and seeds
+// the first pulse of every grind.
+#define GRIND_PULSE_GAIN_DEFAULT 1.0f                                             // No correction until measurements arrive
+#define GRIND_PULSE_GAIN_EWMA_ALPHA 0.2f                                          // Blend weight per accepted measurement (~5-grind memory; one outlier moves the estimate at most 20% of its clamped deviation)
+#define GRIND_PULSE_GAIN_MIN 0.5f                                                 // Sample and estimate clamp - bounds outlier influence
+#define GRIND_PULSE_GAIN_MAX 2.0f
 
 //------------------------------------------------------------------------------
 // TIMING CONSTRAINTS (Hardware-dependent)

@@ -34,4 +34,27 @@ inline bool measured_flow_from_pulse(float delivered_g,
     return true;
 }
 
+// Folds one measured-vs-predicted flow observation into the cross-session pulse
+// gain EWMA. The sample (measured / base) is clamped to [min_gain, max_gain]
+// BEFORE blending, so a wild observation can shift the estimate by at most
+// alpha * (clamp bound - current); the estimate itself stays inside the same
+// bounds by induction. Returns the current gain unchanged when base is not a
+// usable reference.
+inline float updated_gain_ewma(float current_gain,
+                               float measured_flow_gps,
+                               float base_flow_gps,
+                               float alpha,
+                               float min_gain,
+                               float max_gain) {
+    if (base_flow_gps <= 0.0f) {
+        return current_gain;
+    }
+
+    float sample = measured_flow_gps / base_flow_gps;
+    if (sample < min_gain) sample = min_gain;
+    if (sample > max_gain) sample = max_gain;
+
+    return current_gain + alpha * (sample - current_gain);
+}
+
 }  // namespace PulseFlowFeedback

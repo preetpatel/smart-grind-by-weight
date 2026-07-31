@@ -123,6 +123,7 @@ private:
     bool flow_start_confirmed;
     // Dynamic pulse algorithm variables
     volatile float pulse_flow_rate;    // Thread-safe for Core 0 access
+    float pulse_flow_base;             // Steady-state 95th-percentile flow at predictive stop; reference for pulse gain samples
     
     // Loop counter variables for performance tracking
     volatile uint16_t current_phase_loop_count;  // Thread-safe for Core 0 access
@@ -176,6 +177,10 @@ private:
 
     // Motor response latency - runtime configurable
     float motor_response_latency_ms;
+
+    // Cross-session pulse gain learning (persisted EWMA, see grind_control.h)
+    float pulse_gain_ewma = GRIND_PULSE_GAIN_DEFAULT;
+    bool pulse_gain_dirty = false;
 
     // Grind freshness tracking
     bool grinder_purged_since_boot;      // Tracks if grinder has been used since boot (RAM only)
@@ -260,6 +265,12 @@ public:
     float get_max_pulse_duration() const { return motor_response_latency_ms + GRIND_MOTOR_MAX_PULSE_DURATION_MS; }
     void load_motor_latency();
     void save_motor_latency(float value);
+
+    // Cross-session pulse gain (EWMA of effective pulse flow / steady-state estimate)
+    float get_pulse_gain() const { return pulse_gain_ewma; }
+    void observe_pulse_gain_sample(float measured_flow_gps);
+    void load_pulse_gain();
+    void persist_pulse_gain_if_dirty();
 
     // Grind freshness accessors
     bool get_grinder_purged_since_boot() const { return grinder_purged_since_boot; }

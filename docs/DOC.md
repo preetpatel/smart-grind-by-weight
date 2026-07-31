@@ -584,6 +584,10 @@ The system uses a **zero-shot learning algorithm** requiring no prior knowledge 
    - Closed-loop flow feedback: each pulse's settled yield re-derives the flow
      estimate for the next pulse (sanity-clamped), so a mis-estimated rate is
      corrected after one pulse instead of persisting all session
+   - Cross-session pulse gain: the ratio of measured to predicted pulse flow is
+     learned as a slow EWMA (~5-grind memory, clamped to 0.5-2.0, persisted in
+     NVS) and seeds the first pulse of every grind - the ratio is dimensionless,
+     so it survives bean and grind-setting changes that shift absolute flow
    - Bounded pulses respect hardware-specific motor response latency
    - Pulses range from motor latency minimum to latency + 225ms maximum
    - Mechanical instability detection (3+ sudden weight drops triggers diagnostic)
