@@ -395,6 +395,14 @@ void BluetoothManager::handle() {
         timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
     }
     
+    // A client can die mid-transfer without dropping the link (failed GATT
+    // write, browser tab closed). Only a disconnect aborts the OTA otherwise,
+    // so the hardware tasks would stay suspended indefinitely.
+    if (ota_handler.check_stalled_transfer()) {
+        log("Bluetooth OTA: Transfer stalled - update aborted\n");
+        set_ota_status(BLE_OTA_ERROR);
+    }
+
     // Send a queued file list from this task, where indication ACKs can be
     // awaited without blocking the NimBLE host task (see the command handler).
     if (device_connected && file_list_pending) {

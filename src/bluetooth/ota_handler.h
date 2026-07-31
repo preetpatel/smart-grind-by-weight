@@ -52,6 +52,7 @@ private:
     bool ota_in_progress;
     uint32_t patch_size;
     uint32_t received_size;
+    unsigned long last_chunk_time_ms;
     BLEOTAStatus current_status;
     String current_firmware_build_number;
     bool is_full_update;
@@ -108,6 +109,14 @@ public:
      * Abort OTA update
      */
     void abort_ota();
+
+    /**
+     * Abort a transfer that has gone quiet while the BLE link is still up.
+     * Without this an interrupted client leaves the hardware tasks suspended
+     * indefinitely, since only a disconnect aborts the update.
+     * @return true if a stalled transfer was aborted by this call
+     */
+    bool check_stalled_transfer();
     
     /**
      * Get current OTA status

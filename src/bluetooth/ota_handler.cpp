@@ -11,6 +11,7 @@ OTAHandler::OTAHandler()
     : ota_in_progress(false)
     , patch_size(0)
     , received_size(0)
+    , last_chunk_time_ms(0)
     , current_status(BLE_OTA_IDLE)
     , current_firmware_build_number("")
     , is_full_update(false)
@@ -159,6 +160,7 @@ bool OTAHandler::start_ota(uint32_t size, const String& expected_build_number, b
     LOG_OTA_DEBUG("start_update() SUCCESS\n");
     
     ota_in_progress = true;
+    last_chunk_time_ms = millis();
     current_status = BLE_OTA_RECEIVING;
     LOG_OTA_DEBUG("OTA started successfully - status=BLE_OTA_RECEIVING\n");
     return true;
@@ -177,7 +179,8 @@ bool OTAHandler::process_data_chunk(const uint8_t* data, size_t size) {
     }
     
     received_size += size;
-    
+    last_chunk_time_ms = millis();
+
     // Progress logging every 16KB for better visibility, plus at start and end
     if (received_size % 16384 == 0 || received_size == size || received_size == patch_size) {
         LOG_BLE("OTA: Transfer %lu KB / %lu KB (%.1f%%)\n", 
@@ -274,6 +277,21 @@ void OTAHandler::abort_ota() {
         LOG_BLE("OTA: Resuming hardware tasks after abort\n");
         task_manager.resume_hardware_tasks();
     }
+}
+
+bool OTAHandler::check_stalled_transfer() {
+    if (!ota_in_progress) {
+        return false;
+    }
+
+    if (millis() - last_chunk_time_ms < BLE_OTA_STALL_TIMEOUT_MS) {
+        return false;
+    }
+
+    LOG_BLE("OTA: No data for %lu ms at %.1f%% - aborting stalled transfer\n",
+                 (unsigned long)(millis() - last_chunk_time_ms), get_progress());
+    abort_ota();
+    return true;
 }
 
 float OTAHandler::get_progress() const {

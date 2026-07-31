@@ -23,12 +23,14 @@ public:
 
 private:
     void handle_failure_acknowledged();
+    void end_ota_ui();
     void start_data_export_ui();
     void poll_data_export();
     void stop_data_export_ui();
     void clear_failure_info();
 
     UIManager* ui_manager_;
+    bool ota_active_;
     bool data_export_active_;
     char expected_build_[16];
 };

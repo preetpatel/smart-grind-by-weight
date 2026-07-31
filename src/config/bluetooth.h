@@ -60,6 +60,7 @@
 //------------------------------------------------------------------------------
 #define BLE_AUTO_DISABLE_TIMEOUT_MS (30 * 60 * 1000)                          // Auto-disable BLE after inactivity
 #define BLE_BOOTUP_AUTO_DISABLE_TIMEOUT_MS (5 * 60 * 1000)                    // Auto-disable BLE after bootup period
+#define BLE_OTA_STALL_TIMEOUT_MS (30 * 1000)                                   // Abort an OTA whose client stopped sending chunks (link still up)
 
 
 //------------------------------------------------------------------------------

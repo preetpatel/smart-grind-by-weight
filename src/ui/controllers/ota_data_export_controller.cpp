@@ -6,7 +6,7 @@
 #include "../ui_manager.h"
 
 OtaDataExportController::OtaDataExportController(UIManager* manager)
-    : ui_manager_(manager), data_export_active_(false) {
+    : ui_manager_(manager), ota_active_(false), data_export_active_(false) {
     expected_build_[0] = '\0';
 }
 
@@ -35,13 +35,22 @@ bool OtaDataExportController::update() {
     auto* bluetooth = ui_manager_->bluetooth_manager;
 
     if (bluetooth->is_updating()) {
-        if (!ui_manager_->state_machine->is_state(UIState::OTA_UPDATE)) {
+        if (!ota_active_) {
+            ota_active_ = true;
             ui_manager_->ota_screen.show_ota_mode();
             ui_manager_->switch_to_state(UIState::OTA_UPDATE);
         } else {
             int progress = static_cast<int>(bluetooth->get_ota_progress());
             ui_manager_->ota_screen.update_progress(progress);
         }
+        return true;
+    }
+
+    if (ota_active_) {
+        // The transfer ended without the device rebooting, so it was aborted
+        // (disconnect, stall, or a failed finalize). Leave the progress screen
+        // instead of freezing at the last percentage.
+        end_ota_ui();
         return true;
     }
 
@@ -112,6 +121,24 @@ void OtaDataExportController::handle_failure_acknowledged() {
     ui_manager_->ota_update_failed_screen.hide();
     clear_failure_info();
     ui_manager_->switch_to_state(UIState::READY);
+}
+
+void OtaDataExportController::end_ota_ui() {
+    ota_active_ = false;
+
+    if (!ui_manager_ || !ui_manager_->state_machine) {
+        return;
+    }
+
+    // Only take over the screen if the OTA progress view is still the one up;
+    // a post-boot failure warning or any user navigation wins.
+    if (!ui_manager_->state_machine->is_state(UIState::OTA_UPDATE)) {
+        return;
+    }
+
+    Serial.printf("UI: OTA ended without restart - showing failure screen\n");
+    clear_failure_info();
+    ui_manager_->switch_to_state(UIState::OTA_UPDATE_FAILED);
 }
 
 void OtaDataExportController::start_data_export_ui() {
