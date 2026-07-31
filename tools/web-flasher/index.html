@@ -636,6 +636,7 @@
         <div class="tabs">
             <button class="tab active" onclick="showTab('ota')">OTA Update</button>
             <button class="tab" onclick="showTab('initial')">Initial Setup</button>
+            <button class="tab" onclick="showTab('wifi')">WiFi Setup</button>
             <button class="tab" onclick="showTab('diagnostics')">Diagnostics</button>
             <button class="tab" onclick="showTab('analytics')">Analytics</button>
         </div>
@@ -700,6 +701,37 @@
             </div>
         </div>
 
+        <!-- WiFi Setup Tab -->
+        <div id="wifiTab" class="tab-content">
+            <div class="form-stack">
+                <h2>WiFi time sync</h2>
+                <p class="lede-line">The grinder uses your home WiFi only to sync its clock (a few seconds a day, radio off otherwise). The clock then survives power loss, and daylight-saving changes are handled on the grinder using your timezone's rules — detected below from this browser.</p>
+
+                <div class="form-group">
+                    <label for="wifiSsid">Network name (SSID)</label>
+                    <input type="text" id="wifiSsid" maxlength="32" autocomplete="off" placeholder="MyHomeWiFi">
+                </div>
+
+                <div class="form-group">
+                    <label for="wifiPassword">Password</label>
+                    <input type="password" id="wifiPassword" maxlength="64" autocomplete="off">
+                </div>
+
+                <div class="form-group">
+                    <label>Timezone (from this browser)</label>
+                    <div id="wifiTzDisplay" class="status info" style="display: block;">Detecting…</div>
+                </div>
+
+                <div class="btn-row">
+                    <button class="btn btn-accent" id="wifiConfigureBtn" onclick="configureWifi()">Connect &amp; Send to Grinder</button>
+                    <button class="btn-ghost" onclick="checkWifiStatus()">Check Status</button>
+                    <button class="btn-ghost danger" onclick="forgetWifi()">Forget WiFi</button>
+                </div>
+
+                <div id="wifiStatus" class="status info" style="display: none;"></div>
+            </div>
+        </div>
+
         <!-- Diagnostics Tab -->
         <div id="diagnosticsTab" class="tab-content">
             <div class="form-stack">
@@ -744,6 +776,7 @@
     </div>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+    <script src="tz-posix.js"></script>
     <script src="flasher.js"></script>
     <script type="module" src="analytics/app.js"></script>
 </body>

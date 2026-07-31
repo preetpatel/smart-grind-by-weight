@@ -6,6 +6,7 @@
 #include "../../logging/grind_logging.h"
 #include "../../system/statistics_manager.h"
 #include "../../system/time_sync.h"
+#include "../../system/wifi_service.h"
 #include "../../hardware/hardware_manager.h"
 #include "grinding_screen.h"
 #include "../event_bridge_lvgl.h"
@@ -129,6 +130,9 @@ void MenuScreen::create_menu_ui() {
     bluetooth_page = lv_menu_page_create(menu, "Bluetooth");
     create_bluetooth_page(bluetooth_page);
 
+    wifi_page = lv_menu_page_create(menu, "WiFi");
+    create_wifi_page(wifi_page);
+
     display_page = lv_menu_page_create(menu, "Display");
     create_display_page(display_page);
     
@@ -178,6 +182,9 @@ void MenuScreen::create_menu_ui() {
     create_separator(main_page, "Settings");
     lv_obj_t* bluetooth_item = create_menu_item(main_page, "Bluetooth");
     lv_menu_set_load_page_event(menu, bluetooth_item, bluetooth_page);
+
+    lv_obj_t* wifi_item = create_menu_item(main_page, "WiFi");
+    lv_menu_set_load_page_event(menu, wifi_item, wifi_page);
 
     lv_obj_t* display_item = create_menu_item(main_page, "Display");
     lv_menu_set_load_page_event(menu, display_item, display_page);
@@ -238,6 +245,8 @@ void MenuScreen::create_menu_ui() {
                 self->update_diagnostics(sensor);
             } else if (cur == self->bluetooth_page) {
                 self->update_ble_status();
+            } else if (cur == self->wifi_page) {
+                self->update_wifi_status();
             }
         }
     };
@@ -276,6 +285,7 @@ void MenuScreen::create_info_page(lv_obj_t* parent) {
     create_data_label(parent, "Uptime:", &uptime_label);
     create_data_label(parent, "RAM:", &memory_label);
     create_data_label(parent, "Time:", &time_label);
+    create_data_label(parent, "WiFi:", &info_wifi_label);
 }
 
 
@@ -314,6 +324,42 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
     if (ble_startup_toggle) {
         lv_obj_add_event_cb(ble_startup_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::BLE_STARTUP_TOGGLE)));
+    }
+}
+
+void MenuScreen::create_wifi_page(lv_obj_t* parent) {
+    lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
+
+    create_description_label(parent, "Syncs the clock over your home WiFi so it survives power loss.");
+
+    create_toggle_row(parent, "Enabled", &wifi_toggle);
+
+    // Shown instead of the status rows until credentials exist
+    wifi_setup_hint_label = create_description_label(parent,
+        "Set up WiFi from the web flasher's WiFi Setup tab.");
+
+    create_separator(parent, "Status");
+    create_data_label(parent, "Network:", &wifi_network_label);
+    create_data_label(parent, "Status:", &wifi_status_label);
+    create_data_label(parent, "Synced:", &wifi_sync_label);
+    create_data_label(parent, "Zone:", &wifi_tz_label, true);
+
+    wifi_forget_button = create_button(parent, "Forget Network", lv_color_hex(THEME_COLOR_WARNING));
+    lv_obj_set_style_margin_top(wifi_forget_button, 10, 0);
+
+    using ET = EventBridgeLVGL::EventType;
+    if (wifi_toggle) {
+        lv_obj_add_event_cb(wifi_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_TOGGLE)));
+    }
+    if (wifi_forget_button) {
+        lv_obj_add_event_cb(wifi_forget_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_FORGET)));
     }
 }
 
@@ -660,6 +706,7 @@ void MenuScreen::show() {
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
     visible = true;
     update_ble_status();
+    update_wifi_status();
     update_brightness_sliders();
     update_bluetooth_startup_toggle();
     update_logging_toggle();
@@ -701,13 +748,23 @@ void MenuScreen::update_info(const WeightSensor* weight_sensor, unsigned long up
 
     set_label_text_int(memory_label, free_heap / 1024, "kB");
 
-    // Wall clock, synced over BLE on every client connect
+    // Wall clock, synced over BLE on client connect or over WiFi via SNTP
     if (TimeSync::is_synced()) {
         char time_text[32];
         TimeSync::format_local_time(time_text, sizeof(time_text), "%Y-%m-%d %H:%M");
         set_label_text_if_changed(time_label, time_text);
     } else {
         set_label_text_if_changed(time_label, "not synced");
+    }
+
+    if (!wifi_service.is_configured()) {
+        set_label_text_if_changed(info_wifi_label, "not set up");
+    } else if (!wifi_service.is_enabled()) {
+        set_label_text_if_changed(info_wifi_label, "off");
+    } else {
+        char ssid[WIFI_MAX_SSID_LEN + 1];
+        wifi_service.get_ssid(ssid, sizeof(ssid));
+        set_label_text_if_changed(info_wifi_label, ssid);
     }
 }
 
@@ -915,6 +972,104 @@ void MenuScreen::update_ble_status() {
         lv_obj_add_flag(ble_status_label, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(ble_timer_label, LV_OBJ_FLAG_HIDDEN);
     }
+}
+
+void MenuScreen::update_wifi_status() {
+    if (!visible || !wifi_toggle) return;
+
+    if (wifi_service.is_enabled()) {
+        lv_obj_add_state(wifi_toggle, LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(wifi_toggle, LV_STATE_CHECKED);
+    }
+
+    bool configured = wifi_service.is_configured();
+
+    // The hint replaces the status block until credentials exist; hide its
+    // container (not just the label) so the reserved margins collapse too.
+    if (wifi_setup_hint_label) {
+        lv_obj_t* hint_container = lv_obj_get_parent(wifi_setup_hint_label);
+        if (configured) {
+            lv_obj_add_flag(hint_container, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(hint_container, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (wifi_forget_button) {
+        if (configured) {
+            lv_obj_clear_flag(wifi_forget_button, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(wifi_forget_button, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    char ssid[WIFI_MAX_SSID_LEN + 1];
+    wifi_service.get_ssid(ssid, sizeof(ssid));
+    set_label_text_if_changed(wifi_network_label, configured ? ssid : "--");
+
+    const char* status_text = "--";
+    lv_color_t status_color = lv_color_hex(THEME_COLOR_TEXT_SECONDARY);
+    switch (wifi_service.get_state()) {
+        case WifiService::State::NOT_CONFIGURED:
+            status_text = "not set up";
+            break;
+        case WifiService::State::DISABLED_BY_USER:
+            status_text = "off";
+            break;
+        case WifiService::State::CONNECTING:
+            status_text = "connecting...";
+            status_color = lv_color_hex(THEME_COLOR_ACCENT);
+            break;
+        case WifiService::State::SYNCING:
+            status_text = "syncing time...";
+            status_color = lv_color_hex(THEME_COLOR_ACCENT);
+            break;
+        case WifiService::State::IDLE:
+            switch (wifi_service.get_last_result()) {
+                case WifiService::LastResult::NONE:
+                    status_text = "waiting";
+                    break;
+                case WifiService::LastResult::SUCCESS:
+                    status_text = "OK";
+                    status_color = lv_color_hex(THEME_COLOR_SUCCESS);
+                    break;
+                case WifiService::LastResult::WIFI_FAILED:
+                    status_text = "WiFi failed";
+                    status_color = lv_color_hex(THEME_COLOR_WARNING);
+                    break;
+                case WifiService::LastResult::SNTP_FAILED:
+                    status_text = "NTP failed";
+                    status_color = lv_color_hex(THEME_COLOR_WARNING);
+                    break;
+                case WifiService::LastResult::ABORTED:
+                    status_text = "deferred";
+                    break;
+            }
+            break;
+    }
+    set_label_text_if_changed(wifi_status_label, status_text);
+    set_label_text_color_if_changed(wifi_status_label, status_color);
+
+    // Relative last-sync age; both sides of the subtraction come from the
+    // same synced clock, so this stays honest across DST changes.
+    if (TimeSync::is_synced() && TimeSync::last_sync_epoch() > 0) {
+        uint32_t age_sec = TimeSync::now_epoch() - TimeSync::last_sync_epoch();
+        char sync_text[32];
+        if (age_sec < 60) {
+            snprintf(sync_text, sizeof(sync_text), "just now");
+        } else if (age_sec < 3600) {
+            snprintf(sync_text, sizeof(sync_text), "%lum ago", (unsigned long)(age_sec / 60));
+        } else {
+            snprintf(sync_text, sizeof(sync_text), "%luh ago", (unsigned long)(age_sec / 3600));
+        }
+        set_label_text_if_changed(wifi_sync_label, sync_text);
+    } else {
+        set_label_text_if_changed(wifi_sync_label, "never");
+    }
+
+    char tz_name[WIFI_MAX_TZ_NAME_LEN + 1];
+    wifi_service.get_tz_name(tz_name, sizeof(tz_name));
+    set_label_text_if_changed(wifi_tz_label, tz_name[0] ? tz_name : "--");
 }
 
 void MenuScreen::refresh_statistics(bool show_overlay) {

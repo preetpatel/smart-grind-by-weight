@@ -20,6 +20,7 @@
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
 #include "../system/time_sync.h"
+#include "../system/wifi_service.h"
 
 BluetoothManager::BluetoothManager()
     : ble_server(nullptr)
@@ -42,6 +43,8 @@ BluetoothManager::BluetoothManager()
     , sysinfo_sessions_characteristic(nullptr)
     , sysinfo_diagnostics_characteristic(nullptr)
     , sysinfo_timesync_characteristic(nullptr)
+    , sysinfo_wifi_config_characteristic(nullptr)
+    , sysinfo_wifi_status_characteristic(nullptr)
     , device_connected(false)
     , ble_enabled(false), enable_in_progress(false), debug_stream_active(false)
     , enable_time(0)
@@ -63,7 +66,10 @@ BluetoothManager::BluetoothManager()
     , last_reported_export_state(false)
     , ui_status_queue(nullptr)
     , diagnostic_report_pending(false)
-    , diagnostic_report_in_progress(false) {
+    , diagnostic_report_in_progress(false)
+    , wifi_config_pending_len(0)
+    , wifi_config_pending(false)
+    , last_wifi_status_fingerprint(0xFF) {
 }
 
 BluetoothManager::~BluetoothManager() {
@@ -290,6 +296,20 @@ void BluetoothManager::setup_gatt_services() {
     sysinfo_timesync_characteristic->setCallbacks(this);
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
 
+    // Write-only by design: the credentials payload must never be readable back
+    sysinfo_wifi_config_characteristic = sysinfo_service->createCharacteristic(
+        BLE_SYSINFO_WIFI_CONFIG_CHAR_UUID,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    sysinfo_wifi_config_characteristic->setCallbacks(this);
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
+    sysinfo_wifi_status_characteristic = sysinfo_service->createCharacteristic(
+        BLE_SYSINFO_WIFI_STATUS_CHAR_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
     ota_service->start();
     delay(BLE_INIT_START_DELAY_MS);
     
@@ -422,11 +442,110 @@ void BluetoothManager::handle() {
         diagnostic_report_in_progress = false;
     }
     
+    // Apply a deferred WiFi provisioning write (see onWrite)
+    if (wifi_config_pending) {
+        process_wifi_config_payload();
+    }
+
+    // Push WiFi status the moment its state machine moves (connecting ->
+    // syncing -> idle) so the flasher's setup card sees progress live.
+    if (device_connected && sysinfo_wifi_status_characteristic) {
+        uint8_t fingerprint = (static_cast<uint8_t>(wifi_service.get_state()) << 4)
+                            | (static_cast<uint8_t>(wifi_service.get_last_result()) & 0x0F);
+        if (fingerprint != last_wifi_status_fingerprint) {
+            last_wifi_status_fingerprint = fingerprint;
+            update_wifi_status_info();
+        }
+    }
+
     // Update system info periodically if connected (every 10 seconds)
     static unsigned long last_sysinfo_update = 0;
     if (device_connected && millis() - last_sysinfo_update > 10000) {
         refresh_system_info();
         last_sysinfo_update = millis();
+    }
+}
+
+// Payload: [0x01][ssid]\0[pass]\0[tz_rule]\0[tz_name]\0 to provision,
+// [0x02] to forget. Runs on the bluetooth task.
+void BluetoothManager::process_wifi_config_payload() {
+    wifi_config_pending = false;
+    if (wifi_config_pending_len == 0) return;
+
+    uint8_t opcode = wifi_config_pending_payload[0];
+    if (opcode == 0x02) {
+        log("Bluetooth WiFi: Forget command received\n");
+        wifi_service.forget_credentials();
+    } else if (opcode == 0x01) {
+        // Extract up to four NUL-terminated strings from the remainder
+        const char* fields[4] = {"", "", "", ""};
+        size_t pos = 1;
+        for (int i = 0; i < 4 && pos < wifi_config_pending_len; i++) {
+            fields[i] = reinterpret_cast<const char*>(&wifi_config_pending_payload[pos]);
+            size_t remaining = wifi_config_pending_len - pos;
+            size_t field_len = strnlen(fields[i], remaining);
+            if (field_len == remaining) {
+                // Unterminated final field - terminate it in place if room
+                if (wifi_config_pending_len < sizeof(wifi_config_pending_payload)) {
+                    wifi_config_pending_payload[wifi_config_pending_len] = '\0';
+                } else {
+                    log("Bluetooth WiFi: Oversized unterminated payload rejected\n");
+                    return;
+                }
+            }
+            pos += field_len + 1;
+        }
+        log("Bluetooth WiFi: Provisioning SSID '%s'\n", fields[0]);
+        wifi_service.set_credentials(fields[0], fields[1], fields[2], fields[3]);
+    } else {
+        log("Bluetooth WiFi: Unknown opcode 0x%02X\n", opcode);
+        return;
+    }
+
+    update_wifi_status_info();
+}
+
+void BluetoothManager::update_wifi_status_info() {
+    if (!sysinfo_wifi_status_characteristic) return;
+
+    char ssid[WIFI_MAX_SSID_LEN + 1];
+    char tz_name[WIFI_MAX_TZ_NAME_LEN + 1];
+    wifi_service.get_ssid(ssid, sizeof(ssid));
+    wifi_service.get_tz_name(tz_name, sizeof(tz_name));
+
+    // The SSID is user input headed into a JSON string; drop the two
+    // characters that would break it rather than carrying an escaper around.
+    for (char* c = ssid; *c; c++) {
+        if (*c == '"' || *c == '\\') *c = '_';
+    }
+
+    char buffer[BLE_SYSINFO_MAX_PAYLOAD_BYTES];
+    snprintf(buffer, sizeof(buffer),
+        "{"
+        "\"configured\":%s,"
+        "\"enabled\":%s,"
+        "\"ssid\":\"%s\","
+        "\"state\":\"%s\","
+        "\"last_result\":\"%s\","
+        "\"tz_name\":\"%s\","
+        "\"tz_rule_set\":%s,"
+        "\"time_synced\":%s,"
+        "\"last_sync_epoch\":%lu"
+        "}",
+        wifi_service.is_configured() ? "true" : "false",
+        wifi_service.is_enabled() ? "true" : "false",
+        ssid,
+        wifi_service.state_name(),
+        wifi_service.last_result_name(),
+        tz_name,
+        TimeSync::has_tz_rule() ? "true" : "false",
+        TimeSync::is_synced() ? "true" : "false",
+        (unsigned long)TimeSync::last_sync_epoch()
+    );
+
+    sysinfo_wifi_status_characteristic->setValue(buffer);
+    if (device_connected) {
+        sysinfo_wifi_status_characteristic->notify();
     }
 }
 
@@ -1042,6 +1161,16 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
         diagnostic_report_pending = true; // Defer heavy work to bluetooth task context
     } else if (characteristic == sysinfo_timesync_characteristic) {
         handle_time_sync(characteristic);
+    } else if (characteristic == sysinfo_wifi_config_characteristic) {
+        // Park the payload for the bluetooth task; NVS writes don't belong on
+        // the NimBLE host task (same deferral as the diagnostics report).
+        String value = characteristic->getValue();
+        size_t len = value.length();
+        if (len > 0 && len <= sizeof(wifi_config_pending_payload)) {
+            memcpy(wifi_config_pending_payload, value.c_str(), len);
+            wifi_config_pending_len = len;
+            wifi_config_pending = true;
+        }
     } else {
         LOG_BLE("  -> UNKNOWN characteristic!\n");
     }
@@ -1070,6 +1199,7 @@ void BluetoothManager::refresh_system_info() {
     update_system_info();
     update_performance_info();
     update_hardware_info();
+    update_wifi_status_info();
 }
 
 void BluetoothManager::update_system_info() {
@@ -1162,9 +1292,10 @@ void BluetoothManager::update_hardware_info() {
         "\"display_active\":true,"
         "\"touch_active\":true,"
         "\"ble_enabled\":true,"
-        "\"wifi_available\":false,"
+        "\"wifi_available\":%s,"
         "\"flash_available\":true"
-        "}"
+        "}",
+        wifi_service.is_configured() ? "true" : "false"
     );
     
     sysinfo_hardware_characteristic->setValue(buffer);

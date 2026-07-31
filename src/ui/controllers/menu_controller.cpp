@@ -13,6 +13,7 @@
 #include "../../logging/grind_logging.h"
 #include "../../system/diagnostics_controller.h"
 #include "../../system/statistics_manager.h"
+#include "../../system/wifi_service.h"
 #include "../components/blocking_overlay.h"
 #include "../components/ui_operations.h"
 #include "../event_bridge_lvgl.h"
@@ -44,6 +45,8 @@ void MenuUIController::register_events() {
 
     EventBridgeLVGL::register_handler(ET::BLE_TOGGLE, [this](lv_event_t*) { handle_ble_toggle(); });
     EventBridgeLVGL::register_handler(ET::BLE_STARTUP_TOGGLE, [this](lv_event_t*) { handle_ble_startup_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_TOGGLE, [this](lv_event_t*) { handle_wifi_toggle(); });
+    EventBridgeLVGL::register_handler(ET::WIFI_FORGET, [this](lv_event_t*) { handle_wifi_forget(); });
     EventBridgeLVGL::register_handler(ET::LOGGING_TOGGLE, [this](lv_event_t*) { handle_logging_toggle(); });
 
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_SWIPE_TOGGLE, [this](lv_event_t*) { handle_grind_mode_swipe_toggle(); });
@@ -105,6 +108,9 @@ void MenuUIController::update() {
     }
     if (menu_screen.is_bluetooth_page_active()) {
         menu_screen.update_ble_status();
+    }
+    if (menu_screen.is_wifi_page_active()) {
+        menu_screen.update_wifi_status();
     }
 }
 
@@ -372,6 +378,34 @@ void MenuUIController::handle_ble_startup_toggle() {
     prefs.end();
 
     LOG_DEBUG_PRINTLN(startup_enabled ? "Bluetooth startup enabled" : "Bluetooth startup disabled");
+}
+
+void MenuUIController::handle_wifi_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_wifi_toggle();
+    if (!toggle) return;
+
+    wifi_service.set_enabled(lv_obj_has_state(toggle, LV_STATE_CHECKED));
+    ui_manager_->menu_screen.update_wifi_status();
+}
+
+void MenuUIController::handle_wifi_forget() {
+    if (!ui_manager_) return;
+
+    ui_manager_->show_confirmation(
+        "FORGET NETWORK",
+        "This will remove the stored WiFi credentials.\n\n"
+        "The clock will only sync when a Bluetooth client connects.",
+        "FORGET",
+        lv_color_hex(THEME_COLOR_WARNING),
+        [this]() {
+            wifi_service.forget_credentials();
+            return_to_menu();
+        },
+        "CANCEL",
+        [this]() { return_to_menu(); }
+    );
 }
 
 void MenuUIController::handle_logging_toggle() {

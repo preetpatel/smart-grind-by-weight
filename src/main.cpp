@@ -5,6 +5,7 @@
 #include "hardware/hardware_manager.h"
 #include "system/state_machine.h"
 #include "system/statistics_manager.h"
+#include "system/wifi_service.h"
 #include "controllers/profile_controller.h"
 #include "controllers/grind_controller.h"
 #include "ui/ui_manager.h"
@@ -85,7 +86,11 @@ void setup() {
     hardware_manager.set_grind_controller(&grind_controller);
     
     bluetooth_manager.init(hardware_manager.get_preferences());
-    
+
+    // Loads stored WiFi credentials + TZ rule and schedules the boot-time
+    // SNTP sync (runs from loop(); no-op until credentials are provisioned)
+    wifi_service.init(&grind_controller, &bluetooth_manager);
+
     // Check for OTA failure to determine initial state
     String failed_ota_build = bluetooth_manager.check_ota_failure_after_boot();
     bool ota_failed = !failed_ota_build.isEmpty();
@@ -199,7 +204,10 @@ void loop() {
     
     // UI events are now processed inside the UI render FreeRTOS task
     // to serialize all LVGL updates on a single thread.
-    
+
+    // Duty-cycled WiFi time sync; gates itself off grind/OTA/export activity
+    wifi_service.handle();
+
 #if SYS_ENABLE_REALTIME_HEARTBEAT
     // Calculate Core 1 main loop timing
     uint32_t cycle_end_time = millis();

@@ -29,6 +29,7 @@ private:
     lv_obj_t* menu;
     lv_obj_t* info_page;
     lv_obj_t* bluetooth_page;
+    lv_obj_t* wifi_page;
     lv_obj_t* display_page;
     lv_obj_t* grind_mode_page;
     lv_obj_t* data_page;
@@ -41,6 +42,7 @@ private:
     lv_obj_t* uptime_label;
     lv_obj_t* memory_label;
     lv_obj_t* time_label;
+    lv_obj_t* info_wifi_label;
     lv_obj_t* instant_label;
     lv_obj_t* samples_label;
     lv_obj_t* raw_label;
@@ -64,6 +66,13 @@ private:
     lv_obj_t* ble_startup_toggle;
     lv_obj_t* ble_status_label;
     lv_obj_t* ble_timer_label;
+    lv_obj_t* wifi_toggle;
+    lv_obj_t* wifi_network_label;
+    lv_obj_t* wifi_status_label;
+    lv_obj_t* wifi_sync_label;
+    lv_obj_t* wifi_tz_label;
+    lv_obj_t* wifi_setup_hint_label;
+    lv_obj_t* wifi_forget_button;
     lv_obj_t* logging_toggle;
     lv_obj_t* brightness_normal_slider;
     lv_obj_t* brightness_screensaver_slider;
@@ -130,6 +139,7 @@ public:
     void update_diagnostics(WeightSensor* weight_sensor);
     void update_noise_capture(const NoiseCaptureView& view);
     void update_ble_status();
+    void update_wifi_status();
     void refresh_statistics(bool show_overlay = true);
     void update_brightness_labels(int normal_percent = -1, int screensaver_percent = -1); // Use negative value to leave unchanged
     void update_brightness_sliders();
@@ -154,7 +164,10 @@ public:
     bool is_info_page_active() const { return active_page == info_page; }
     bool is_diagnostics_page_active() const { return active_page == diagnostics_page; }
     bool is_bluetooth_page_active() const { return active_page == bluetooth_page; }
+    bool is_wifi_page_active() const { return active_page == wifi_page; }
     lv_obj_t* get_ble_toggle() const { return ble_toggle; }
+    lv_obj_t* get_wifi_toggle() const { return wifi_toggle; }
+    lv_obj_t* get_wifi_forget_button() const { return wifi_forget_button; }
     lv_obj_t* get_ble_startup_toggle() const { return ble_startup_toggle; }
     lv_obj_t* get_logging_toggle() const { return logging_toggle; }
     lv_obj_t* get_refresh_stats_button() const { return refresh_stats_button; }
@@ -174,6 +187,7 @@ private:
     void create_menu_ui();
     void create_info_page(lv_obj_t* parent);
     void create_bluetooth_page(lv_obj_t* parent);
+    void create_wifi_page(lv_obj_t* parent);
     void create_display_page(lv_obj_t* parent);
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);

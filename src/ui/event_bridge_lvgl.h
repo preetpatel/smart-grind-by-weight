@@ -31,6 +31,8 @@ public:
         MENU_REFRESH_STATS,
         BLE_TOGGLE,
         BLE_STARTUP_TOGGLE,
+        WIFI_TOGGLE,
+        WIFI_FORGET,
         LOGGING_TOGGLE,
         GRIND_MODE_SWIPE_TOGGLE,
         GRIND_MODE_RADIO_BUTTON,

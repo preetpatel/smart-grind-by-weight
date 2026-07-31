@@ -83,6 +83,8 @@ private:
     BLECharacteristic* sysinfo_sessions_characteristic;
     BLECharacteristic* sysinfo_diagnostics_characteristic;
     BLECharacteristic* sysinfo_timesync_characteristic;
+    BLECharacteristic* sysinfo_wifi_config_characteristic;
+    BLECharacteristic* sysinfo_wifi_status_characteristic;
     
     // Connection state
     bool device_connected;
@@ -127,6 +129,14 @@ private:
     bool diagnostic_report_pending;
     bool diagnostic_report_in_progress;
 
+    // WiFi provisioning writes arrive on the NimBLE host task; the payload is
+    // parked here and processed from the bluetooth task, where the NVS writes
+    // and status notify can run without stalling the BLE stack.
+    uint8_t wifi_config_pending_payload[512];
+    size_t wifi_config_pending_len;
+    volatile bool wifi_config_pending;
+    uint8_t last_wifi_status_fingerprint;
+
     // Private methods
     void setup_gatt_services();
     void configure_advertising();
@@ -139,6 +149,8 @@ private:
     void handle_debug_command(BLECharacteristic* characteristic);
     void handle_data_control_command(BLECharacteristic* characteristic);
     void handle_time_sync(BLECharacteristic* characteristic);
+    void process_wifi_config_payload();
+    void update_wifi_status_info();
     void send_next_data_chunk();
     bool send_transfer_payload(const uint8_t* data, size_t size);
     void send_measurement_count();

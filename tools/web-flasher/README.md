@@ -16,6 +16,18 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 - Full firmware updates (no delta compression)
 - Progress tracking and status updates
 
+### 🕐 WiFi Setup (Bluetooth)
+- Provisions the grinder's home-WiFi credentials over BLE so it can sync its
+  clock via SNTP on its own — at boot (surviving power loss) and daily after
+- Detects the browser's timezone and derives a POSIX TZ rule (`tz-posix.js`)
+  from the browser's own DST knowledge, so the grinder handles daylight-saving
+  transitions locally, forever, with no lookup table to go stale
+- Writes `[0x01][ssid]\0[pass]\0[tz_rule]\0[tz_name]\0` to the WiFi config
+  characteristic (write-only; credentials are never readable back) and follows
+  the attempt live via the WiFi status characteristic (JSON notify)
+- Check Status / Forget WiFi actions for existing devices — also the fix path
+  after a router password change
+
 ### 📊 Grind Analytics (Bluetooth)
 - Pulls grind sessions, system info, and the diagnostics report over one BLE connection
 - Latest grind shown as a hero above the fold (final weight vs target with signed error),
@@ -118,3 +130,5 @@ python3 -m http.server 8000 --directory tools/web-flasher
 - All communications use Web Bluetooth's built-in security
 - Firmware is downloaded directly from GitHub releases
 - No credentials or keys stored locally
+- WiFi credentials are written straight to the grinder and never echoed back
+  over BLE; the status characteristic reports SSID and state only

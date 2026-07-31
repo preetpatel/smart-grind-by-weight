@@ -52,6 +52,8 @@
 #define BLE_SYSINFO_SESSIONS_CHAR_UUID "11223344-eeff-1122-3344-556677889900"  // Session statistics
 #define BLE_SYSINFO_DIAGNOSTICS_CHAR_UUID "22334455-ff00-1111-2222-334455667788"  // Comprehensive diagnostic report trigger
 #define BLE_SYSINFO_TIMESYNC_CHAR_UUID "33445566-ff00-1111-2222-334455667788"      // Wall-clock sync: write [epoch_utc:u32 LE][tz_offset_min:i16 LE]
+#define BLE_SYSINFO_WIFI_CONFIG_CHAR_UUID "44556677-ff00-1111-2222-334455667788"   // WiFi provisioning (write-only): [0x01][ssid]\0[pass]\0[tz_rule]\0[tz_name]\0 to set, [0x02] to forget
+#define BLE_SYSINFO_WIFI_STATUS_CHAR_UUID "556677ee-ff00-1111-2222-334455667788"   // WiFi status readback (JSON; never contains the password)
 
 #define BLE_SYSINFO_MAX_PAYLOAD_BYTES 512                                       // Maximum payload size for system info
 

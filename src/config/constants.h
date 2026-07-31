@@ -11,6 +11,7 @@
 // INCLUDE ALL ORGANIZED CONFIG FILES
 //==============================================================================
 #include "bluetooth.h"
+#include "wifi.h"
 #include "hardware.h"
 #include "theme.h"
 #include "debug.h"

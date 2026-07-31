@@ -18,6 +18,9 @@ const BLE_DEBUG_TX_CHAR_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
 // System Info Service UUIDs
 const BLE_SYSINFO_SERVICE_UUID = '77889900-aabb-ccdd-eeff-112233445566';
 const BLE_SYSINFO_DIAGNOSTICS_CHAR_UUID = '22334455-ff00-1111-2222-334455667788';
+const BLE_SYSINFO_TIMESYNC_CHAR_UUID = '33445566-ff00-1111-2222-334455667788';
+const BLE_SYSINFO_WIFI_CONFIG_CHAR_UUID = '44556677-ff00-1111-2222-334455667788';
+const BLE_SYSINFO_WIFI_STATUS_CHAR_UUID = '556677ee-ff00-1111-2222-334455667788';
 
 // Commands and status codes (from your Python implementation)
 const BLE_OTA_CMD_START = 0x01;
@@ -719,6 +722,196 @@ function downloadDiagnosticReport() {
         }, 3000);
     } catch (error) {
         statusDiv.innerHTML = '<div class="status error">Failed to download report.</div>';
+    }
+}
+
+// ========================================================================
+// WIFI SETUP FUNCTIONS
+// ========================================================================
+// Provisions WiFi credentials + a POSIX timezone rule over BLE so the
+// grinder can sync its clock via SNTP on its own (see src/system/wifi_service.h).
+// Payload format: [0x01][ssid]\0[pass]\0[tz_rule]\0[tz_name]\0 ; [0x02] = forget.
+
+let detectedTz = null;
+
+function updateWifiStatusBox(message, type = 'info') {
+    const statusDiv = document.getElementById('wifiStatus');
+    statusDiv.textContent = message;
+    statusDiv.className = `status ${type}`;
+    statusDiv.style.display = 'block';
+}
+
+// Populate the timezone display on load
+window.addEventListener('load', () => {
+    const tzDisplay = document.getElementById('wifiTzDisplay');
+    if (!tzDisplay) return;
+    try {
+        detectedTz = detectPosixTz();
+        tzDisplay.textContent = `${detectedTz.zoneName} — rule ${detectedTz.rule}`;
+        tzDisplay.className = 'status success';
+    } catch (error) {
+        console.error('Timezone detection failed:', error);
+        detectedTz = { rule: '', zoneName: '' };
+        tzDisplay.textContent = 'Timezone detection failed — clock will sync in UTC';
+        tzDisplay.className = 'status error';
+    }
+});
+
+async function connectWifiChars() {
+    const wifiDevice = await navigator.bluetooth.requestDevice({
+        filters: [{ name: DEVICE_NAME }],
+        optionalServices: [BLE_SYSINFO_SERVICE_UUID],
+    });
+    const wifiServer = await wifiDevice.gatt.connect();
+    const sysinfoService = await wifiServer.getPrimaryService(BLE_SYSINFO_SERVICE_UUID);
+    const configChar = await sysinfoService.getCharacteristic(BLE_SYSINFO_WIFI_CONFIG_CHAR_UUID);
+    const statusChar = await sysinfoService.getCharacteristic(BLE_SYSINFO_WIFI_STATUS_CHAR_UUID);
+
+    // Sync the clock immediately over BLE too - WiFi takes over from here on
+    try {
+        const timesyncChar = await sysinfoService.getCharacteristic(BLE_SYSINFO_TIMESYNC_CHAR_UUID);
+        const payload = new ArrayBuffer(6);
+        const view = new DataView(payload);
+        view.setUint32(0, Math.floor(Date.now() / 1000), true);
+        view.setInt16(4, -new Date().getTimezoneOffset(), true);
+        await timesyncChar.writeValue(payload);
+    } catch (e) {
+        console.log('BLE time sync unavailable:', e.message);
+    }
+
+    return { wifiDevice, configChar, statusChar };
+}
+
+function describeWifiStatus(status) {
+    if (!status.configured) return 'No WiFi credentials stored on the grinder.';
+    const parts = [`Network: ${status.ssid}`];
+    if (!status.enabled) {
+        parts.push('WiFi is turned off on the grinder.');
+    } else {
+        const stateText = {
+            idle: status.last_result === 'success' ? 'Synced — radio off until the next daily sync'
+                : status.last_result === 'wifi_failed' ? 'Could not join the network (check the password)'
+                : status.last_result === 'sntp_failed' ? 'Joined the network but got no time-server response'
+                : status.last_result === 'aborted' ? 'Deferred (grinder was busy), will retry shortly'
+                : 'Waiting for the first sync attempt',
+            connecting: 'Connecting to the network…',
+            syncing: 'Connected — syncing the clock…',
+            disabled: 'WiFi is turned off on the grinder.',
+            not_configured: 'No credentials stored.',
+        }[status.state] || status.state;
+        parts.push(stateText);
+    }
+    if (status.tz_name) parts.push(`Timezone: ${status.tz_name}`);
+    if (status.time_synced && status.last_sync_epoch) {
+        parts.push(`Clock last synced: ${new Date(status.last_sync_epoch * 1000).toLocaleString()}`);
+    }
+    return parts.join(' · ');
+}
+
+async function configureWifi() {
+    const ssid = document.getElementById('wifiSsid').value.trim();
+    const password = document.getElementById('wifiPassword').value;
+    const btn = document.getElementById('wifiConfigureBtn');
+
+    if (!ssid) {
+        updateWifiStatusBox('Enter the WiFi network name first.', 'error');
+        return;
+    }
+
+    btn.disabled = true;
+    let wifiDevice = null;
+    try {
+        updateWifiStatusBox('Connecting to grinder…', 'info');
+        const conn = await connectWifiChars();
+        wifiDevice = conn.wifiDevice;
+        const { configChar, statusChar } = conn;
+
+        // Live progress while the grinder tries the network
+        let lastStatus = null;
+        await statusChar.startNotifications();
+        statusChar.addEventListener('characteristicvaluechanged', (event) => {
+            try {
+                lastStatus = JSON.parse(new TextDecoder().decode(event.target.value));
+                updateWifiStatusBox(describeWifiStatus(lastStatus), 'info');
+            } catch (e) { /* partial/invalid frame; wait for the next one */ }
+        });
+
+        const tz = detectedTz || { rule: '', zoneName: '' };
+        const enc = new TextEncoder();
+        const fields = [ssid, password, tz.rule, tz.zoneName];
+        const encoded = fields.map(f => enc.encode(f));
+        const totalLen = 1 + encoded.reduce((n, b) => n + b.length + 1, 0);
+        const payload = new Uint8Array(totalLen);
+        payload[0] = 0x01;
+        let offset = 1;
+        for (const bytes of encoded) {
+            payload.set(bytes, offset);
+            offset += bytes.length;
+            payload[offset++] = 0; // NUL terminator
+        }
+        await configChar.writeValue(payload);
+        updateWifiStatusBox('Credentials sent — grinder is trying the network…', 'info');
+
+        // The grinder attempts the connection immediately; wait for a
+        // terminal result (sync done or failed), up to ~60s.
+        const deadline = Date.now() + 60000;
+        let outcome = null;
+        while (Date.now() < deadline) {
+            await sleep(500);
+            const s = lastStatus;
+            if (s && s.configured && s.state === 'idle' && s.last_result !== 'none') {
+                outcome = s;
+                break;
+            }
+        }
+
+        if (outcome && outcome.last_result === 'success') {
+            updateWifiStatusBox(`✓ WiFi set up and clock synced! ${describeWifiStatus(outcome)}`, 'success');
+        } else if (outcome) {
+            updateWifiStatusBox(`WiFi saved, but the first sync failed. ${describeWifiStatus(outcome)} The grinder keeps retrying on its own.`, 'error');
+        } else {
+            updateWifiStatusBox('Credentials saved. No result yet — use Check Status in a minute.', 'info');
+        }
+    } catch (error) {
+        console.error('WiFi setup error:', error);
+        updateWifiStatusBox(`WiFi setup failed: ${error.message}`, 'error');
+    } finally {
+        if (wifiDevice && wifiDevice.gatt.connected) wifiDevice.gatt.disconnect();
+        btn.disabled = false;
+    }
+}
+
+async function checkWifiStatus() {
+    let wifiDevice = null;
+    try {
+        updateWifiStatusBox('Connecting to grinder…', 'info');
+        const conn = await connectWifiChars();
+        wifiDevice = conn.wifiDevice;
+        const value = await conn.statusChar.readValue();
+        const status = JSON.parse(new TextDecoder().decode(value));
+        updateWifiStatusBox(describeWifiStatus(status), status.time_synced ? 'success' : 'info');
+    } catch (error) {
+        console.error('WiFi status error:', error);
+        updateWifiStatusBox(`Could not read WiFi status: ${error.message}`, 'error');
+    } finally {
+        if (wifiDevice && wifiDevice.gatt.connected) wifiDevice.gatt.disconnect();
+    }
+}
+
+async function forgetWifi() {
+    if (!confirm('Remove the stored WiFi credentials from the grinder?')) return;
+    let wifiDevice = null;
+    try {
+        updateWifiStatusBox('Connecting to grinder…', 'info');
+        const conn = await connectWifiChars();
+        wifiDevice = conn.wifiDevice;
+        await conn.configChar.writeValue(new Uint8Array([0x02]));
+        updateWifiStatusBox('✓ WiFi credentials removed from the grinder.', 'success');
+    } catch (error) {
+        console.error('WiFi forget error:', error);
+        updateWifiStatusBox(`Could not forget WiFi: ${error.message}`, 'error');
+    } finally {
+        if (wifiDevice && wifiDevice.gatt.connected) wifiDevice.gatt.disconnect();
     }
 }
 
