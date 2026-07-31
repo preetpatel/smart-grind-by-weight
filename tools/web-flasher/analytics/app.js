@@ -683,6 +683,7 @@ async function pullData() {
     try {
         setStatus('Scanning for grinder...');
         await client.connect();
+        if (typeof window.markGrinderSeen === 'function') window.markGrinderSeen();
         setStatus('Connected. Requesting session list...');
 
         const { records: pulled, errors } = await client.pullAllSessions((progress) => {

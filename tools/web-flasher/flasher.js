@@ -59,18 +59,36 @@ function resolveFirmwareUrl(relativePath) {
     return new URL(relativePath, window.location.href).href;
 }
 
+// Remembers whether this browser has ever talked to a grinder (any successful
+// BLE connect or analytics pull). Drives the default My Grinder sub-tab: new
+// visitors land on Get Started, returning owners on Update.
+const GRINDER_SEEN_KEY = 'grinderSeen';
+
+function hasSeenGrinder() {
+    try { return !!localStorage.getItem(GRINDER_SEEN_KEY); } catch (e) { return false; }
+}
+
+function markGrinderSeen() {
+    try { localStorage.setItem(GRINDER_SEEN_KEY, '1'); } catch (e) { /* private mode */ }
+}
+
 // Browser support check and load releases
 window.addEventListener('load', () => {
-    if (!('bluetooth' in navigator)) {
+    const hasBluetooth = 'bluetooth' in navigator;
+    if (!hasBluetooth) {
         document.getElementById('browserWarning').style.display = 'block';
-        // Disable OTA tab if no Web Bluetooth
-        const otaTab = document.querySelector('[onclick="showTab(\'ota\')"]');
-        if (otaTab) {
-            otaTab.disabled = true;
-            otaTab.style.opacity = '0.5';
-        }
+        // Update, WiFi and Diagnostics all need Web Bluetooth
+        ['ota', 'wifi', 'diagnostics'].forEach(name => {
+            const tab = document.querySelector(`.sub-tab[onclick="showGrinderTab('${name}')"]`);
+            if (tab) {
+                tab.disabled = true;
+                tab.style.opacity = '0.5';
+            }
+        });
     }
-    
+
+    showGrinderTab(hasBluetooth && hasSeenGrinder() ? 'ota' : 'initial');
+
     // Load available releases
     loadReleases();
 });
@@ -88,6 +106,21 @@ function showTab(tabName) {
 
     document.getElementById(tabName + 'Tab').classList.add('active');
     const button = document.querySelector(`.tab[onclick="showTab('${tabName}')"]`);
+    if (button) button.classList.add('active');
+}
+
+// Sub-tab switching within My Grinder. Scoped to .device-nav so the
+// analytics dashboard's own sub-tabs are unaffected.
+function showGrinderTab(name) {
+    document.querySelectorAll('.sub-panel').forEach(panel => {
+        panel.classList.remove('active');
+    });
+    document.querySelectorAll('.sub-tabs.device-nav .sub-tab').forEach(tab => {
+        tab.classList.remove('active');
+    });
+
+    document.getElementById(name + 'Panel').classList.add('active');
+    const button = document.querySelector(`.sub-tab[onclick="showGrinderTab('${name}')"]`);
     if (button) button.classList.add('active');
 }
 
@@ -209,6 +242,7 @@ async function connectDevice() {
         statusCharacteristic.addEventListener('characteristicvaluechanged', handleStatusUpdate);
 
         updateStatus('Connected successfully!', 'success');
+        markGrinderSeen();
 
         return true;
 
@@ -586,6 +620,7 @@ async function getDiagnosticReport() {
 
         // Connect to GATT server
         server = await device.gatt.connect();
+        markGrinderSeen();
         statusDiv.innerHTML = '<div class="status info">Connected. Requesting diagnostic report...</div>';
 
         // Get required services
@@ -766,6 +801,7 @@ async function connectWifiChars() {
     const sysinfoService = await wifiServer.getPrimaryService(BLE_SYSINFO_SERVICE_UUID);
     const configChar = await sysinfoService.getCharacteristic(BLE_SYSINFO_WIFI_CONFIG_CHAR_UUID);
     const statusChar = await sysinfoService.getCharacteristic(BLE_SYSINFO_WIFI_STATUS_CHAR_UUID);
+    markGrinderSeen();
 
     // Sync the clock immediately over BLE too - WiFi takes over from here on
     try {

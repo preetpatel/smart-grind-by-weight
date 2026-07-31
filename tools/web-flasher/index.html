@@ -593,6 +593,21 @@
             box-shadow: inset 0 -2px 0 var(--accent);
         }
 
+        /* Device sub-navigation inside the My Grinder tab */
+        .sub-tabs.device-nav { margin: -8px 0 22px; }
+
+        .sub-panel { display: none; }
+        .sub-panel.active { display: block; }
+
+        .next-step {
+            font-size: 13px;
+            color: var(--ink-2);
+            margin: 16px 0 0;
+        }
+
+        .next-step a { color: var(--accent); text-decoration: none; }
+        .next-step a:hover { text-decoration: underline; }
+
         details { margin: 20px 0; }
 
         details summary {
@@ -634,18 +649,25 @@
         </div>
 
         <div class="tabs">
-            <button class="tab active" onclick="showTab('ota')">OTA Update</button>
-            <button class="tab" onclick="showTab('initial')">Initial Setup</button>
-            <button class="tab" onclick="showTab('wifi')">WiFi Setup</button>
-            <button class="tab" onclick="showTab('diagnostics')">Diagnostics</button>
+            <button class="tab active" onclick="showTab('grinder')">My Grinder</button>
             <button class="tab" onclick="showTab('analytics')">Analytics</button>
         </div>
 
-        <!-- OTA Update Tab -->
-        <div id="otaTab" class="tab-content active">
+        <!-- My Grinder Tab: everything about the device itself, ordered by the
+             ownership journey — install, update, configure, troubleshoot. -->
+        <div id="grinderTab" class="tab-content active">
+            <div class="sub-tabs device-nav">
+                <button class="sub-tab active" onclick="showGrinderTab('initial')">Get Started</button>
+                <button class="sub-tab" onclick="showGrinderTab('ota')">Update</button>
+                <button class="sub-tab" onclick="showGrinderTab('wifi')">WiFi</button>
+                <button class="sub-tab" onclick="showGrinderTab('diagnostics')">Diagnostics</button>
+            </div>
+
+        <!-- Update panel (OTA) -->
+        <div id="otaPanel" class="sub-panel">
             <div class="form-stack">
                 <h2>Update firmware over Bluetooth</h2>
-                <p class="lede-line">Wireless update for an already-installed grinder. First-time installs use Initial Setup over USB.</p>
+                <p class="lede-line">Wireless update for an already-installed grinder. First-time installs use Get Started over USB.</p>
 
                 <div class="form-group">
                     <label for="firmwareSelect">Firmware version</label>
@@ -674,11 +696,11 @@
             </div>
         </div>
 
-        <!-- Initial Setup Tab -->
-        <div id="initialTab" class="tab-content">
+        <!-- Get Started panel (first-time USB install) -->
+        <div id="initialPanel" class="sub-panel active">
             <div class="form-stack">
-                <h2>Initial setup over USB</h2>
-                <p class="lede-line">First-time installation via ESP Web Tools. Connect the grinder with a USB cable.</p>
+                <h2>Get started — install over USB</h2>
+                <p class="lede-line">First-time installation via ESP Web Tools. Connect the grinder with a USB cable. Already installed? Use the Update tab — no cable needed.</p>
 
                 <div class="form-group">
                     <label for="usbFirmwareSelect">Firmware version</label>
@@ -698,11 +720,13 @@
                 </esp-web-install-button>
 
                 <div id="usbStatus" class="status info" style="display: none;">Ready to flash via USB...</div>
+
+                <p class="next-step">Flashed successfully? Next: <a href="#" onclick="showGrinderTab('wifi'); return false;">set up WiFi</a> so the grinder's clock stays synced.</p>
             </div>
         </div>
 
-        <!-- WiFi Setup Tab -->
-        <div id="wifiTab" class="tab-content">
+        <!-- WiFi panel -->
+        <div id="wifiPanel" class="sub-panel">
             <div class="form-stack">
                 <h2>WiFi time sync</h2>
                 <p class="lede-line">The grinder uses your home WiFi only to sync its clock (a few seconds a day, radio off otherwise). The clock then survives power loss, and daylight-saving changes are handled on the grinder using your timezone's rules — detected below from this browser.</p>
@@ -732,8 +756,8 @@
             </div>
         </div>
 
-        <!-- Diagnostics Tab -->
-        <div id="diagnosticsTab" class="tab-content">
+        <!-- Diagnostics panel -->
+        <div id="diagnosticsPanel" class="sub-panel">
             <div class="form-stack">
                 <h2>Diagnostic report</h2>
                 <p class="lede-line">Pulls the device's full self-test report — attach it to GitHub issues when something misbehaves.</p>
@@ -751,6 +775,7 @@
                 </div>
             </div>
         </div>
+        </div><!-- /grinderTab -->
 
         <!-- Analytics Tab -->
         <div id="analyticsTab" class="tab-content">

@@ -4,19 +4,27 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 
 ## Features
 
-### 🔌 Initial Setup (USB)
+The UI has two top-level tabs mapping to the two things owners come here for:
+**My Grinder** (device care: Get Started → Update → WiFi → Diagnostics, ordered
+by the ownership journey) and **Analytics** (grind data). New visitors land on
+My Grinder → Get Started; once a grinder has connected from that browser
+(`grinderSeen` in localStorage), the default becomes Update — and the page
+lands on Analytics whenever stored grind data exists.
+
+### 🔌 Get Started (USB)
 - First-time firmware installation via ESP Web Tools
 - Uses Web Serial API for direct USB connection
 - Perfect for factory setup or recovery
 - Powered by [ESP Web Tools](https://esphome.github.io/esp-web-tools/) for browser-based flashing
+- Nudges to the WiFi tab after flashing, forming an implicit onboarding flow
 
-### 📶 OTA Updates (Bluetooth)
+### 📶 Update (Bluetooth OTA)
 - Over-the-air updates for installed grinders
 - Web Bluetooth API for wireless connection
 - Full firmware updates (no delta compression)
 - Progress tracking and status updates
 
-### 🕐 WiFi Setup (Bluetooth)
+### 🕐 WiFi (Bluetooth)
 - Provisions the grinder's home-WiFi credentials over BLE so it can sync its
   clock via SNTP on its own — at boot (surviving power loss) and daily after
 - Detects the browser's timezone and derives a POSIX TZ rule (`tz-posix.js`)
@@ -41,7 +49,7 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
   dates instead of device uptime. Warns when grind logging is disabled on the device
 - Data persists in the browser (IndexedDB) between visits; JSON export/import for sharing;
   Plotly is vendored (`vendor/plotly.min.js`) so charts work offline; the page lands on
-  Analytics when stored data exists
+  the Analytics tab when stored data exists
 - Binary session parsing in `analytics/parser.js` — must stay aligned with
   `src/logging/grind_logging.h` (see `tools/ble/CLAUDE.md`)
 
@@ -63,16 +71,17 @@ dot + label badges so state never relies on color alone.
 
 ## Usage
 
-### For Initial Setup
+### First-time install
 1. Open the web flasher in Chrome/Edge
-2. Go to the "Initial Setup" tab
+2. Go to My Grinder → "Get Started" (the default for new visitors)
 3. Select a firmware version
 4. Click "Flash via USB" - opens ESP Web Tools
 5. Connect device via USB and flash
+6. Follow the "set up WiFi" nudge to sync the grinder's clock
 
-### For OTA Updates
+### Firmware updates
 1. Ensure grinder is powered and BLE enabled
-2. Go to the "OTA Update" tab
+2. Go to My Grinder → "Update" (the default once a grinder has connected before)
 3. Select a firmware version
 4. Click "Connect & Flash Firmware"
 
