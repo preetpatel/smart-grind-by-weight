@@ -169,10 +169,13 @@ void GrindLogger::end_grind_session(const char* final_result, float final_weight
     // Only exclude cancelled sessions from saving (not failed grinds like timeout/overshoot)
     bool is_cancelled = (strcmp(final_result, "STOPPED_BY_USER") == 0);
 
-    // Only update statistics for successful grinds (completed within tolerance)
-    // Failed grinds (timeout, overshoot) are saved for analysis but excluded from statistics
+    // Update statistics for every grind that delivered a shot. Overshoots count:
+    // they are real dispensed coffee, and avg accuracy uses |error|, so excluding
+    // them (as this used to) hid high-side misses and biased the stat optimistic.
+    // Timeouts stay excluded - they abort without a meaningful final weight.
     bool is_successful_grind = (termination_reason == GrindTerminationReason::COMPLETED ||
-                                termination_reason == GrindTerminationReason::MAX_PULSES);
+                                termination_reason == GrindTerminationReason::MAX_PULSES ||
+                                termination_reason == GrindTerminationReason::OVERSHOOT);
 
     if (is_successful_grind) {
         bool is_weight_mode = (mode == GrindMode::WEIGHT);
