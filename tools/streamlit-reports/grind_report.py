@@ -708,8 +708,13 @@ if analysis_mode == "Single Session":
                         resampled_df = resampled_df.drop(columns=['timestamp_ms'])
                     resampled_measurements = resampled_df.reset_index().rename(columns={'index': 'timestamp_ms'})
 
-                    # Convert the pandas Timestamp object back to an integer (milliseconds) before calculations
-                    resampled_measurements['timestamp_ms'] = resampled_measurements['timestamp_ms'].astype(np.int64) // 1_000_000
+                    # Convert the pandas Timestamp object back to an integer (milliseconds) before
+                    # calculations. Cast to ns explicitly first: pandas 2.x keeps the datetime at
+                    # ms resolution here, so a bare astype(int64) would already be in milliseconds
+                    # and the division would zero every timestamp.
+                    resampled_measurements['timestamp_ms'] = (
+                        resampled_measurements['timestamp_ms'].astype('datetime64[ns]').astype(np.int64) // 1_000_000
+                    )
 
                     # EXPERIMENTAL: Test fixed window sizes (2500ms total, 300ms sub-window, 100ms step)
                     resampled_measurements = calculate_95th_percentile_series(

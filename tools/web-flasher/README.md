@@ -16,6 +16,14 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 - Full firmware updates (no delta compression)
 - Progress tracking and status updates
 
+### 📊 Grind Analytics (Bluetooth)
+- Pulls grind sessions, system info, and the diagnostics report over one BLE connection
+- Full in-browser analysis dashboard: single-session phase charts (overall, predictive,
+  pulse, vibration/FFT, controller), multi-session statistics, and Device Health
+- Data persists in the browser (IndexedDB) between visits; JSON export/import for sharing
+- Binary session parsing in `analytics/parser.js` — must stay aligned with
+  `src/logging/grind_logging.h` (see `tools/ble/CLAUDE.md`)
+
 ## Browser Support
 
 - ✅ **Chrome** (Desktop & Android) - Full support

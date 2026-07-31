@@ -522,6 +522,10 @@ python3 tools/grinder.py diagnostics --save diagnostic-report.txt
 3. **Export and analyze** the data using the tools below
 4. **Disable logging** again when analysis is complete (recommended for daily use)
 
+### Analyze in the Browser (No Local Tools)
+
+The [Web Flasher Tool](https://preetpatel.github.io/smart-grind-by-weight)'s **Analytics** tab pulls grind sessions, system info, and the diagnostics report straight from the grinder over Web Bluetooth (Chrome/Edge) and renders the full analysis dashboard in the browser — single-session phase charts, vibration/FFT analysis, multi-session statistics, and the Device Health view. Data is cached in the browser between visits and can be exported/imported as JSON for sharing.
+
 ### Launch Interactive Dashboard
 ```bash
 # Pull grind data + system info + diagnostics over one BLE connection,

@@ -26,6 +26,8 @@ python3 tools/grinder.py analyze
 - `python3 tools/grinder.py info` - Get device system information
 - `python3 tools/grinder.py clean` - Clean build artifacts
 
+**Web Analytics:** The web flasher (`tools/web-flasher`) has an Analytics tab that pulls grind data + a device health snapshot over Web Bluetooth and renders the full analysis dashboard in the browser (single-session, multi-session, vibration/FFT, device health). Its binary parser (`tools/web-flasher/analytics/parser.js`) is a third consumer of the `grind_logging.h` structs — any struct change must update it alongside the Python parser (see `tools/ble/CLAUDE.md`). Grind data chunks are delivered as acknowledged BLE indications; the firmware retries unconfirmed chunks rather than dropping them.
+
 ## Architecture
 
 **4-Layer Architecture:**

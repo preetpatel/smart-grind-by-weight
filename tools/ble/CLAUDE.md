@@ -32,7 +32,7 @@ Update `tools/grinder-ble` parsing based on ESP32 debug output:
 ```python
 # Key structs to maintain alignment for:
 LOG_SCHEMA_VERSION = 2    # Update when schema changes
-GRIND_SESSION_SIZE = 84  # Update based on sizeof(GrindSession)
+GRIND_SESSION_SIZE = 80  # Update based on sizeof(GrindSession)
 GRIND_EVENT_SIZE = 44     # Update based on sizeof(GrindEvent) 
 GRIND_MEASUREMENT_SIZE = 24  # Update based on sizeof(GrindMeasurement)
 
@@ -46,7 +46,7 @@ Essential debug output from ESP32 shows:
 ```
 === STRUCT LAYOUT DEBUG ===
 TimeSeriesSessionHeader: 24 bytes
-GrindSession: 108 bytes (current size)
+GrindSession: 80 bytes (current size)
 GrindEvent: 44 bytes  
 GrindMeasurement: 24 bytes
 ```
@@ -67,11 +67,11 @@ struct TimeSeriesSessionHeader {
 };
 ```
 
-### GrindSession (84 bytes)
+### GrindSession (80 bytes)
 ```cpp
 struct GrindSession {
     uint32_t session_id;              // 0
-    uint32_t session_timestamp;       // 4
+    uint32_t session_timestamp;       // 4 (seconds since boot at session start)
     uint32_t target_time_ms;          // 8 (time-mode target)
     uint32_t total_time_ms;           // 12 (session runtime)
     uint32_t total_motor_on_time_ms;  // 16
@@ -87,14 +87,14 @@ struct GrindSession {
     float latency_to_coast_ratio;     // 48
     float flow_rate_threshold;        // 52
 
-    uint8_t profile_id;               // 60
-    uint8_t grind_mode;               // 61 (enum GrindMode)
-    uint8_t max_pulse_attempts;       // 62
-    uint8_t pulse_count;              // 63
-    uint8_t termination_reason;       // 64 (enum GrindTerminationReason)
-    uint8_t reserved[3];              // 65-67
+    uint8_t profile_id;               // 56
+    uint8_t grind_mode;               // 57 (enum GrindMode)
+    uint8_t max_pulse_attempts;       // 58
+    uint8_t pulse_count;              // 59
+    uint8_t termination_reason;       // 60 (enum GrindTerminationReason)
+    uint8_t reserved[3];              // 61-63
 
-    char    result_status[16];        // 68-83 (null-terminated)
+    char    result_status[16];        // 64-79 (null-terminated)
 };
 ```
 
@@ -172,14 +172,15 @@ struct GrindMeasurement {
 3. **PURGE HISTORY** via ESP32 developer screen  
 4. **Perform test grind** to generate fresh data
 5. **Trigger BLE export** - review struct debug output
-6. **Update Python parsing** in `tools/grinder-ble`
+6. **Update Python parsing** in `tools/ble/grinder-ble.py` AND the web parser in `tools/web-flasher/analytics/parser.js`
 7. **Test full export pipeline** to verify alignment
 
 ## Key Files
 
 - **ESP32 Structs**: `src/logging/grind_logging.h`
 - **ESP32 Debug Functions**: `src/logging/grind_logging.cpp`
-- **Python Parser**: `tools/grinder-ble` 
+- **Python Parser**: `tools/ble/grinder-ble.py` (`_parse_single_file_data`)
+- **Web Parser**: `tools/web-flasher/analytics/parser.js` (browser analytics tab)
 - **SQL Schema**: Updated automatically by Python parser
 
 ## Debug Commands
@@ -192,4 +193,4 @@ pio device monitor --baud 115200
 cd tools && python3 grinder-ble --connect --auto
 ```
 
-Remember: **Every struct change = Mandatory flash purge + Python parsing update**
+Remember: **Every struct change = Mandatory flash purge + updating BOTH parsers (Python and web)**

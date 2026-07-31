@@ -126,7 +126,9 @@ If you want to modify the code or contribute, see **[DEVELOPMENT.md](docs/DEVELO
 
 [<img src="media/analytics.png" alt="Analytics Dashboard" width="50%">](media/analytics.png)
 
-Pull everything from the grinder over one BLE connection — grind data, system info, and the diagnostics report — and analyze it with the included Streamlit dashboard:
+Pull everything from the grinder over one BLE connection — grind data, system info, and the diagnostics report — and analyze it right in your browser: the [Web Flasher](https://preetpatel.github.io/smart-grind-by-weight)'s **Analytics** tab connects over Web Bluetooth (Chrome/Edge), no local tools needed. Single-session phase charts, vibration/FFT analysis, multi-session statistics, and a Device Health view, with JSON export/import for sharing datasets.
+
+Prefer working locally? The same pull and dashboard are available via the Streamlit tooling:
 
 ```bash
 python3 tools/grinder.py analyze
