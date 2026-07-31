@@ -63,7 +63,7 @@ python3 tools/grinder.py analyze
 - **Prime mode**: Keeps coffee, continues immediately to PREDICTIVE phase
 - **Purge mode** (default): Shows confirmation popup, waits for user to discard stale grinds, then continues
 - **Configurable amount**: 0.1g-5.0g (default 1.0g), replaces old hardcoded `GRIND_PRIME_TARGET_WEIGHT_G`. Stop is coast-compensated (`GRIND_PRIME_COAST_COMPENSATION_MS`) so the configured amount is what actually lands
-- **Purge popup**: "Keep purge grinds from now on" checkbox switches mode from Purge → Prime in preferences
+- **Purge popup**: "Keep purge grinds from now on" checkbox (checked by default) switches mode from Purge → Prime in preferences
 - **Logging disabled** during PURGE_CONFIRM phase to avoid capturing data while paused
 - **Preferences**: `chute_mode` (int: 0=Prime, 1=Purge, default=1), `chute_amount_g` (float: 0.1-5.0, default=1.0)
 

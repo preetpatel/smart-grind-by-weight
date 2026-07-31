@@ -74,8 +74,8 @@ void PurgeConfirmScreen::create() {
 
 void PurgeConfirmScreen::show() {
     if (checkbox) {
-        // Always default to unchecked to prevent accidental preference changes
-        lv_obj_clear_state(checkbox, LV_STATE_CHECKED);
+        // Default to checked: most users want to keep grinds, unchecking is the deliberate action
+        lv_obj_add_state(checkbox, LV_STATE_CHECKED);
     }
     lv_obj_clear_flag(screen, LV_OBJ_FLAG_HIDDEN);
     lv_obj_move_foreground(screen);  // Bring to front, above all other UI elements
