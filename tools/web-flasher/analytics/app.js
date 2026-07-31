@@ -4,6 +4,7 @@
 
 import { GrinderDataClient, isWebBluetoothSupported } from './ble-data.js';
 import { MODE_MAP, PROFILE_MAP, TERMINATION_REASON_MAP } from './parser.js';
+import { mean, stddev } from './frame.js';
 import {
     saveSessions, loadSessions, clearAll, saveMeta, loadMeta,
     buildExportJson, parseImportJson,
@@ -126,9 +127,29 @@ async function refreshFromStore() {
     if (records.length) {
         viewOptions.multi.idMin = Math.min(...records.map((r) => r.session_id));
         viewOptions.multi.idMax = Math.max(...records.map((r) => r.session_id));
+        // Open on the newest session so the overview chart is visible without
+        // an extra click.
+        if (selectedSessionId === null || !records.some((r) => r.session_id === selectedSessionId)) {
+            selectedSessionId = records[records.length - 1].session_id;
+        }
     }
     renderSummary();
     renderMain();
+}
+
+// Result status → reserved status palette kind (badge classes in index.html).
+function badgeKind(status) {
+    switch (status) {
+        case 'COMPLETE': return 'good';
+        case 'OVERSHOOT': return 'warning';
+        case 'MAX_PULSES': return 'serious';
+        case 'TIMEOUT': return 'critical';
+        default: return 'neutral';
+    }
+}
+
+function resultBadge(status) {
+    return el('span', { class: `badge st-${badgeKind(status)}`, text: status });
 }
 
 function renderMain() {
@@ -170,6 +191,128 @@ function renderMain() {
     }
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+function svgEl(tag, attrs = {}) {
+    const node = document.createElementNS(SVG_NS, tag);
+    for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, String(value));
+    return node;
+}
+
+// Miniature of the multi-session "Error vs Session ID" chart: one point per
+// weight-mode grind, tolerance guides in red, zero line in green. Points
+// outside tolerance are red as well as outside the band (double encoding).
+function buildErrorSparkline(weightRecords) {
+    const W = 600;
+    const H = 52;
+    const PAD = 8;
+    const points = weightRecords.map((r) => ({
+        id: r.session_id,
+        error: r.session.final_weight - r.session.target_weight,
+    }));
+    const maxAbs = Math.max(TOLERANCE_G * 1.6, ...points.map((p) => Math.abs(p.error)));
+    const y = (v) => H / 2 - (v / maxAbs) * (H / 2 - PAD);
+    const x = (i) => (points.length === 1 ? W / 2 : PAD + (i / (points.length - 1)) * (W - 2 * PAD));
+
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Weight error per session' });
+    svg.appendChild(svgEl('line', { x1: 0, x2: W, y1: y(0), y2: y(0), stroke: '#0ca30c', 'stroke-width': 1, opacity: 0.5 }));
+    for (const tol of [TOLERANCE_G, -TOLERANCE_G]) {
+        svg.appendChild(svgEl('line', {
+            x1: 0, x2: W, y1: y(tol), y2: y(tol),
+            stroke: '#e66767', 'stroke-width': 1, 'stroke-dasharray': '4 4', opacity: 0.6,
+        }));
+    }
+    if (points.length > 1) {
+        svg.appendChild(svgEl('polyline', {
+            points: points.map((p, i) => `${x(i)},${y(p.error)}`).join(' '),
+            fill: 'none', stroke: 'rgba(57,135,229,0.35)', 'stroke-width': 1.5,
+        }));
+    }
+    points.forEach((p, i) => {
+        const within = Math.abs(p.error) < TOLERANCE_G;
+        const dot = svgEl('circle', {
+            cx: x(i), cy: y(p.error), r: 3.5,
+            fill: within ? '#3987e5' : '#d03b3b',
+        });
+        const title = svgEl('title');
+        title.textContent = `#${p.id}: ${p.error >= 0 ? '+' : ''}${p.error.toFixed(3)} g`;
+        dot.appendChild(title);
+        svg.appendChild(dot);
+    });
+    return svg;
+}
+
+// Left hero panel: the newest grind, presented like the device's completion
+// screen — big final weight, target and signed error.
+function buildLatestPanel(record) {
+    const s = record.session;
+    const mode = MODE_MAP[s.grind_mode] ?? 'WEIGHT';
+    const panel = el('div', { class: 'hero-latest' });
+
+    panel.appendChild(el('div', { class: 'session-line' }, [
+        el('span', { text: `LATEST · #${s.session_id}` }),
+        el('span', { text: mode }),
+        el('span', { text: PROFILE_MAP[s.profile_id] ?? `P${s.profile_id}` }),
+    ]));
+
+    const weight = el('div', { class: 'hero-weight' });
+    weight.appendChild(document.createTextNode(s.final_weight.toFixed(2)));
+    weight.appendChild(el('span', { class: 'unit', text: ' g' }));
+    panel.appendChild(weight);
+
+    const target = el('div', { class: 'hero-target' });
+    target.appendChild(document.createTextNode(`target ${sessionTargetLabel(s)} · `));
+    let errorClass = '';
+    if (mode === 'WEIGHT') {
+        errorClass = Math.abs(s.final_weight - s.target_weight) < TOLERANCE_G ? 'good' : 'bad';
+    }
+    target.appendChild(el('span', { class: `hero-error ${errorClass}`, text: sessionErrorLabel(s) }));
+    panel.appendChild(target);
+
+    const grindTime = grindTimeSeconds(record.events);
+    const activeSeconds = grindTime > 0 ? grindTime : s.total_time_ms / 1000;
+    const fact = (valueNode, label) => el('div', {}, [valueNode, document.createTextNode(label)]);
+    panel.appendChild(el('div', { class: 'hero-facts' }, [
+        fact(el('b', { text: `${activeSeconds.toFixed(1)} s` }), 'grind time'),
+        fact(el('b', { text: String(s.pulse_count) }), 'pulses'),
+        fact(el('b', {}, [resultBadge(s.result_status)]), 'result'),
+    ]));
+    return panel;
+}
+
+// Right hero panel: KPIs across every stored session + the error sparkline.
+function buildFleetPanel() {
+    const wrap = el('div', { class: 'hero-fleet' });
+    const weightRecords = records.filter((r) => (MODE_MAP[r.session.grind_mode] ?? 'WEIGHT') === 'WEIGHT');
+
+    const tiles = [metricTile('Sessions', String(records.length))];
+    if (weightRecords.length) {
+        const errors = weightRecords.map((r) => r.session.final_weight - r.session.target_weight);
+        const within = errors.filter((e) => Math.abs(e) < TOLERANCE_G).length;
+        const grindTimes = weightRecords.map((r) => grindTimeSeconds(r.events)).filter((t) => t > 0);
+        const meanError = mean(errors);
+        const sigma = stddev(errors);
+        tiles.push(
+            metricTile(`Within ±${TOLERANCE_G.toFixed(2)} g`, `${((within / errors.length) * 100).toFixed(0)}%`,
+                `${within}/${errors.length} grinds`),
+            metricTile('Mean Error', `${meanError >= 0 ? '+' : ''}${meanError.toFixed(3)} g`),
+            metricTile('Error σ', Number.isNaN(sigma) ? 'n/a' : `${sigma.toFixed(3)} g`),
+            metricTile('Avg Grind Time', grindTimes.length ? `${mean(grindTimes).toFixed(1)} s` : 'n/a'),
+        );
+    }
+    const kpiRow = el('div', { class: 'kpi-row' }, tiles);
+    kpiRow.style.margin = '0';
+    wrap.appendChild(kpiRow);
+
+    if (weightRecords.length >= 2) {
+        const spark = el('div', { class: 'sparkline-block' });
+        spark.appendChild(el('div', { class: 'spark-label', text: `error per session (g) · ±${TOLERANCE_G.toFixed(2)} band` }));
+        spark.appendChild(buildErrorSparkline(weightRecords));
+        wrap.appendChild(spark);
+    }
+    return wrap;
+}
+
 async function renderSummary() {
     const summary = $('analyticsSummary');
     summary.textContent = '';
@@ -181,12 +324,18 @@ async function renderSummary() {
         return;
     }
     const lastPull = await loadMeta('lastPull');
+
+    const hero = el('div', { class: 'hero' });
+    hero.appendChild(buildLatestPanel(records[records.length - 1]));
+    hero.appendChild(buildFleetPanel());
+    summary.appendChild(hero);
+
     const totalEvents = records.reduce((sum, r) => sum + r.events.length, 0);
     const totalMeasurements = records.reduce((sum, r) => sum + r.measurements.length, 0);
     summary.appendChild(el('div', {
-        class: 'status success',
-        text: `${records.length} sessions stored (${totalEvents} events, ${totalMeasurements} measurements)`
-            + (lastPull ? ` — last updated ${new Date(lastPull).toLocaleString()}` : ''),
+        class: 'store-line',
+        text: `${records.length} sessions · ${totalEvents.toLocaleString()} events · ${totalMeasurements.toLocaleString()} measurements stored in this browser`
+            + (lastPull ? ` · last pull ${new Date(lastPull).toLocaleString()}` : ''),
     }));
 }
 
@@ -198,6 +347,10 @@ function renderSessionsTable(container) {
 
     const rows = records.map((record) => {
         const s = record.session;
+        const errorCell = el('td', { text: sessionErrorLabel(s) });
+        if ((MODE_MAP[s.grind_mode] ?? 'WEIGHT') === 'WEIGHT') {
+            errorCell.className = Math.abs(s.final_weight - s.target_weight) < TOLERANCE_G ? 'num-good' : 'num-bad';
+        }
         const row = el('tr', { class: s.session_id === selectedSessionId ? 'selected' : '' }, [
             el('td', { text: `#${s.session_id}` }),
             el('td', { text: formatUptime(s.session_timestamp) }),
@@ -205,9 +358,9 @@ function renderSessionsTable(container) {
             el('td', { text: PROFILE_MAP[s.profile_id] ?? `P${s.profile_id}` }),
             el('td', { text: sessionTargetLabel(s) }),
             el('td', { text: s.final_weight.toFixed(2) }),
-            el('td', { text: sessionErrorLabel(s) }),
+            errorCell,
             el('td', { text: String(s.pulse_count) }),
-            el('td', { text: s.result_status }),
+            el('td', {}, [resultBadge(s.result_status)]),
             el('td', { text: String(record.events.length) }),
             el('td', { text: String(record.measurements.length) }),
         ]);
@@ -219,7 +372,7 @@ function renderSessionsTable(container) {
     });
 
     container.appendChild(el('h3', { text: 'Grind Sessions' }));
-    container.appendChild(el('p', { class: 'table-hint', text: 'Click a session to inspect its raw events and measurements.' }));
+    container.appendChild(el('p', { class: 'table-hint', text: 'Click a session to open its full analysis below.' }));
     const wrapper = el('div', { class: 'table-scroll' }, [el('table', { class: 'data-table' }, [thead, el('tbody', {}, rows)])]);
     container.appendChild(wrapper);
 }

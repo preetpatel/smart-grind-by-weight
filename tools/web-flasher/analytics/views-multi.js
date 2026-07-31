@@ -4,21 +4,21 @@
 
 import { MODE_MAP, PROFILE_MAP } from './parser.js';
 import { pearson, mean, stddev } from './frame.js';
-import { COLOR_WEIGHT, grindTimeSeconds } from './charts.js';
+import { COLOR_WEIGHT, grindTimeSeconds, chartLayout, CHART_CONFIG } from './charts.js';
 
 const TOLERANCE_G = 0.03;
-const COLOR_TOLERANCE = '#c53030';
-const COLOR_PERFECT = '#006400';
-const COLOR_REFERENCE = '#808080';
-const COLOR_METHOD_ALT = '#FF8C00'; // 1500ms-average method, distinct from the 95p method
+const COLOR_TOLERANCE = '#e66767';
+const COLOR_PERFECT = '#0ca30c';
+const COLOR_REFERENCE = '#898781';
+const COLOR_METHOD_ALT = '#d95926'; // 1500ms-average method, distinct from the 95p method
 
-// Status colors: fixed identities, not cycled (COMPLETE=good, OVERSHOOT=warning,
-// TIMEOUT/MAX_PULSES=serious, everything else neutral).
+// Status colors: fixed identities from the reserved status palette, not cycled
+// (COMPLETE=good, OVERSHOOT=warning, MAX_PULSES=serious, TIMEOUT=critical).
 const STATUS_COLORS = {
-    COMPLETE: '#1d7a35',
-    OVERSHOOT: '#CC8800',
-    TIMEOUT: '#c53030',
-    MAX_PULSES: '#9d2f2f',
+    COMPLETE: '#0ca30c',
+    OVERSHOOT: '#fab219',
+    TIMEOUT: '#d03b3b',
+    MAX_PULSES: '#ec835a',
 };
 
 function el(tag, attrs = {}, children = []) {
@@ -49,17 +49,8 @@ function chartDiv(container, cls = 'chart-container small') {
     return div;
 }
 
-function baseLayout(title, xTitle, yTitle) {
-    return {
-        title: { text: title, font: { size: 14 } },
-        xaxis: { title: { text: xTitle }, gridcolor: '#eef0f3', zeroline: false },
-        yaxis: { title: { text: yTitle }, gridcolor: '#eef0f3', zeroline: false },
-        paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
-        margin: { t: 45, r: 20, b: 45, l: 55 },
-        showlegend: false,
-    };
-}
-const CONFIG = { responsive: true, displaylogo: false };
+const baseLayout = chartLayout;
+const CONFIG = CHART_CONFIG;
 
 function vline(x, color, dash = 'dash') {
     return { type: 'line', xref: 'x', yref: 'paper', x0: x, x1: x, y0: 0, y1: 1, line: { color, width: 1.5, dash } };

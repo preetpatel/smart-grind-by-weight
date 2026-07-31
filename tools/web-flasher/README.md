@@ -18,11 +18,23 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 
 ### 📊 Grind Analytics (Bluetooth)
 - Pulls grind sessions, system info, and the diagnostics report over one BLE connection
+- Latest grind shown as a hero above the fold (final weight vs target with signed error),
+  next to a fleet KPI strip (accuracy rate, mean error, σ, avg grind time) and an
+  error-per-session sparkline; the newest session's full analysis opens automatically
 - Full in-browser analysis dashboard: single-session phase charts (overall, predictive,
   pulse, vibration/FFT, controller), multi-session statistics, and Device Health
 - Data persists in the browser (IndexedDB) between visits; JSON export/import for sharing
 - Binary session parsing in `analytics/parser.js` — must stay aligned with
   `src/logging/grind_logging.h` (see `tools/ble/CLAUDE.md`)
+
+## UI
+
+The tool uses a dark instrument-panel theme derived from the firmware's own LVGL color
+scheme (`src/config/constants.h`): black background, red primary action, blue accent, with
+monospace tabular numerals for all telemetry. Chart series colors are CVD-validated for
+the dark surface (see the palette note at the top of `analytics/charts.js`); grind result
+statuses use a reserved status palette (COMPLETE/OVERSHOOT/MAX_PULSES/TIMEOUT) rendered as
+dot + label badges so state never relies on color alone.
 
 ## Browser Support
 
@@ -35,17 +47,16 @@ A browser-based firmware flashing tool for the Smart Grind By Weight ESP32 coffe
 
 ### For Initial Setup
 1. Open the web flasher in Chrome/Edge
-2. Go to "Initial Setup (USB)" tab
-3. Enter firmware URL from GitHub release
+2. Go to the "Initial Setup" tab
+3. Select a firmware version
 4. Click "Flash via USB" - opens ESP Web Tools
 5. Connect device via USB and flash
 
 ### For OTA Updates
 1. Ensure grinder is powered and BLE enabled
-2. Go to "OTA Update (BLE)" tab  
-3. Enter firmware URL from GitHub release
-4. Click "Connect to Device"
-5. Click "Flash Firmware" when connected
+2. Go to the "OTA Update" tab
+3. Select a firmware version
+4. Click "Connect & Flash Firmware"
 
 ## Firmware Sources
 

@@ -4,18 +4,43 @@
 // on a shared time axis, which is the established reading pattern for grind
 // telemetry in this project.
 //
-// Colors are the report's established series colors, validated for CVD
-// separation and surface contrast (dataviz palette checks pass on white).
+// Series colors are CVD-validated for the dark chart surface (#0A0C10): the
+// two real co-occurrence sets (weight/flow/detection + target red, and
+// weight/flow/detection + motor-stop orange) both pass all dataviz palette
+// checks. Red and orange reference lines never share a chart.
 
 import { rollingMeanByTime, interpolateAt, groupBy } from './frame.js';
 import { MODE_MAP } from './parser.js';
 
-export const COLOR_WEIGHT = '#4169E1'; // royalblue
-export const COLOR_FLOW = '#006400'; // darkgreen
-export const COLOR_TARGET = '#FA8072'; // salmon reference line
-export const COLOR_MOTOR_FILL = 'rgba(72, 61, 139, 0.3)'; // DarkSlateBlue, motor-on band
-export const COLOR_EVENT = '#808080';
-export const COLOR_DETECTION = '#800080';
+export const COLOR_WEIGHT = '#3987e5'; // blue — primary weight trace
+export const COLOR_FLOW = '#199e70'; // aqua-green — flow rate trace
+export const COLOR_TARGET = '#e66767'; // red — target/tolerance reference lines
+export const COLOR_MOTOR_FILL = 'rgba(57, 135, 229, 0.10)'; // motor-on band
+export const COLOR_EVENT = '#898781'; // muted — event markers/guides
+export const COLOR_DETECTION = '#9085e9'; // violet — detection & percentile family
+
+// Chart chrome for the dark surface, shared by every analytics view.
+export const CHART_SURFACE = '#0a0c10';
+export const CHART_GRID = '#1c2129';
+export const CHART_INK = '#ecf1f7';
+export const CHART_INK_MUTED = '#7a8490';
+export const CHART_FONT = { family: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace', size: 11, color: '#a8b2bd' };
+
+export const CHART_CONFIG = { responsive: true, displaylogo: false };
+
+// Base layout for the small single-purpose charts (histograms, scatters, FFTs).
+export function chartLayout(title, xTitle, yTitle) {
+    return {
+        title: { text: title, font: { size: 13, color: CHART_INK } },
+        font: CHART_FONT,
+        xaxis: { title: { text: xTitle, font: { color: CHART_INK_MUTED } }, gridcolor: CHART_GRID, zeroline: false },
+        yaxis: { title: { text: yTitle, font: { color: CHART_INK_MUTED } }, gridcolor: CHART_GRID, zeroline: false },
+        paper_bgcolor: CHART_SURFACE,
+        plot_bgcolor: CHART_SURFACE,
+        margin: { t: 42, r: 20, b: 45, l: 55 },
+        showlegend: false,
+    };
+}
 
 // Phases stripped from every chart (internal controller states).
 const INTERNAL_PHASES = ['IDLE', 'SETUP'];
@@ -268,20 +293,21 @@ export function buildOverviewFigure(record, options) {
     }
 
     const layout = {
-        title: { text: `Grind Profile for Session #${session.session_id}`, font: { size: 16 } },
-        xaxis: { title: { text: 'Time (milliseconds)' }, gridcolor: '#eef0f3', zeroline: false },
-        yaxis: { title: { text: 'Weight (g)' }, gridcolor: '#eef0f3', zeroline: false },
-        yaxis2: { title: { text: 'Flow Rate (g/s)' }, overlaying: 'y', side: 'right', showgrid: false, zeroline: false },
+        title: { text: `Grind Profile — Session #${session.session_id}`, font: { size: 15, color: CHART_INK } },
+        font: CHART_FONT,
+        xaxis: { title: { text: 'Time (milliseconds)', font: { color: CHART_INK_MUTED } }, gridcolor: CHART_GRID, zeroline: false },
+        yaxis: { title: { text: 'Weight (g)', font: { color: CHART_INK_MUTED } }, gridcolor: CHART_GRID, zeroline: false },
+        yaxis2: { title: { text: 'Flow Rate (g/s)', font: { color: CHART_INK_MUTED } }, overlaying: 'y', side: 'right', showgrid: false, zeroline: false },
         hovermode: 'x unified',
-        legend: { yanchor: 'top', y: 0.99, xanchor: 'left', x: 0.01, bgcolor: 'rgba(255,255,255,0.7)' },
+        legend: { yanchor: 'top', y: 0.99, xanchor: 'left', x: 0.01, bgcolor: 'rgba(10,12,16,0.75)' },
         shapes,
         annotations,
-        paper_bgcolor: '#ffffff',
-        plot_bgcolor: '#ffffff',
+        paper_bgcolor: CHART_SURFACE,
+        plot_bgcolor: CHART_SURFACE,
         margin: { t: 50, r: 60, b: 50, l: 60 },
     };
 
-    return { traces, layout, config: { responsive: true, displaylogo: false } };
+    return { traces, layout, config: CHART_CONFIG };
 }
 
 // Generic phase-detail chart (create_phase_chart port): weight + flow for a
@@ -327,16 +353,17 @@ export function buildPhaseFigure({
     annotations.push(...markers.annotations);
 
     const layout = {
-        title: { text: title, font: { size: 16 } },
-        xaxis: { title: { text: 'Time (milliseconds)' }, gridcolor: '#eef0f3', zeroline: false },
-        yaxis: { title: { text: 'Weight (grams)' }, gridcolor: '#eef0f3', zeroline: false },
-        yaxis2: { title: { text: 'Flow Rate (g/s)' }, overlaying: 'y', side: 'right', showgrid: false, zeroline: false },
+        title: { text: title, font: { size: 15, color: CHART_INK } },
+        font: CHART_FONT,
+        xaxis: { title: { text: 'Time (milliseconds)', font: { color: CHART_INK_MUTED } }, gridcolor: CHART_GRID, zeroline: false },
+        yaxis: { title: { text: 'Weight (grams)', font: { color: CHART_INK_MUTED } }, gridcolor: CHART_GRID, zeroline: false },
+        yaxis2: { title: { text: 'Flow Rate (g/s)', font: { color: CHART_INK_MUTED } }, overlaying: 'y', side: 'right', showgrid: false, zeroline: false },
         hovermode: 'x unified',
-        legend: { yanchor: 'top', y: 0.99, xanchor: 'left', x: 0.01, bgcolor: 'rgba(255,255,255,0.7)' },
+        legend: { yanchor: 'top', y: 0.99, xanchor: 'left', x: 0.01, bgcolor: 'rgba(10,12,16,0.75)' },
         shapes,
         annotations,
-        paper_bgcolor: '#ffffff',
-        plot_bgcolor: '#ffffff',
+        paper_bgcolor: CHART_SURFACE,
+        plot_bgcolor: CHART_SURFACE,
         margin: { t: 50, r: 60, b: 50, l: 60 },
     };
 
@@ -349,7 +376,7 @@ export function buildPhaseFigure({
         layout.xaxis.range = [xMin - pad, xMax + pad];
     }
 
-    return { traces, layout, config: { responsive: true, displaylogo: false } };
+    return { traces, layout, config: CHART_CONFIG };
 }
 
 // Total active grind time in seconds: predictive start to the end of the last

@@ -4,18 +4,18 @@
 import { MODE_MAP } from './parser.js';
 import { rollingMeanByTime, interpolateAt, resampleLast } from './frame.js';
 import {
-    buildPhaseFigure, filterForDisplay,
-    COLOR_WEIGHT, COLOR_DETECTION,
+    buildPhaseFigure, filterForDisplay, chartLayout, CHART_CONFIG,
+    COLOR_WEIGHT, COLOR_FLOW, COLOR_DETECTION,
 } from './charts.js';
 import { percentile95Series } from './percentile.js';
 import { detrendLinear, amplitudeSpectrum, lfilter, iirnotch } from './signal.js';
 
-const COLOR_IIR = '#FF8C00'; // darkorange, as in the Streamlit tab
-const COLOR_NOTCH = '#006400'; // darkgreen
+const COLOR_IIR = '#d95926'; // orange — filtered-spectrum variant
+const COLOR_NOTCH = COLOR_FLOW; // notch spectrum renders on its own chart
 
-const COLOR_MOTOR_STOP_TARGET = '#CC8800'; // orange reference line
-const COLOR_PERCENTILE = '#800080'; // purple, matches the detection marker family
-const COLOR_REFERENCE_LINE = '#808080';
+const COLOR_MOTOR_STOP_TARGET = '#d95926'; // orange reference line
+const COLOR_PERCENTILE = COLOR_DETECTION; // detection marker family
+const COLOR_REFERENCE_LINE = '#898781';
 
 function el(tag, attrs = {}, children = []) {
     const node = document.createElement(tag);
@@ -217,15 +217,8 @@ export function renderPulseTab(container, record, viewOptions, plot) {
     // Three small charts: contribution, effectiveness, prediction accuracy
     const chartRow = el('div', { class: 'chart-row' });
     container.appendChild(chartRow);
-    const layoutBase = (title, xTitle, yTitle) => ({
-        title: { text: title, font: { size: 14 } },
-        xaxis: { title: { text: xTitle }, gridcolor: '#eef0f3', zeroline: false },
-        yaxis: { title: { text: yTitle }, gridcolor: '#eef0f3', zeroline: false },
-        paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
-        margin: { t: 40, r: 20, b: 45, l: 55 },
-        showlegend: false,
-    });
-    const config = { responsive: true, displaylogo: false };
+    const layoutBase = chartLayout;
+    const config = CHART_CONFIG;
 
     plot(chartDiv(chartRow, 'chart-container small'), {
         traces: [{
@@ -291,14 +284,8 @@ export function renderPulseTab(container, record, viewOptions, plot) {
 // --- Vibration Analysis tab -----------------------------------------------
 
 function spectrumFigure(title, freqs, amps, color, fs, annotation = null) {
-    const layout = {
-        title: { text: title, font: { size: 14 } },
-        xaxis: { title: { text: 'Frequency (Hz)' }, range: [0, fs / 2], gridcolor: '#eef0f3', zeroline: false },
-        yaxis: { title: { text: 'Amplitude' }, gridcolor: '#eef0f3', zeroline: false },
-        paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
-        margin: { t: 40, r: 20, b: 45, l: 55 },
-        showlegend: false,
-    };
+    const layout = chartLayout(title, 'Frequency (Hz)', 'Amplitude');
+    layout.xaxis.range = [0, fs / 2];
     if (annotation) layout.annotations = [annotation];
     return {
         traces: [{
@@ -306,7 +293,7 @@ function spectrumFigure(title, freqs, amps, color, fs, annotation = null) {
             hovertemplate: '%{x:.2f} Hz: %{y:.4f}<extra></extra>',
         }],
         layout,
-        config: { responsive: true, displaylogo: false },
+        config: CHART_CONFIG,
     };
 }
 
@@ -357,19 +344,16 @@ export function renderVibrationTab(container, record, viewOptions, plot) {
 
     // Time-domain jitter
     container.appendChild(el('h4', { text: 'Vibration Signal (Time Domain)' }));
+    const jitterLayout = chartLayout('', 'Time (ms)', 'Weight Fluctuation (g)');
+    jitterLayout.margin.t = 20;
     plot(chartDiv(container, 'chart-container small'), {
         traces: [{
             x: times, y: detrended, mode: 'lines', name: 'Weight Jitter',
             line: { color: COLOR_WEIGHT, width: 1.5 },
             hovertemplate: '%{x} ms: %{y:.4f}g<extra></extra>',
         }],
-        layout: {
-            xaxis: { title: { text: 'Time (ms)' }, gridcolor: '#eef0f3', zeroline: false },
-            yaxis: { title: { text: 'Weight Fluctuation (g)' }, gridcolor: '#eef0f3', zeroline: false },
-            paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff',
-            margin: { t: 20, r: 20, b: 45, l: 55 }, showlegend: false,
-        },
-        config: { responsive: true, displaylogo: false },
+        layout: jitterLayout,
+        config: CHART_CONFIG,
     });
 
     // Raw spectrum with peak
