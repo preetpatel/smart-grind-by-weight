@@ -342,7 +342,7 @@ Access **Menu → Grind Settings** to configure:
 - **Purging** *(Advanced)*: Control how the grinder saturates itself before weight-mode grinding
   - **Prime mode**: Keeps the coffee used to saturate the grinder, continues immediately
   - **Purge mode** (default): Prompts you to discard stale grinds before continuing
-  - **Amount slider**: Configure purge/prime amount (0.1g-5.0g, default 1.0g). Amount is a minimum target; actual output will be slightly higher.
+  - **Amount slider**: Configure purge/prime amount (0.1g-5.0g, default 1.0g). The stop point is coast-compensated (grounds keep arriving ~300ms after motor-off), so the configured amount is approximately what actually lands.
   - **"Keep purge grinds from now on" checkbox**: Appears during purge confirmation - switches to Prime mode when checked
 
   *Explanation:* The time between motor start and grinds hitting the cup (grind latency) is used to predict the coast time (how long grinds will keep coming after the motor is disengaged). Purging clears stale coffee and saturates the grinder with fresh grounds, ensuring accurate latency detection. If you prefer to keep all coffee without manual intervention, select Prime mode.
@@ -581,6 +581,9 @@ The system uses a **zero-shot learning algorithm** requiring no prior knowledge 
 
 4. **Pulse Correction Phase**
    - Conservative pulse duration calculation using 95th percentile flow rate
+   - Closed-loop flow feedback: each pulse's settled yield re-derives the flow
+     estimate for the next pulse (sanity-clamped), so a mis-estimated rate is
+     corrected after one pulse instead of persisting all session
    - Bounded pulses respect hardware-specific motor response latency
    - Pulses range from motor latency minimum to latency + 225ms maximum
    - Mechanical instability detection (3+ sudden weight drops triggers diagnostic)

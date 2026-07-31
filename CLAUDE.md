@@ -44,7 +44,7 @@ python3 tools/grinder.py analyze
 
 **Key Components:**
 - **HardwareManager**: Central hardware coordinator
-- **GrindController**: 9-phase state machine with predictive flow control, 10 pulse corrections, mechanical instability detection, and post-completion top-up pulses (both modes)
+- **GrindController**: 9-phase state machine with predictive flow control, 10 pulse corrections with closed-loop flow feedback (each pulse's measured yield refines the flow estimate for the next, `pulse_flow_feedback.h`), mechanical instability detection, and post-completion top-up pulses (both modes)
 - **LoadCell (HX711)**: Multi-mode precision weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics
 - **DiagnosticsController**: System health monitoring (calibration status, sustained noise, mechanical instability, signal saturation), state persistence, hysteresis, priority-based warnings. LOAD_CELL_SATURATED fires when raw ADC is pegged at a rail (0x000000/0xFFFFFF ± margin) for 10+ consecutive samples — indicates A+/A- wiring fault, and blocks weight-mode grinds in `GrindController::start_grind()` (time mode is unaffected)
 - **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, WiFi, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for top-up pulses on the completion screen
@@ -62,7 +62,7 @@ python3 tools/grinder.py analyze
 - **Always runs** before weight-mode grinding to saturate the grinder for accurate latency detection
 - **Prime mode**: Keeps coffee, continues immediately to PREDICTIVE phase
 - **Purge mode** (default): Shows confirmation popup, waits for user to discard stale grinds, then continues
-- **Configurable amount**: 0.1g-5.0g (default 1.0g), replaces old hardcoded `GRIND_PRIME_TARGET_WEIGHT_G`
+- **Configurable amount**: 0.1g-5.0g (default 1.0g), replaces old hardcoded `GRIND_PRIME_TARGET_WEIGHT_G`. Stop is coast-compensated (`GRIND_PRIME_COAST_COMPENSATION_MS`) so the configured amount is what actually lands
 - **Purge popup**: "Keep purge grinds from now on" checkbox switches mode from Purge → Prime in preferences
 - **Logging disabled** during PURGE_CONFIRM phase to avoid capturing data while paused
 - **Preferences**: `chute_mode` (int: 0=Prime, 1=Purge, default=1), `chute_amount_g` (float: 0.1-5.0, default=1.0)
