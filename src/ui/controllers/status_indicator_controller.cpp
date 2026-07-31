@@ -2,6 +2,7 @@
 
 #include "../../config/constants.h"
 #include "../../system/diagnostics_controller.h"
+#include "../../system/wifi_service.h"
 #include "../ui_helpers.h"
 #include "../ui_manager.h"
 
@@ -35,13 +36,25 @@ void StatusIndicatorController::build() {
     lv_obj_add_flag(warning_icon_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(warning_icon_, LV_OBJ_FLAG_CLICKABLE);
 
+    // Create WiFi status icon (left of the warning icon). Only visible for
+    // the few seconds per day the radio is actually up.
+    wifi_status_icon_ = lv_label_create(lv_scr_act());
+    lv_label_set_text(wifi_status_icon_, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_font(wifi_status_icon_, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(wifi_status_icon_, lv_color_hex(THEME_COLOR_ACCENT), 0);
+    lv_obj_align(wifi_status_icon_, LV_ALIGN_TOP_RIGHT, -80, 10);
+    lv_obj_add_flag(wifi_status_icon_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(wifi_status_icon_, LV_OBJ_FLAG_CLICKABLE);
+
     update_ble_status_icon();
     update_warning_icon();
+    update_wifi_status_icon();
 }
 
 void StatusIndicatorController::update() {
     update_ble_status_icon();
     update_warning_icon();
+    update_wifi_status_icon();
 }
 
 void StatusIndicatorController::update_ble_status_icon() {
@@ -59,6 +72,30 @@ void StatusIndicatorController::update_ble_status_icon() {
                                                                   : lv_color_hex(THEME_COLOR_ACCENT));
     } else {
         lv_obj_add_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void StatusIndicatorController::update_wifi_status_icon() {
+    if (!wifi_status_icon_) {
+        return;
+    }
+
+    // Mirrors the BLE icon's colour language: accent while associating,
+    // green once on the network pulling time. Hidden whenever the radio is
+    // off, which is almost always - the icon is sync feedback, not a
+    // "WiFi is set up" badge (that lives in Menu -> WiFi).
+    switch (wifi_service.get_state()) {
+        case WifiService::State::CONNECTING:
+            lv_obj_clear_flag(wifi_status_icon_, LV_OBJ_FLAG_HIDDEN);
+            set_label_text_color_if_changed(wifi_status_icon_, lv_color_hex(THEME_COLOR_ACCENT));
+            break;
+        case WifiService::State::SYNCING:
+            lv_obj_clear_flag(wifi_status_icon_, LV_OBJ_FLAG_HIDDEN);
+            set_label_text_color_if_changed(wifi_status_icon_, lv_color_hex(THEME_COLOR_SUCCESS));
+            break;
+        default:
+            lv_obj_add_flag(wifi_status_icon_, LV_OBJ_FLAG_HIDDEN);
+            break;
     }
 }
 
