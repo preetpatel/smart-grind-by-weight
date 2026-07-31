@@ -45,7 +45,7 @@ The Smart Grind-by-Weight is a user-friendly, touch interface-driven, highly acc
 - **Zero-shot learning**: Algorithm adapts instantly to any grind size, bean setting, humidity etc. without manual tuning
 - **Original timed run preserved** – there is a setting to enable the original Grind-By-Time mode
 - **BLE OTA updates** for firmware
-- **Advanced analytics** using BLE data transfer and Python Streamlit reports
+- **Advanced analytics** — full in-browser dashboard over Web Bluetooth, plus local Streamlit tooling
 - **On-device diagnostics** for calibration, load cell wiring, and mechanical instability faults
 - **For Eureka**: No permanent modifications needed - just swap the screen and add 3D printed parts
 
@@ -124,9 +124,11 @@ If you want to modify the code or contribute, see **[DEVELOPMENT.md](docs/DEVELO
 
 ## 📊 Analytics Dashboard
 
-[<img src="media/analytics.png" alt="Analytics Dashboard" width="50%">](media/analytics.png)
+[<img src="media/analytics.png" alt="Analytics Dashboard — single-session analysis" width="60%">](media/analytics.png)
 
-Pull everything from the grinder over one BLE connection — grind data, system info, and the diagnostics report — and analyze it right in your browser: the [Web Flasher](https://preetpatel.github.io/smart-grind-by-weight)'s **Analytics** tab connects over Web Bluetooth (Chrome/Edge), no local tools needed. Single-session phase charts, vibration/FFT analysis, multi-session statistics, and a Device Health view, with JSON export/import for sharing datasets.
+[<img src="media/analytics-compare.png" alt="Aligned session comparison" width="32%">](media/analytics-compare.png) [<img src="media/analytics-trends.png" alt="Long-term trends with burr-wear odometer" width="32%">](media/analytics-trends.png) [<img src="media/analytics-health.png" alt="Device health snapshot" width="32%">](media/analytics-health.png)
+
+Pull everything from the grinder over one BLE connection — grind data, system info, and the diagnostics report — and analyze it right in your browser: the [Web Flasher](https://preetpatel.github.io/smart-grind-by-weight)'s **Analytics** tab connects over Web Bluetooth (Chrome/Edge), no local tools needed. Single-session phase charts, vibration/FFT analysis, session-overlay comparison, multi-session statistics, long-term trends with a burr-wear odometer, and a Device Health view, with JSON export/import for sharing datasets.
 
 Prefer working locally? The same pull and dashboard are available via the Streamlit tooling:
 

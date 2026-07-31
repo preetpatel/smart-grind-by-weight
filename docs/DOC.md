@@ -468,7 +468,7 @@ Both automation settings rely on the same smoothed weight deltas used for flow d
 
 ## 🔵 Bluetooth Connectivity
 
-Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, grind data export and analytics, and device management. Grind session logging is configurable in **Menu → Data → Logging** (disabled by default to prevent flash wear) and must be enabled before grinding to save session data for later analysis.
+Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, grind data export and analytics, and device management. Grind session logging is on by default and can be toggled under **Menu → Logs & Data**; cancelled grinds are never saved, and the oldest sessions are purged automatically when flash space runs low.
 
 ---
 
@@ -515,16 +515,14 @@ python3 tools/grinder.py diagnostics --save diagnostic-report.txt
 
 ## 📊 Analytics & Data Export
 
-⚠️ **Important**: Grind session logging is **disabled by default** to prevent unnecessary flash wear. To analyze grind data:
-
-1. **Enable logging** in **Menu → Data → Logging** before grinding
-2. Perform your grind sessions (data will be saved to flash storage)
-3. **Export and analyze** the data using the tools below
-4. **Disable logging** again when analysis is complete (recommended for daily use)
+Grind session logging is **on by default** (toggle under **Menu → Logs & Data**), so every completed grind is ready to analyze — cancelled grinds are never saved, and the oldest sessions are purged automatically when flash space runs low (roughly 100+ sessions fit).
 
 ### Analyze in the Browser (No Local Tools)
 
-The [Web Flasher Tool](https://preetpatel.github.io/smart-grind-by-weight)'s **Analytics** tab pulls grind sessions, system info, and the diagnostics report straight from the grinder over Web Bluetooth (Chrome/Edge) and renders the full analysis dashboard in the browser — single-session phase charts, vibration/FFT analysis, multi-session statistics, and the Device Health view. Data is cached in the browser between visits and can be exported/imported as JSON for sharing.
+The [Web Flasher Tool](https://preetpatel.github.io/smart-grind-by-weight)'s **Analytics** tab pulls grind sessions, system info, and the diagnostics report straight from the grinder over Web Bluetooth (Chrome/Edge) and renders the full analysis dashboard in the browser — single-session phase charts, vibration/FFT analysis, session-overlay comparison, multi-session statistics, long-term trends with a burr-wear odometer, and the Device Health view. Data is cached in the browser between visits and can be exported/imported as JSON for sharing.
+
+[<img src="../media/analytics.png" alt="Analytics — single-session analysis" width="49%">](../media/analytics.png) [<img src="../media/analytics-health.png" alt="Analytics — device health snapshot" width="49%">](../media/analytics-health.png)
+[<img src="../media/analytics-compare.png" alt="Analytics — aligned session comparison" width="49%">](../media/analytics-compare.png) [<img src="../media/analytics-trends.png" alt="Analytics — long-term trends and burr-wear odometer" width="49%">](../media/analytics-trends.png)
 
 ### Launch Interactive Dashboard
 ```bash
