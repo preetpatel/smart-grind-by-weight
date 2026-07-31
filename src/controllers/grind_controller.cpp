@@ -282,7 +282,16 @@ void GrindController::continue_from_purge() {
         grinder->start();
     }
     time_grind_start_ms = millis();
-    switch_phase(GrindPhase::PREDICTIVE);  // No loop_data needed for phase transition
+
+    // Event logging is still active here (only measurement logging pauses during
+    // PURGE_CONFIRM), so switch_phase needs real loop_data: with the default empty
+    // loop_data it would neither close the PURGE_CONFIRM event nor open a PREDICTIVE
+    // one, and the whole predictive phase would be logged under phase_id PURGE_CONFIRM.
+    GrindLoopData loop_data = {};
+    loop_data.now = time_grind_start_ms;
+    loop_data.timestamp_ms = loop_data.now - start_time;
+    loop_data.current_weight = weight_sensor ? weight_sensor->get_weight_low_latency() : 0.0f;
+    switch_phase(GrindPhase::PREDICTIVE, loop_data);
 }
 
 void GrindController::update() {
