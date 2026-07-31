@@ -1,7 +1,9 @@
-// Grinder card: the device-centric header above the tabs.
+// Device strip: a one-line grinder status row in the header chrome, above
+// the tabs — mirroring how the firmware itself keeps device status in the
+// screen corner rather than in the content area.
 //
-// No known grinder → a "Connect your grinder" hero (one-time pairing).
-// Known grinder → a compact card rendered from the cached snapshot
+// No known grinder → a pairing prompt with a single Connect action.
+// Known grinder → dot + name + terse facts from the cached snapshot
 // (firmware version, sessions on device, WiFi state), refreshed silently
 // in the background when the browser supports persistent BLE permissions.
 // Also drives the snapshot-aware states inside the Update and WiFi panels.
@@ -69,74 +71,58 @@
         if (!wifi) return null;
         if (!wifi.configured) return 'WiFi not set up';
         if (!wifi.enabled) return 'WiFi off';
-        if (wifi.time_synced) return 'WiFi · clock synced';
+        if (wifi.time_synced) return 'WiFi synced';
         return 'WiFi configured';
     }
 
-    // ---- card ----------------------------------------------------------
+    // ---- strip ---------------------------------------------------------
 
-    function renderHero(host) {
-        const hero = el('div', { class: 'grinder-hero' });
-        hero.appendChild(el('h2', { text: 'Connect your grinder' }));
-        hero.appendChild(el('p', {
-            class: 'lede-line',
-            text: 'Pair it once with this browser — its firmware, WiFi and grind data status then show up here on every visit.',
+    function renderPairPrompt(host) {
+        const strip = el('div', { class: 'device-strip' });
+        strip.appendChild(el('span', { class: 'conn-dot none' }));
+        strip.appendChild(el('span', { class: 'g-name dim', text: 'No grinder paired' }));
+        strip.appendChild(el('span', {
+            class: 'g-hint',
+            text: 'pair once to see its firmware, WiFi and grind data here',
         }));
 
-        const button = el('button', { class: 'btn', text: 'Connect grinder' });
+        const button = el('button', { class: 'btn btn-accent btn-compact', text: 'Connect grinder' });
         button.addEventListener('click', () => runBusy(async () => {
             await GS.addGrinder();
             if (typeof window.showGrinderTab === 'function') window.showGrinderTab('ota');
         }, 'Could not connect'));
-        hero.appendChild(button);
-
-        const links = el('p', { class: 'hero-links' });
-        links.appendChild(document.createTextNode('New grinder without firmware yet? '));
-        links.appendChild(link('Start here', () => window.showGrinderTab?.('initial')));
-        links.appendChild(document.createTextNode(' · Or '));
-        links.appendChild(link('browse analytics', () => window.showTab?.('analytics')));
-        links.appendChild(document.createTextNode(' without a device.'));
-        hero.appendChild(links);
-        host.appendChild(hero);
+        strip.appendChild(button);
+        host.appendChild(strip);
     }
 
-    function link(text, onClick) {
-        const a = el('a', { text, href: '#' });
-        a.addEventListener('click', (event) => {
-            event.preventDefault();
-            onClick();
-        });
-        return a;
-    }
-
-    function renderCard(host, active) {
-        const card = el('div', { class: 'grinder-card' });
+    function renderStrip(host, active) {
+        const strip = el('div', { class: 'device-strip' });
         const snapshot = active.snapshot;
 
-        card.appendChild(el('span', { class: `conn-dot ${GS.isConnected() ? 'connected' : ''}` }));
-        card.appendChild(el('span', { class: 'g-name', text: active.label }));
+        strip.appendChild(el('span', { class: `conn-dot ${GS.isConnected() ? 'connected' : ''}` }));
+        strip.appendChild(el('span', { class: 'g-name', text: active.label }));
 
         const facts = el('div', { class: 'g-facts' });
         if (snapshot?.system?.version) {
-            facts.appendChild(el('span', { text: `v${snapshot.system.version}${snapshot.build ? ` · build ${snapshot.build}` : ''}` }));
+            facts.appendChild(el('span', { text: `v${snapshot.system.version}` }));
         }
         if (snapshot?.sessions?.total_sessions !== undefined) {
-            facts.appendChild(el('span', { text: `${snapshot.sessions.total_sessions} sessions on device` }));
+            facts.appendChild(el('span', { text: `${snapshot.sessions.total_sessions} sessions` }));
         }
         const wifiLabel = wifiShortLabel(snapshot?.wifi);
         if (wifiLabel) facts.appendChild(el('span', { text: wifiLabel }));
         const ago = agoLabel(snapshot?.fetchedAt);
-        facts.appendChild(el('span', { text: snapshot ? `checked ${ago}` : 'not checked yet — hit Refresh' }));
-        card.appendChild(facts);
+        facts.appendChild(el('span', { text: snapshot ? `checked ${ago}` : 'not checked yet' }));
+        strip.appendChild(facts);
 
         const newer = updateAvailable(snapshot);
         if (newer) {
             const chip = el('button', { class: 'g-chip update', text: `Update available: v${newer.version}` });
             chip.addEventListener('click', () => window.showGrinderTab?.('ota'));
-            card.appendChild(chip);
+            strip.appendChild(chip);
         }
         if (snapshot?.sessions?.logging_enabled === false) {
-            card.appendChild(el('span', { class: 'g-chip warn', text: 'Grind logging off' }));
+            strip.appendChild(el('span', { class: 'g-chip warn', text: 'Grind logging off' }));
         }
 
         const actions = el('div', { class: 'g-actions' });
@@ -160,8 +146,8 @@
                 GS.forget(active.id);
             }
         }, 'danger'));
-        card.appendChild(actions);
-        host.appendChild(card);
+        strip.appendChild(actions);
+        host.appendChild(strip);
     }
 
     function ghostButton(text, onClick, extraClass = '') {
@@ -192,8 +178,8 @@
         if (!host) return;
         host.textContent = '';
         const active = GS.getActive();
-        if (!active) renderHero(host);
-        else renderCard(host, active);
+        if (!active) renderPairPrompt(host);
+        else renderStrip(host, active);
         if (busy) {
             host.querySelectorAll('button, select').forEach((node) => { node.disabled = true; });
         }

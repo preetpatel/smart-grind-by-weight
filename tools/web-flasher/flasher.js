@@ -472,42 +472,16 @@ async function flashFirmware() {
     }
 }
 
-// Update OTA selected firmware display when dropdown changes
-function updateOtaSelectedFirmware() {
-    const select = document.getElementById('firmwareSelect');
-    const selectedDisplay = document.getElementById('otaSelectedFile');
-    const selectedOption = select.selectedOptions[0];
-    const displayLabel = selectedOption?.dataset?.display || select.value;
-
-    if (selectedOption && selectedOption.value) {
-        selectedDisplay.textContent = `Selected: ${displayLabel}`;
-        selectedDisplay.className = 'status info';
-        selectedDisplay.style.display = 'block';
-    } else {
-        selectedDisplay.style.display = 'none';
-    }
-}
-
-// Update manifest firmware when dropdown changes
+// Point the ESP Web Tools button at the selected release's manifest. The
+// dropdown itself shows the selection; no echoing status line.
 function updateManifestFirmware() {
     const select = document.getElementById('usbFirmwareSelect');
     const selectedOption = select.selectedOptions[0];
     const manifestUrl = selectedOption?.dataset?.manifest || select.value;
-    const displayLabel = selectedOption?.dataset?.display || manifestUrl;
 
     if (manifestUrl) {
-        console.log('Selected USB firmware:', displayLabel);
-        console.log('Using manifest:', manifestUrl);
-
-        document.getElementById('usbStatus').textContent = `Selected: ${displayLabel}`;
-        document.getElementById('usbStatus').className = 'status info';
-        document.getElementById('usbStatus').style.display = 'block';
-
-        // Update the ESP Web Tools button's manifest attribute (use proxy when needed for CORS)
         const installButton = document.getElementById('usbInstallButton');
         installButton.setAttribute('manifest', manifestUrl);
-    } else {
-        document.getElementById('usbStatus').style.display = 'none';
     }
 }
 
@@ -584,7 +558,6 @@ async function loadReleases() {
             otaSelect.innerHTML = '<option value="">No firmware available</option>';
         } else {
             otaSelect.selectedIndex = 0;
-            updateOtaSelectedFirmware();
         }
     } catch (error) {
         console.error('Failed to load releases from GitHub:', error);

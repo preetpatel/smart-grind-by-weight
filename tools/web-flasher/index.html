@@ -608,36 +608,21 @@
         .next-step a { color: var(--accent); text-decoration: none; }
         .next-step a:hover { text-decoration: underline; }
 
-        /* ---- Grinder card / hero ---- */
+        /* ---- Device strip ----
+           The grinder lives in the header chrome as a one-line instrument
+           strip (mirroring the firmware's own status-icon corner) — never
+           as a content card competing with the workflow below. */
 
-        .grinder-hero {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            padding: 22px 24px;
-            margin-bottom: 22px;
-        }
-
-        .grinder-hero h2 { margin: 0 0 6px; }
-        .grinder-hero .lede-line { margin-bottom: 16px; }
-
-        .hero-links { font-size: 13px; color: var(--ink-3); margin: 14px 0 0; }
-        .hero-links a { color: var(--accent); text-decoration: none; }
-        .hero-links a:hover { text-decoration: underline; }
-
-        .grinder-card {
-            background: var(--panel);
-            border: 1px solid var(--line);
-            border-radius: 10px;
-            padding: 13px 18px;
-            margin-bottom: 22px;
+        .device-strip {
             display: flex;
             flex-wrap: wrap;
             align-items: center;
-            gap: 10px 16px;
+            gap: 8px 14px;
+            padding: 10px 0;
+            border-top: 1px solid var(--line);
         }
 
-        .grinder-card .conn-dot {
+        .device-strip .conn-dot {
             width: 9px;
             height: 9px;
             border-radius: 50%;
@@ -645,15 +630,27 @@
             flex: none;
         }
 
-        .grinder-card .conn-dot.connected { background: var(--good); }
+        .device-strip .conn-dot.connected { background: var(--good); }
 
-        .grinder-card .g-name {
-            font-family: var(--mono);
-            font-weight: 700;
-            font-size: 14px;
+        .device-strip .conn-dot.none {
+            background: transparent;
+            border: 1.5px solid var(--ink-3);
         }
 
-        .grinder-card .g-facts {
+        .device-strip .g-name {
+            font-family: var(--mono);
+            font-weight: 700;
+            font-size: 13px;
+        }
+
+        .device-strip .g-name.dim { color: var(--ink-2); font-weight: 600; }
+
+        .device-strip .g-hint {
+            font-size: 12px;
+            color: var(--ink-3);
+        }
+
+        .device-strip .g-facts {
             font-family: var(--mono);
             font-size: 12px;
             color: var(--ink-2);
@@ -662,17 +659,23 @@
             gap: 4px 14px;
         }
 
-        .grinder-card .g-actions {
+        .device-strip .g-actions {
             margin-left: auto;
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
-        .grinder-card select {
+        .device-strip select {
             width: auto;
             padding: 5px 8px;
             font-size: 12px;
+        }
+
+        .btn.btn-compact {
+            padding: 7px 16px;
+            font-size: 13px;
+            margin-left: auto;
         }
 
         .g-chip {
@@ -738,8 +741,8 @@
             <p>This tool needs <strong>Chrome</strong> (or Edge) for Web Bluetooth and Web Serial. iOS browsers and Firefox can't connect to the grinder.</p>
         </div>
 
-        <!-- Device-centric header: "Connect your grinder" hero, or the known
-             grinder's cached status. Rendered by grinder-card.js. -->
+        <!-- Device strip: pairing prompt or the known grinder's cached
+             status, one line in the header chrome. Rendered by grinder-card.js. -->
         <div id="grinderCard"></div>
 
         <div class="tabs">
@@ -760,14 +763,14 @@
         <!-- Update panel (OTA) -->
         <div id="otaPanel" class="sub-panel">
             <div class="form-stack">
-                <h2>Update firmware over Bluetooth</h2>
-                <p class="lede-line">Wireless update for an already-installed grinder. First-time installs use Get Started over USB.</p>
+                <h2>Update firmware</h2>
+                <p class="lede-line">Wireless, over Bluetooth. First-time installs use Get Started instead.</p>
 
                 <div id="otaDeviceState" class="status info" style="display: none;"></div>
 
                 <div class="form-group">
                     <label for="firmwareSelect">Firmware version</label>
-                    <select id="firmwareSelect" onchange="updateOtaSelectedFirmware()">
+                    <select id="firmwareSelect">
                         <option value="">Loading releases...</option>
                     </select>
                     <label class="check-line">
@@ -783,7 +786,6 @@
 
                 <button class="btn" id="connectFlashBtn" onclick="connectAndFlash()">Connect &amp; Flash Firmware</button>
 
-                <div id="otaSelectedFile" class="status info" style="display: none;">No firmware selected</div>
                 <div id="status" class="status info" style="display: none;">Ready to connect...</div>
 
                 <div class="progress" id="progressContainer" style="display: none;">
@@ -795,8 +797,8 @@
         <!-- Get Started panel (first-time USB install) -->
         <div id="initialPanel" class="sub-panel active">
             <div class="form-stack">
-                <h2>Get started — install over USB</h2>
-                <p class="lede-line">First-time installation via ESP Web Tools. Connect the grinder with a USB cable. Already installed? Use the Update tab — no cable needed.</p>
+                <h2>Install over USB</h2>
+                <p class="lede-line">First-time install with a USB cable. Already installed? Use Update — no cable needed.</p>
 
                 <div class="form-group">
                     <label for="usbFirmwareSelect">Firmware version</label>
@@ -815,8 +817,6 @@
                     <span slot="not-allowed">Installing only works over HTTPS or on localhost.</span>
                 </esp-web-install-button>
 
-                <div id="usbStatus" class="status info" style="display: none;">Ready to flash via USB...</div>
-
                 <p class="next-step">Flashed successfully? Next: <a href="#" onclick="showGrinderTab('wifi'); return false;">set up WiFi</a> so the grinder's clock stays synced.</p>
             </div>
         </div>
@@ -825,7 +825,7 @@
         <div id="wifiPanel" class="sub-panel">
             <div class="form-stack">
                 <h2>WiFi time sync</h2>
-                <p class="lede-line">The grinder uses your home WiFi only to sync its clock (a few seconds a day, radio off otherwise). The clock then survives power loss, and daylight-saving changes are handled on the grinder using your timezone's rules — detected below from this browser.</p>
+                <p class="lede-line">Your WiFi is used only to sync the grinder's clock — a few seconds a day, radio off otherwise. Daylight-saving rules come from this browser and run on the grinder itself.</p>
 
                 <div id="wifiKnownStatus" class="status info" style="display: none;"></div>
 

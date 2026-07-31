@@ -11,12 +11,15 @@ My Grinder → Get Started; once a grinder has connected from that browser
 (`grinderSeen` in localStorage), the default becomes Update — and the page
 lands on Analytics whenever stored grind data exists.
 
-### 🎛 Grinder card & shared BLE session
-- Above the tabs sits a device-centric header: a "Connect your grinder" hero
-  for first-time visitors, or a card showing the known grinder's cached
-  snapshot — firmware version/build, sessions stored on the device, WiFi/clock
+### 🎛 Device strip & shared BLE session
+- Between the masthead and the tabs sits a one-line device strip (part of the
+  header chrome, mirroring the firmware's own status-icon corner): a compact
+  pairing prompt for first-time visitors, or the known grinder's cached
+  snapshot — firmware version, sessions stored on the device, WiFi/clock
   state, when it was last checked — with Refresh / + Add / Forget actions and
-  a switcher when several grinders are paired
+  a switcher when several grinders are paired. Red is reserved for flash
+  actions; the strip's Connect uses the accent blue like the other
+  talk-to-the-grinder buttons
 - One GATT connection (`grinder-session.js`) is shared by every flow on the
   page: the browser chooser appears once, then Update, WiFi, Diagnostics and
   Analytics reuse the link. It auto-releases after 30 s idle so the grinder
