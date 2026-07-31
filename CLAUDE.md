@@ -115,3 +115,4 @@ python3 tools/grinder.py analyze
 - Use the src/config/constants.h aggregation file to include constants / settings - dont refer to config files directly.
 - When new features have been added and tested always update the docs as well
 - when making a commit, only focus on the end result not the process we went through to get to the end result
+- when publishing a release, always include changelogs describing what changed since the previous release
