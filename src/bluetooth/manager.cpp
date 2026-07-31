@@ -67,6 +67,7 @@ BluetoothManager::BluetoothManager()
     , ui_status_queue(nullptr)
     , diagnostic_report_pending(false)
     , diagnostic_report_in_progress(false)
+    , ota_finalize_pending(false)
     , wifi_config_pending_len(0)
     , wifi_config_pending(false)
     , last_wifi_status_fingerprint(0xFF) {
@@ -417,10 +418,30 @@ void BluetoothManager::handle() {
     
     // A client can die mid-transfer without dropping the link (failed GATT
     // write, browser tab closed). Only a disconnect aborts the OTA otherwise,
-    // so the hardware tasks would stay suspended indefinitely.
+    // so the hardware tasks would stay suspended indefinitely. (Stands down
+    // on its own during the apply phase - no chunks arrive then by design.)
     if (ota_handler.check_stalled_transfer()) {
         log("Bluetooth OTA: Transfer stalled - update aborted\n");
         set_ota_status(BLE_OTA_ERROR);
+    }
+
+    // Apply a fully-received patch (deferred from the END command handler).
+    // Blocks this task for the duration; the NimBLE host task keeps serving
+    // BLE events, so the client sees the success notification before reboot.
+    if (ota_finalize_pending) {
+        ota_finalize_pending = false;
+        if (ota_handler.is_ota_active()) {
+            update_ui_status("Applying patch...");
+            if (ota_handler.complete_ota()) {
+                set_ota_status(BLE_OTA_SUCCESS);
+                update_ui_status("Restarting...");
+                log("Bluetooth OTA: Update applied - restarting\n");
+                vTaskDelay(pdMS_TO_TICKS(300)); // let the notification reach the client
+                esp_restart();
+            } else {
+                set_ota_status(BLE_OTA_ERROR);
+            }
+        }
     }
 
     // Send a queued file list from this task, where indication ACKs can be
@@ -967,21 +988,16 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
             }
             break;
             
-        case BLE_OTA_CMD_END:            
+        case BLE_OTA_CMD_END:
             log("Bluetooth OTA: Received END command\n");
             LOG_OTA_DEBUG("BLE_OTA_CMD_END received, checking if OTA active...\n");
             if (ota_handler.is_ota_active()) {
-                LOG_OTA_DEBUG("OTA is active, updating UI status...\n");
-                update_ui_status("Applying patch...");
-                LOG_OTA_DEBUG("UI status updated, calling complete_ota()...\n");
-                if (ota_handler.complete_ota()) {
-                    LOG_OTA_DEBUG("complete_ota() returned SUCCESS\n");
-                    set_ota_status(BLE_OTA_SUCCESS);
-                    update_ui_status("Restarting...");
-                } else {
-                    LOG_OTA_DEBUG("complete_ota() returned FAILED\n");
-                    set_ota_status(BLE_OTA_ERROR);
-                }
+                // Deferred to the bluetooth task (same reason as the file
+                // list): the apply blocks for 30-90s, and running it here
+                // would freeze the NimBLE host task - and with it every BLE
+                // event, including the success notification - for that long.
+                LOG_OTA_DEBUG("Queuing patch apply for bluetooth task\n");
+                ota_finalize_pending = true;
             } else {
                 LOG_OTA_DEBUG("OTA is NOT active - ignoring END command\n");
             }
@@ -1126,6 +1142,7 @@ void BluetoothManager::onConnect(BLEServer* server) {
 void BluetoothManager::onDisconnect(BLEServer* server) {
     device_connected = false;
     file_list_pending = false;
+    ota_finalize_pending = false; // client gone before the apply started
     last_disconnect_time = millis(); // Reset timeout countdown from now
     
     log("BLE: Client disconnected - timeout countdown resumed\n");

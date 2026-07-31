@@ -7,8 +7,9 @@
 #include <Arduino.h>
 #include <BLEDevice.h>
 
-OTAHandler::OTAHandler() 
+OTAHandler::OTAHandler()
     : ota_in_progress(false)
+    , apply_in_progress(false)
     , patch_size(0)
     , received_size(0)
     , last_chunk_time_ms(0)
@@ -201,9 +202,13 @@ bool OTAHandler::complete_ota() {
     }
     
     LOG_BLE("OTA: Finalizing update...\n");
-    LOG_OTA_DEBUG("patch_size=%lu, received_size=%lu\n", 
+    LOG_OTA_DEBUG("patch_size=%lu, received_size=%lu\n",
                   (unsigned long)patch_size, (unsigned long)received_size);
-    
+
+    // From here on the update is no longer abortable: the stall watchdog and
+    // disconnect handling both check this flag and stand down.
+    apply_in_progress = true;
+
     // Kamikaze mode: Disable all non-essential systems before flash operations
     LOG_BLE("OTA: Entering kamikaze mode - disabling non-essential systems...\n");
     LOG_OTA_DEBUG("Starting kamikaze mode shutdown sequence...\n");
@@ -224,32 +229,9 @@ bool OTAHandler::complete_ota() {
     if (success) {
         current_status = BLE_OTA_SUCCESS;
         LOG_OTA_DEBUG("finalize_update() SUCCESS\n");
-        LOG_BLE("OTA: Update complete (%lu KB)\n", (unsigned long)received_size / 1024);
-        LOG_BLE("OTA: Starting restart sequence...\n");
-        
-        // Restart device
-        LOG_OTA_DEBUG("Flushing Serial before restart...\n");
-        Serial.flush();
-        delay(100);
-        
-        // Kamikaze restart - no graceful cleanup needed
-        LOG_BLE("OTA: Kamikaze restart in 3...2...1\n");
-        LOG_OTA_DEBUG("Final countdown before esp_restart()...\n");
-        Serial.flush();
-        delay(100);
-        
-        LOG_OTA_DEBUG("Calling esp_restart()...\n");
-        Serial.flush();
-        esp_restart();
-        
-        // Fallback restart methods
-        LOG_OTA_DEBUG("esp_restart() failed, trying ESP.restart()...\n");
-        Serial.flush();
-        ESP.restart();
-        
-        LOG_OTA_DEBUG("ESP.restart() failed, entering infinite loop...\n");
-        Serial.flush();
-        while(true) delay(1000);
+        LOG_BLE("OTA: Update complete (%lu KB) - ready to reboot\n", (unsigned long)received_size / 1024);
+        // The caller notifies the client of success and restarts; hardware
+        // tasks stay suspended for the few remaining milliseconds.
     } else {
         current_status = BLE_OTA_ERROR;
         LOG_BLE("OTA: Finalization failed\n");
@@ -259,13 +241,20 @@ bool OTAHandler::complete_ota() {
         LOG_BLE("OTA: Resuming hardware tasks after failed finalization\n");
         task_manager.resume_hardware_tasks();
     }
-    
+
     ota_in_progress = false;
+    apply_in_progress = false;
     LOG_OTA_DEBUG("complete_ota() returning %s\n", success ? "SUCCESS" : "FAILED");
     return success;
 }
 
 void OTAHandler::abort_ota() {
+    if (apply_in_progress) {
+        // Too late to abort - the target partition is mid-rewrite and the
+        // hardware tasks must stay suspended until the apply resolves.
+        LOG_BLE("OTA: Ignoring abort during patch apply\n");
+        return;
+    }
     if (ota_in_progress) {
         LOG_BLE("OTA: Aborting update\n");
         ota_in_progress = false;
@@ -280,7 +269,9 @@ void OTAHandler::abort_ota() {
 }
 
 bool OTAHandler::check_stalled_transfer() {
-    if (!ota_in_progress) {
+    if (!ota_in_progress || apply_in_progress) {
+        // Chunks stop arriving the moment the transfer completes, so the
+        // 30-90s apply phase would always read as "stalled" - it isn't.
         return false;
     }
 

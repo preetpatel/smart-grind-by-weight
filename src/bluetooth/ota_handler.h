@@ -50,6 +50,12 @@ enum BLEPowerState {
 class OTAHandler {
 private:
     bool ota_in_progress;
+    // True while the received patch is being applied (flash erase/decompress/
+    // write, 30-90s). Set on the bluetooth task, read from BLE callbacks -
+    // guards the stall watchdog and disconnect aborts, neither of which may
+    // fire mid-apply: aborting then resumes the hardware tasks while flash
+    // cache is being toggled, which is exactly what suspension prevents.
+    volatile bool apply_in_progress;
     uint32_t patch_size;
     uint32_t received_size;
     unsigned long last_chunk_time_ms;
@@ -100,10 +106,18 @@ public:
     bool process_data_chunk(const uint8_t* data, size_t size);
     
     /**
-     * Finalize OTA update and restart device
-     * @return true if finalization successful
+     * Apply the received patch. Blocks for the duration of the apply
+     * (30-90s), so call it from the bluetooth task, never from a BLE
+     * callback. On success the device is ready to reboot - the caller
+     * notifies the client and restarts.
+     * @return true if the patch applied and the boot partition was switched
      */
     bool complete_ota();
+
+    /**
+     * Check if the received patch is currently being applied
+     */
+    bool is_applying() const { return apply_in_progress; }
     
     /**
      * Abort OTA update

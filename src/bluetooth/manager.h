@@ -129,6 +129,11 @@ private:
     bool diagnostic_report_pending;
     bool diagnostic_report_in_progress;
 
+    // OTA END command handling is deferred to the bluetooth task: applying
+    // the patch blocks for 30-90s, which must not happen on the NimBLE host
+    // task (it would freeze the whole BLE stack for the duration).
+    volatile bool ota_finalize_pending;
+
     // WiFi provisioning writes arrive on the NimBLE host task; the payload is
     // parked here and processed from the bluetooth task, where the NVS writes
     // and status notify can run without stalling the BLE stack.
