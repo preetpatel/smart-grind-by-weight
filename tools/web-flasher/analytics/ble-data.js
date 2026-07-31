@@ -14,10 +14,19 @@ const BLE_DATA_CONTROL_CHAR_UUID = '33445566-7788-99aa-bbcc-ddeeffaabbcc';
 const BLE_DATA_TRANSFER_CHAR_UUID = '44556677-8899-aabb-ccdd-eeffaabbccdd';
 const BLE_DATA_STATUS_CHAR_UUID = '55667788-99aa-bbcc-ddee-ffaabbccddee';
 
-// Requested at connect time so later milestones (device health) can read them
-// over the same pairing without a new permission prompt.
+// System info + debug services, used for the device health snapshot that is
+// captured over the same connection as the session pull.
 const BLE_SYSINFO_SERVICE_UUID = '77889900-aabb-ccdd-eeff-112233445566';
+const BLE_SYSINFO_SYSTEM_CHAR_UUID = '88990011-bbcc-ddee-ff11-223344556677';
+const BLE_SYSINFO_PERFORMANCE_CHAR_UUID = '99001122-ccdd-eeff-1122-334455667788';
+const BLE_SYSINFO_HARDWARE_CHAR_UUID = '00112233-ddee-ff11-2233-445566778899';
+const BLE_SYSINFO_SESSIONS_CHAR_UUID = '11223344-eeff-1122-3344-556677889900';
+const BLE_SYSINFO_DIAGNOSTICS_CHAR_UUID = '22334455-ff00-1111-2222-334455667788';
 const BLE_DEBUG_SERVICE_UUID = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+const BLE_DEBUG_TX_CHAR_UUID = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
+const DIAGNOSTICS_TIMEOUT_MS = 30000;
+const DIAGNOSTICS_END_MARKER = '=== END OF REPORT ===';
 
 const BLE_DATA_CMD_STOP_EXPORT = 0x11;
 const BLE_DATA_CMD_GET_FILE_LIST = 0x14;
@@ -285,6 +294,90 @@ export class GrinderDataClient {
             }
         }
         throw new Error(`${lastError.message} after ${FILE_TRANSFER_ATTEMPTS} attempts; ${this._transferDiagnostics()}`);
+    }
+
+    // Reads the four system-info characteristics (JSON payloads) into the same
+    // shape the Python tool stores: { system, performance, hardware, sessions }.
+    async getSystemInfo() {
+        const service = await this.server.getPrimaryService(BLE_SYSINFO_SERVICE_UUID);
+        const read = async (uuid) => {
+            const characteristic = await service.getCharacteristic(uuid);
+            const value = await characteristic.readValue();
+            return JSON.parse(new TextDecoder().decode(value));
+        };
+        return {
+            system: await read(BLE_SYSINFO_SYSTEM_CHAR_UUID),
+            performance: await read(BLE_SYSINFO_PERFORMANCE_CHAR_UUID),
+            hardware: await read(BLE_SYSINFO_HARDWARE_CHAR_UUID),
+            sessions: await read(BLE_SYSINFO_SESSIONS_CHAR_UUID),
+        };
+    }
+
+    // Triggers diagnostic report generation and streams it from the debug
+    // characteristic until the end marker (same flow as the Diagnostics tab
+    // and the Python tool).
+    async getDiagnosticReport() {
+        const debugService = await this.server.getPrimaryService(BLE_DEBUG_SERVICE_UUID);
+        const sysinfoService = await this.server.getPrimaryService(BLE_SYSINFO_SERVICE_UUID);
+        const debugTx = await debugService.getCharacteristic(BLE_DEBUG_TX_CHAR_UUID);
+        const trigger = await sysinfoService.getCharacteristic(BLE_SYSINFO_DIAGNOSTICS_CHAR_UUID);
+
+        const chunks = [];
+        let resolveDone;
+        const done = new Promise((resolve) => { resolveDone = resolve; });
+        const onChunk = (event) => {
+            const chunk = new TextDecoder().decode(event.target.value);
+            chunks.push(chunk);
+            if (chunk.includes(DIAGNOSTICS_END_MARKER)) resolveDone();
+        };
+
+        await debugTx.startNotifications();
+        debugTx.addEventListener('characteristicvaluechanged', onChunk);
+        try {
+            await trigger.writeValue(new Uint8Array([0x01]));
+            let timeoutId;
+            await Promise.race([
+                done,
+                new Promise((resolve) => { timeoutId = setTimeout(resolve, DIAGNOSTICS_TIMEOUT_MS); }),
+            ]);
+            clearTimeout(timeoutId);
+        } finally {
+            debugTx.removeEventListener('characteristicvaluechanged', onChunk);
+            try {
+                await debugTx.stopNotifications();
+            } catch {
+                // Best-effort cleanup.
+            }
+        }
+        return chunks.join('');
+    }
+
+    // Captures the full device health snapshot; failures leave the matching
+    // field null rather than failing the pull.
+    async captureDeviceHealth(onProgress = () => {}) {
+        let systemInfo = null;
+        let diagnostics = null;
+        try {
+            onProgress({ stage: 'health', message: 'Reading system information...' });
+            systemInfo = await this.getSystemInfo();
+        } catch (error) {
+            onProgress({ stage: 'warning', message: `System info unavailable: ${error.message}` });
+        }
+        try {
+            onProgress({ stage: 'health', message: 'Capturing diagnostic report...' });
+            diagnostics = await this.getDiagnosticReport();
+            if (diagnostics && !diagnostics.includes(DIAGNOSTICS_END_MARKER)) {
+                onProgress({ stage: 'warning', message: 'Diagnostic report timed out; keeping partial report' });
+            }
+        } catch (error) {
+            onProgress({ stage: 'warning', message: `Diagnostics unavailable: ${error.message}` });
+        }
+        if (!systemInfo && !diagnostics) return null;
+        return {
+            system_info: systemInfo,
+            diagnostics: diagnostics || null,
+            captured_at: new Date().toISOString(),
+        };
     }
 
     // Pulls and parses every session on the device.

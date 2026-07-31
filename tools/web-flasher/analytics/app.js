@@ -14,12 +14,14 @@ import {
 } from './charts.js';
 import { renderPredictiveTab, renderPulseTab, renderVibrationTab, renderControllerTab } from './views-single.js';
 import { renderMultiView } from './views-multi.js';
+import { renderDeviceHealth } from './views-health.js';
 
 const TOLERANCE_G = 0.03; // grind accuracy tolerance, as in the Streamlit report
 const PLOTLY_CDN = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
 
 let records = [];
 let selectedSessionId = null;
+let deviceReports = null;
 
 // Chart view options, shared across sessions like the Streamlit sidebar state.
 const viewOptions = {
@@ -120,6 +122,7 @@ function sessionErrorLabel(session) {
 
 async function refreshFromStore() {
     records = await loadSessions();
+    deviceReports = await loadMeta('deviceReports');
     if (records.length) {
         viewOptions.multi.idMin = Math.min(...records.map((r) => r.session_id));
         viewOptions.multi.idMax = Math.max(...records.map((r) => r.session_id));
@@ -133,11 +136,15 @@ function renderMain() {
     const detailContainer = $('analyticsDetailContainer');
     sessionsContainer.textContent = '';
     detailContainer.textContent = '';
-    if (!records.length) return;
+    if (!records.length && !deviceReports) return;
 
-    // Single / Multi-Session switcher
+    const modes = [
+        ['single', 'Single Session'],
+        ['multi', 'Multi-Session Analysis'],
+        ['health', 'Device Health'],
+    ];
     const switcher = el('div', { class: 'sub-tabs' });
-    for (const [key, label] of [['single', 'Single Session'], ['multi', 'Multi-Session Analysis']]) {
+    for (const [key, label] of modes) {
         const button = el('button', { class: `sub-tab ${viewOptions.analysisMode === key ? 'active' : ''}`, text: label });
         button.addEventListener('click', () => {
             viewOptions.analysisMode = key;
@@ -147,7 +154,13 @@ function renderMain() {
     }
     sessionsContainer.appendChild(switcher);
 
-    if (viewOptions.analysisMode === 'multi') {
+    if (viewOptions.analysisMode === 'health') {
+        const host = el('div', {});
+        sessionsContainer.appendChild(host);
+        renderDeviceHealth(host, deviceReports);
+    } else if (!records.length) {
+        sessionsContainer.appendChild(el('div', { class: 'status info', text: 'No grind sessions stored yet.' }));
+    } else if (viewOptions.analysisMode === 'multi') {
         const host = el('div', {});
         sessionsContainer.appendChild(host);
         renderMultiView(host, records, viewOptions.multi, plot, renderMain);
@@ -453,11 +466,21 @@ async function pullData() {
             if (progress.message) setStatus(progress.message);
         });
 
+        // Capture the device health snapshot over the same connection.
+        const health = await client.captureDeviceHealth((progress) => {
+            if (progress.message) setStatus(progress.message);
+        });
+
         client.disconnect();
         setProgress(100);
 
         if (pulled.length) {
             await saveSessions(pulled);
+        }
+        if (health) {
+            await saveMeta('deviceReports', health);
+        }
+        if (pulled.length || health) {
             await saveMeta('lastPull', new Date().toISOString());
         }
 
