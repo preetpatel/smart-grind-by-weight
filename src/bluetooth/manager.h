@@ -82,6 +82,7 @@ private:
     BLECharacteristic* sysinfo_hardware_characteristic;
     BLECharacteristic* sysinfo_sessions_characteristic;
     BLECharacteristic* sysinfo_diagnostics_characteristic;
+    BLECharacteristic* sysinfo_timesync_characteristic;
     
     // Connection state
     bool device_connected;
@@ -137,6 +138,7 @@ private:
     void handle_ota_data_chunk(BLECharacteristic* characteristic);
     void handle_debug_command(BLECharacteristic* characteristic);
     void handle_data_control_command(BLECharacteristic* characteristic);
+    void handle_time_sync(BLECharacteristic* characteristic);
     void send_next_data_chunk();
     bool send_transfer_payload(const uint8_t* data, size_t size);
     void send_measurement_count();

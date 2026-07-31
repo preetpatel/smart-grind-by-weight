@@ -5,6 +5,7 @@
 #include "../../config/constants.h"
 #include "../../logging/grind_logging.h"
 #include "../../system/statistics_manager.h"
+#include "../../system/time_sync.h"
 #include "../../hardware/hardware_manager.h"
 #include "grinding_screen.h"
 #include "../event_bridge_lvgl.h"
@@ -274,6 +275,7 @@ void MenuScreen::create_info_page(lv_obj_t* parent) {
    
     create_data_label(parent, "Uptime:", &uptime_label);
     create_data_label(parent, "RAM:", &memory_label);
+    create_data_label(parent, "Time:", &time_label);
 }
 
 
@@ -698,6 +700,15 @@ void MenuScreen::update_info(const WeightSensor* weight_sensor, unsigned long up
     set_label_text_if_changed(uptime_label, uptime_text);
 
     set_label_text_int(memory_label, free_heap / 1024, "kB");
+
+    // Wall clock, synced over BLE on every client connect
+    if (TimeSync::is_synced()) {
+        char time_text[32];
+        TimeSync::format_local_time(time_text, sizeof(time_text), "%Y-%m-%d %H:%M");
+        set_label_text_if_changed(time_label, time_text);
+    } else {
+        set_label_text_if_changed(time_label, "not synced");
+    }
 }
 
 // How many display steps the noise band spans. 1 means a digit at that step would hold still.
@@ -1121,8 +1132,8 @@ void MenuScreen::update_logging_toggle() {
     Preferences prefs;
     prefs.begin("logging", true); // read-only
 
-    // Load logging enabled value from preferences (default to false)
-    bool logging_enabled = prefs.getBool("enabled", false);
+    // Load logging enabled value from preferences (default to true)
+    bool logging_enabled = prefs.getBool("enabled", true);
     prefs.end();
 
     // Update toggle state

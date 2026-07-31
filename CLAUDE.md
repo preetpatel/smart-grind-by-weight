@@ -26,7 +26,11 @@ python3 tools/grinder.py analyze
 - `python3 tools/grinder.py info` - Get device system information
 - `python3 tools/grinder.py clean` - Clean build artifacts
 
-**Web Analytics:** The web flasher (`tools/web-flasher`) has an Analytics tab that pulls grind data + a device health snapshot over Web Bluetooth and renders the full analysis dashboard in the browser (single-session, multi-session, vibration/FFT, device health). Its binary parser (`tools/web-flasher/analytics/parser.js`) is a third consumer of the `grind_logging.h` structs — any struct change must update it alongside the Python parser (see `tools/ble/CLAUDE.md`). Grind data chunks are delivered as acknowledged BLE indications; the firmware retries unconfirmed chunks rather than dropping them.
+**Web Analytics:** The web flasher (`tools/web-flasher`) has an Analytics tab that pulls grind data + a device health snapshot over Web Bluetooth and renders the full analysis dashboard in the browser (single-session, session-overlay compare, multi-session, long-term trends with a burr-wear odometer from lifetime stats, device health). Its binary parser (`tools/web-flasher/analytics/parser.js`) is a third consumer of the `grind_logging.h` structs — any struct change must update it alongside the Python parser (see `tools/ble/CLAUDE.md`). Grind data chunks are delivered as acknowledged BLE indications; the firmware retries unconfirmed chunks rather than dropping them.
+
+**Grind Data Capture:** Session logging defaults to ON (`logging/enabled` preference, toggle under Menu → Logs & Data); cancelled grinds are never saved. Session retention is space-based: files accumulate on the 3 MB LittleFS partition until free space drops below a 256 KB reserve (then oldest are purged; hard cap 250 files, roughly 100+ sessions in practice). The dashboard and Python tool warn when logging is off.
+
+**Time Sync:** Every BLE client (web flasher, Python tool) writes the wall clock on connect via `BLE_SYSINFO_TIMESYNC_CHAR_UUID` (`[epoch_utc:u32 LE][tz_offset_min:i16 LE]`, see `src/system/time_sync.h`). Sessions started after a sync carry real Unix epochs in `session_timestamp` (uptime seconds otherwise — no schema change; parsers distinguish by magnitude). The synced clock shows top-left on the ready screen (the top-right corner belongs to the BLE/warning status icons) and in System Info; it is lost on power-cycle until the next connect.
 
 ## Architecture
 

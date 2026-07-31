@@ -71,7 +71,9 @@ struct TimeSeriesSessionHeader {
 ```cpp
 struct GrindSession {
     uint32_t session_id;              // 0
-    uint32_t session_timestamp;       // 4 (seconds since boot at session start)
+    uint32_t session_timestamp;       // 4 (Unix epoch when the clock has been synced over BLE,
+                                      //    uptime seconds otherwise — parsers distinguish by
+                                      //    magnitude: values >= 1577836800 (2020-01-01) are epochs)
     uint32_t target_time_ms;          // 8 (time-mode target)
     uint32_t total_time_ms;           // 12 (session runtime)
     uint32_t total_motor_on_time_ms;  // 16

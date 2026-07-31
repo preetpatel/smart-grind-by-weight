@@ -26,7 +26,13 @@ class Grinder;
 #define GRIND_SESSIONS_DIR "/sessions"                      // Directory for individual session files
 #define SESSION_FILE_FORMAT "/sessions/session_%lu.bin"    // Individual session file naming format
 #define GRIND_LOG_FILE "/grind_sessions.bin"                // Legacy single-file storage (deprecated)
-#define MAX_STORED_SESSIONS_FLASH 10                        // Maximum sessions to keep in flash (configurable)
+// Session retention is space-based: sessions accumulate until LittleFS free
+// space drops below the reserve (kept for OTA scratch, preferences-adjacent
+// writes and future features), then the oldest sessions are purged. The count
+// cap is a safety backstop, not the primary limit (~15-20 KB per session on a
+// 3 MB partition leaves room for well over 100).
+#define SESSION_STORAGE_MIN_FREE_BYTES (256 * 1024)         // Purge oldest sessions below this free space
+#define MAX_STORED_SESSIONS_FLASH 250                       // Hard safety cap on session file count
 
 #pragma pack(push, 1)
 

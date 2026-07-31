@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
+#include "../../system/time_sync.h"
 #include "../ui_helpers.h"
 
 void ReadyScreen::create() {
@@ -45,9 +46,37 @@ void ReadyScreen::create() {
     // Create menu tab page
     create_menu_page(menu_tab);
 
+    // Corner clock: stays hidden until the wall clock has synced over BLE, so
+    // drift is visible day-to-day without a bogus 00:00 on fresh boots.
+    // Top-left — the top-right corner belongs to the BLE + warning status
+    // icons (see status_indicator_controller.cpp).
+    clock_label = lv_label_create(screen);
+    lv_label_set_text(clock_label, "");
+    lv_obj_set_style_text_font(clock_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(clock_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_align(clock_label, LV_ALIGN_TOP_LEFT, 10, 10);
+    lv_obj_add_flag(clock_label, LV_OBJ_FLAG_HIDDEN);
+    clock_text[0] = '\0';
+
     update_profile_values(default_weights, GrindMode::WEIGHT);
 
     visible = false;
+}
+
+void ReadyScreen::update_clock() {
+    if (!clock_label) return;
+    if (!TimeSync::is_synced()) {
+        lv_obj_add_flag(clock_label, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    char text[8];
+    TimeSync::format_local_time(text, sizeof(text), "%H:%M");
+    if (strcmp(text, clock_text) != 0) {
+        strncpy(clock_text, text, sizeof(clock_text) - 1);
+        clock_text[sizeof(clock_text) - 1] = '\0';
+        lv_label_set_text(clock_label, clock_text);
+    }
+    lv_obj_clear_flag(clock_label, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ReadyScreen::create_profile_page(lv_obj_t* parent, int profile_index, const char* profile_name, float weight) {

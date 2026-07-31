@@ -162,7 +162,7 @@ void UIManager::update() {
             break;
 
         case UIState::READY:
-            // Ready state - no special handling needed
+            ready_screen.update_clock();
             break;
             
         default:

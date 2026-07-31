@@ -10,6 +10,8 @@ private:
     lv_obj_t* profile_tabs[4];
     lv_obj_t* weight_labels[3];
     lv_obj_t* menu_tab;
+    lv_obj_t* clock_label;
+    char clock_text[8];
     bool visible;
 
 public:
@@ -17,6 +19,7 @@ public:
     void show();
     void hide();
     void update_profile_values(const float values[3], GrindMode mode);
+    void update_clock();  // Shows HH:MM once the clock has synced over BLE
     void set_active_tab(int tab);
     void set_profile_long_press_handler(lv_event_cb_t handler);
     

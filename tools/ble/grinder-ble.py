@@ -29,6 +29,7 @@ import subprocess
 import tempfile
 import sqlite3
 import json
+from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
 
@@ -103,6 +104,7 @@ BLE_SYSINFO_PERFORMANCE_CHAR_UUID = "99001122-ccdd-eeff-1122-334455667788"
 BLE_SYSINFO_HARDWARE_CHAR_UUID = "00112233-ddee-ff11-2233-445566778899"
 BLE_SYSINFO_SESSIONS_CHAR_UUID = "11223344-eeff-1122-3344-556677889900"
 BLE_SYSINFO_DIAGNOSTICS_CHAR_UUID = "22334455-ff00-1111-2222-334455667788"
+BLE_SYSINFO_TIMESYNC_CHAR_UUID = "33445566-ff00-1111-2222-334455667788"
 
 # Commands and status codes
 BLE_OTA_CMD_START = 0x01
@@ -259,6 +261,8 @@ class GrinderBLETool:
                         await self.client.start_notify(BLE_DATA_STATUS_CHAR_UUID, self.on_data_status)
                         await self.client.start_notify(BLE_DEBUG_TX_CHAR_UUID, self.on_debug_message)
 
+                        await self.sync_device_time()
+
                         self.connected = True
                         await asyncio.sleep(0.5)
                         return True
@@ -284,6 +288,23 @@ class GrinderBLETool:
             )
             await asyncio.sleep(retry_delay)
     
+    async def sync_device_time(self):
+        """Writes the wall clock to the grinder: [epoch_utc:u32 LE][tz_offset_min:i16 LE].
+
+        The device has no RTC battery, so its clock is only valid after this
+        sync; sessions started afterwards carry real epoch timestamps.
+        Best-effort: older firmware without the characteristic is ignored.
+        """
+        try:
+            now = datetime.now().astimezone()
+            epoch = int(now.timestamp())
+            tz_offset_min = int(now.utcoffset().total_seconds() // 60)
+            payload = struct.pack('<Ih', epoch, tz_offset_min)
+            await self.client.write_gatt_char(BLE_SYSINFO_TIMESYNC_CHAR_UUID, payload, response=True)
+            self.safe_print(f"[OK] Synced device clock ({now.strftime('%Y-%m-%d %H:%M:%S %z')})")
+        except Exception as e:
+            self.safe_print(f"[INFO] Device clock sync unavailable: {e}")
+
     async def disconnect(self):
         if self.client and self.connected:
             try:
@@ -1302,7 +1323,19 @@ async def main():
                     return 1
                 await tool.upload_firmware(firmware_path, args.force_full)
             elif args.command == 'export':
-                await tool.export_data(args.db)
+                # Capture the device health snapshot over the same connection,
+                # like the web flasher does: export recreates the database, so
+                # without this the previous snapshot would be silently lost.
+                export_ok = await tool.export_data(args.db)
+                if export_ok:
+                    tools_dir = Path(__file__).parent.parent
+                    db_full_path = Path(args.db) if args.db and Path(args.db).is_absolute() \
+                        else (tools_dir / args.db if args.db else tools_dir / "database" / "grinder_data.db")
+                    tool.safe_print("[INFO] Reading system information...")
+                    system_info = await tool.get_system_info()
+                    tool.safe_print("[INFO] Capturing diagnostic report...")
+                    diagnostics_report = await tool.get_diagnostic_report()
+                    tool._store_device_reports(str(db_full_path), system_info, diagnostics_report)
             elif args.command == 'analyse':
                 await tool.analyze_data(args.db, False)
                 # analyze_data handles its own disconnection after data export

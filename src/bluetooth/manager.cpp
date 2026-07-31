@@ -19,6 +19,7 @@
 #include "../hardware/hardware_manager.h"
 #include "../hardware/WeightSensor.h"
 #include "../controllers/grind_controller.h"
+#include "../system/time_sync.h"
 
 BluetoothManager::BluetoothManager()
     : ble_server(nullptr)
@@ -40,6 +41,7 @@ BluetoothManager::BluetoothManager()
     , sysinfo_hardware_characteristic(nullptr)
     , sysinfo_sessions_characteristic(nullptr)
     , sysinfo_diagnostics_characteristic(nullptr)
+    , sysinfo_timesync_characteristic(nullptr)
     , device_connected(false)
     , ble_enabled(false), enable_in_progress(false), debug_stream_active(false)
     , enable_time(0)
@@ -279,6 +281,13 @@ void BluetoothManager::setup_gatt_services() {
         BLECharacteristic::PROPERTY_WRITE
     );
     sysinfo_diagnostics_characteristic->setCallbacks(this);
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
+    sysinfo_timesync_characteristic = sysinfo_service->createCharacteristic(
+        BLE_SYSINFO_TIMESYNC_CHAR_UUID,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    sysinfo_timesync_characteristic->setCallbacks(this);
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
 
     ota_service->start();
@@ -657,7 +666,7 @@ void BluetoothManager::send_file_list() {
     }
     
     // Get list of session files
-    const uint32_t max_sessions = 100;  // Limit to prevent memory issues
+    const uint32_t max_sessions = 300;  // Above the storage cap; bounded malloc (1.2 KB)
     uint32_t* session_ids = (uint32_t*)malloc(max_sessions * sizeof(uint32_t));
     if (!session_ids) {
         log("ERROR: Failed to allocate memory for session list\n");
@@ -953,6 +962,33 @@ void BluetoothManager::handle_data_control_command(BLECharacteristic* characteri
     }
 }
 
+// Wall-clock sync write: [epoch_utc:u32 LE][tz_offset_min:i16 LE]. The offset
+// is optional for older clients; a 4-byte payload syncs as UTC-only.
+void BluetoothManager::handle_time_sync(BLECharacteristic* characteristic) {
+    String value = characteristic->getValue();
+    if (value.length() < 4) {
+        log("Time sync: payload too short (%u bytes)\n", (unsigned int)value.length());
+        return;
+    }
+    const uint8_t* data = (const uint8_t*)value.c_str();
+    uint32_t epoch = (uint32_t)data[0] | ((uint32_t)data[1] << 8)
+                   | ((uint32_t)data[2] << 16) | ((uint32_t)data[3] << 24);
+    int16_t tz_offset_min = 0;
+    if (value.length() >= 6) {
+        tz_offset_min = (int16_t)((uint16_t)data[4] | ((uint16_t)data[5] << 8));
+    }
+    // Reject obviously bogus values (before 2020-01-01)
+    if (epoch < 1577836800UL) {
+        log("Time sync: rejected implausible epoch %lu\n", (unsigned long)epoch);
+        return;
+    }
+    TimeSync::set_epoch(epoch, tz_offset_min);
+    char formatted[32];
+    TimeSync::format_local_time(formatted, sizeof(formatted), "%Y-%m-%d %H:%M:%S");
+    log("Time sync: clock set to %s (epoch %lu, tz %+d min)\n", formatted, (unsigned long)epoch, (int)tz_offset_min);
+    refresh_system_info();
+}
+
 // BLE Callbacks
 void BluetoothManager::onConnect(BLEServer* server) {
     device_connected = true;
@@ -996,6 +1032,8 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
     } else if (characteristic == sysinfo_diagnostics_characteristic) {
         LOG_BLE("  -> QUEUING DIAGNOSTIC REPORT REQUEST\n");
         diagnostic_report_pending = true; // Defer heavy work to bluetooth task context
+    } else if (characteristic == sysinfo_timesync_characteristic) {
+        handle_time_sync(characteristic);
     } else {
         LOG_BLE("  -> UNKNOWN characteristic!\n");
     }
@@ -1054,7 +1092,11 @@ void BluetoothManager::update_system_info() {
         "\"heap_total\":%u,"
         "\"heap_used_pct\":%.1f,"
         "\"flash_size\":%u,"
-        "\"cpu_freq\":%u"
+        "\"cpu_freq\":%u,"
+        "\"time_synced\":%s,"
+        "\"epoch\":%lu,"
+        "\"tz_offset_min\":%d,"
+        "\"last_sync_epoch\":%lu"
         "}",
         BUILD_FIRMWARE_VERSION,
         BUILD_NUMBER,
@@ -1065,7 +1107,11 @@ void BluetoothManager::update_system_info() {
         (unsigned int)heap_total,
         heap_usage_percent,
         (unsigned int)flash_size,
-        (unsigned int)ESP.getCpuFreqMHz()
+        (unsigned int)ESP.getCpuFreqMHz(),
+        TimeSync::is_synced() ? "true" : "false",
+        (unsigned long)TimeSync::now_epoch(),
+        (int)TimeSync::tz_offset_minutes(),
+        (unsigned long)TimeSync::last_sync_epoch()
     );
     
     sysinfo_system_characteristic->setValue(buffer);
@@ -1127,17 +1173,47 @@ bool BluetoothManager::update_sessions_info() {
     
     char buffer[BLE_SYSINFO_MAX_PAYLOAD_BYTES];
     uint16_t session_count = data_stream.get_total_sessions();
-    
+
+    Preferences logging_prefs;
+    logging_prefs.begin("logging", true); // read-only
+    bool logging_enabled = logging_prefs.getBool("enabled", true);
+    logging_prefs.end();
+
+    size_t fs_total = LittleFS.totalBytes();
+    size_t fs_used = LittleFS.usedBytes();
+
     snprintf(buffer, sizeof(buffer),
         "{"
         "\"total_sessions\":%u,"
         "\"data_available\":%s,"
         "\"export_active\":%s,"
-        "\"last_export_time\":0"
+        "\"last_export_time\":0,"
+        "\"logging_enabled\":%s,"
+        "\"fs_used_kb\":%u,"
+        "\"fs_total_kb\":%u,"
+        "\"lifetime\":{"
+        "\"total_grinds\":%lu,"
+        "\"total_weight_kg\":%.3f,"
+        "\"motor_runtime_sec\":%lu,"
+        "\"total_pulses\":%lu,"
+        "\"avg_accuracy_g\":%.3f,"
+        "\"weight_mode_grinds\":%lu,"
+        "\"time_mode_grinds\":%lu"
+        "}"
         "}",
         session_count,
         session_count > 0 ? "true" : "false",
-        data_export_in_progress ? "true" : "false"
+        data_export_in_progress ? "true" : "false",
+        logging_enabled ? "true" : "false",
+        (unsigned int)(fs_used / 1024),
+        (unsigned int)(fs_total / 1024),
+        (unsigned long)statistics_manager.get_total_grinds(),
+        statistics_manager.get_total_weight_kg(),
+        (unsigned long)statistics_manager.get_motor_runtime_sec(),
+        (unsigned long)statistics_manager.get_total_pulses(),
+        statistics_manager.get_avg_accuracy_g(),
+        (unsigned long)statistics_manager.get_weight_mode_grinds(),
+        (unsigned long)statistics_manager.get_time_mode_grinds()
     );
     
     sysinfo_sessions_characteristic->setValue(buffer);

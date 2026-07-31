@@ -51,6 +51,7 @@
 #define BLE_SYSINFO_HARDWARE_CHAR_UUID "00112233-ddee-ff11-2233-445566778899"  // Hardware status
 #define BLE_SYSINFO_SESSIONS_CHAR_UUID "11223344-eeff-1122-3344-556677889900"  // Session statistics
 #define BLE_SYSINFO_DIAGNOSTICS_CHAR_UUID "22334455-ff00-1111-2222-334455667788"  // Comprehensive diagnostic report trigger
+#define BLE_SYSINFO_TIMESYNC_CHAR_UUID "33445566-ff00-1111-2222-334455667788"      // Wall-clock sync: write [epoch_utc:u32 LE][tz_offset_min:i16 LE]
 
 #define BLE_SYSINFO_MAX_PAYLOAD_BYTES 512                                       // Maximum payload size for system info
 

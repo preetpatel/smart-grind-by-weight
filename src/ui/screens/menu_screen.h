@@ -40,6 +40,7 @@ private:
     lv_obj_t* info_label;
     lv_obj_t* uptime_label;
     lv_obj_t* memory_label;
+    lv_obj_t* time_label;
     lv_obj_t* instant_label;
     lv_obj_t* samples_label;
     lv_obj_t* raw_label;

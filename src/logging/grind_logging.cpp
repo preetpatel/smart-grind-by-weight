@@ -6,6 +6,7 @@
 #include "../hardware/grinder.h"
 #include "../config/constants.h"
 #include "../system/statistics_manager.h"
+#include "../system/time_sync.h"
 
 namespace {
 
@@ -92,7 +93,9 @@ void GrindLogger::start_grind_session(const GrindSessionDescriptor& descriptor, 
     _next_session_id++;
     _preferences->putUInt("next_session_id", _next_session_id);
 
-    current_session->session_timestamp = millis() / 1000;
+    // Real epoch when the clock has been synced over BLE, uptime seconds
+    // otherwise. Parsers distinguish by magnitude (epoch >> uptime).
+    current_session->session_timestamp = TimeSync::is_synced() ? TimeSync::now_epoch() : millis() / 1000;
     current_session->profile_id = descriptor.profile_id;
     current_session->target_weight = descriptor.target_weight;
     current_session->tolerance = descriptor.tolerance;
@@ -182,10 +185,11 @@ void GrindLogger::end_grind_session(const char* final_result, float final_weight
         );
     }
 
-    // Check if logging is enabled before saving to flash
+    // Check if logging is enabled before saving to flash (default ON — grinds
+    // are recorded out of the box; the Logs & Data toggle can opt out)
     Preferences logging_prefs;
     logging_prefs.begin("logging", true); // read-only
-    bool logging_enabled = logging_prefs.getBool("enabled", false);
+    bool logging_enabled = logging_prefs.getBool("enabled", true);
     logging_prefs.end();
 
     const char* mode_name = (mode == GrindMode::TIME) ? "TIME" : "WEIGHT";
@@ -1286,11 +1290,17 @@ void GrindLogger::cleanup_old_session_files() {
     }
     dir.close(); // Close after counting
 
-    if (session_count <= MAX_STORED_SESSIONS_FLASH) {
+    size_t free_bytes = LittleFS.totalBytes() - LittleFS.usedBytes();
+    if (session_count <= MAX_STORED_SESSIONS_FLASH && free_bytes >= SESSION_STORAGE_MIN_FREE_BYTES) {
         return; // No cleanup needed
     }
+    if (session_count == 0) {
+        return; // Low on space but nothing of ours to purge
+    }
 
-    LOG_BLE("Session count (%lu) exceeds limit (%d). Cleaning up old files...\n", session_count, MAX_STORED_SESSIONS_FLASH);
+    LOG_BLE("Session cleanup: %lu files, %u KB free (reserve %u KB, cap %d files)\n",
+            session_count, (unsigned int)(free_bytes / 1024),
+            (unsigned int)(SESSION_STORAGE_MIN_FREE_BYTES / 1024), MAX_STORED_SESSIONS_FLASH);
 
     // Step 2: Create a list of session IDs
     uint32_t* session_ids = (uint32_t*)malloc(session_count * sizeof(uint32_t));
@@ -1314,17 +1324,24 @@ void GrindLogger::cleanup_old_session_files() {
     dir.close();
 
     // Step 3: Sort the session IDs in ascending order
-    std::sort(session_ids, session_ids + session_count);
+    std::sort(session_ids, session_ids + list_idx);
 
-    // Step 4: Remove the oldest files
-    uint32_t files_to_remove = session_count - MAX_STORED_SESSIONS_FLASH;
-    for (uint32_t i = 0; i < files_to_remove; i++) {
+    // Step 4: Remove oldest files until both the free-space reserve and the
+    // count cap are satisfied. Free space is re-read after each removal.
+    uint32_t files_removed = 0;
+    uint32_t remaining = list_idx;
+    for (uint32_t i = 0; i < list_idx; i++) {
+        free_bytes = LittleFS.totalBytes() - LittleFS.usedBytes();
+        if (remaining <= 1) break; // Never purge the newest session
+        if (remaining <= MAX_STORED_SESSIONS_FLASH && free_bytes >= SESSION_STORAGE_MIN_FREE_BYTES) break;
         remove_session_file(session_ids[i]);
+        files_removed++;
+        remaining--;
     }
 
     free(session_ids);
-    LOG_BLE("Cleanup complete. Removed %lu old session(s).\n", files_to_remove);
-    if (files_to_remove > 0) {
+    if (files_removed > 0) {
+        LOG_BLE("Cleanup complete. Removed %lu old session(s), %lu kept.\n", files_removed, remaining);
         mark_session_storage_dirty();
     }
 }
