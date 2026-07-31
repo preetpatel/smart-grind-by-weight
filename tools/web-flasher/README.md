@@ -11,6 +11,30 @@ My Grinder → Get Started; once a grinder has connected from that browser
 (`grinderSeen` in localStorage), the default becomes Update — and the page
 lands on Analytics whenever stored grind data exists.
 
+### 🎛 Grinder card & shared BLE session
+- Above the tabs sits a device-centric header: a "Connect your grinder" hero
+  for first-time visitors, or a card showing the known grinder's cached
+  snapshot — firmware version/build, sessions stored on the device, WiFi/clock
+  state, when it was last checked — with Refresh / + Add / Forget actions and
+  a switcher when several grinders are paired
+- One GATT connection (`grinder-session.js`) is shared by every flow on the
+  page: the browser chooser appears once, then Update, WiFi, Diagnostics and
+  Analytics reuse the link. It auto-releases after 30 s idle so the grinder
+  stays reachable by the Python tool and its own WiFi sync windows
+- On every connect the session syncs the grinder's clock and re-reads the
+  lightweight snapshot characteristics (build number, system info JSON,
+  sessions/lifetime JSON, WiFi status JSON — under 2 s total)
+- On Chrome 117+ (persistent Web Bluetooth permissions) the active grinder is
+  refreshed silently in the background on page load via
+  `navigator.bluetooth.getDevices()` — no chooser. Other browsers fall back to
+  click-to-refresh
+- The snapshot drives contextual states: an update-available chip/banner in
+  the Update panel (device version vs newest release), SSID prefill and live
+  status in the WiFi panel, and "N sessions ready to pull" in Analytics
+- Known grinders live in localStorage (`grinderRegistry`, `activeGrinderId`),
+  keyed by the stable per-origin Web Bluetooth device id; snapshots contain no
+  secrets (the WiFi status characteristic never carries the password)
+
 ### 🔌 Get Started (USB)
 - First-time firmware installation via ESP Web Tools
 - Uses Web Serial API for direct USB connection

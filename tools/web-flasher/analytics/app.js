@@ -362,9 +362,14 @@ async function renderSummary() {
     const summary = $('analyticsSummary');
     summary.textContent = '';
 
+    const grinderSnapshot = window.GrinderSession?.getActive?.()?.snapshot || null;
+
     // Grind logging is a device-side toggle; when it's off the grinder records
     // nothing, so surface that loudly instead of letting data silently vanish.
-    if (deviceReports?.system_info?.sessions?.logging_enabled === false) {
+    // Checked in both the last pull's health report and the (possibly fresher)
+    // grinder card snapshot.
+    if (deviceReports?.system_info?.sessions?.logging_enabled === false
+        || grinderSnapshot?.sessions?.logging_enabled === false) {
         summary.appendChild(el('div', {
             class: 'status warning',
             text: 'Grind logging is OFF on the device — grinds are not being recorded. '
@@ -373,9 +378,12 @@ async function renderSummary() {
     }
 
     if (!records.length) {
+        const deviceSessions = grinderSnapshot?.sessions?.total_sessions;
         summary.appendChild(el('div', {
             class: 'status info',
-            text: 'No grind data stored yet. Pull data from the grinder or import a JSON export.',
+            text: deviceSessions
+                ? `No grind data stored in this browser yet — your grinder has ${deviceSessions} sessions ready to pull.`
+                : 'No grind data stored yet. Pull data from the grinder or import a JSON export.',
         }));
         return;
     }
@@ -388,10 +396,12 @@ async function renderSummary() {
 
     const totalEvents = records.reduce((sum, r) => sum + r.events.length, 0);
     const totalMeasurements = records.reduce((sum, r) => sum + r.measurements.length, 0);
+    const deviceSessions = grinderSnapshot?.sessions?.total_sessions;
     summary.appendChild(el('div', {
         class: 'store-line',
         text: `${records.length} sessions · ${totalEvents.toLocaleString()} events · ${totalMeasurements.toLocaleString()} measurements stored in this browser`
-            + (lastPull ? ` · last pull ${new Date(lastPull).toLocaleString()}` : ''),
+            + (lastPull ? ` · last pull ${new Date(lastPull).toLocaleString()}` : '')
+            + (deviceSessions !== undefined ? ` · grinder holds ${deviceSessions} sessions` : ''),
     }));
 }
 
@@ -683,7 +693,6 @@ async function pullData() {
     try {
         setStatus('Scanning for grinder...');
         await client.connect();
-        if (typeof window.markGrinderSeen === 'function') window.markGrinderSeen();
         setStatus('Connected. Requesting session list...');
 
         const { records: pulled, errors } = await client.pullAllSessions((progress) => {
@@ -704,6 +713,11 @@ async function pullData() {
 
         client.disconnect();
         setProgress(100);
+
+        // Fold the fresh system info into the grinder card's cached snapshot.
+        if (health?.system_info && window.GrinderSession) {
+            window.GrinderSession.applySystemInfo(health.system_info);
+        }
 
         if (pulled.length) {
             await saveSessions(pulled);
@@ -792,6 +806,12 @@ function init() {
         setStatus('Web Bluetooth is unavailable in this browser — pulling from the grinder is disabled, but you can still import a JSON export.', 'warning');
         $('analyticsPullBtn').disabled = true;
     }
+
+    // Re-render the summary when the grinder card's background snapshot
+    // arrives (device session count, logging state).
+    window.GrinderSession?.onChange?.((type) => {
+        if (type === 'snapshot') renderSummary();
+    });
 
     // Returning users with stored data are almost always here for the data:
     // land on Analytics. First-time visitors keep the flasher as the default.

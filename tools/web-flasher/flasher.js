@@ -36,9 +36,8 @@ const BLE_OTA_ERROR = 0x04;
 const DEVICE_NAME = 'GrindByWeight';
 const CHUNK_SIZE = 512; // Browser BLE limit - cannot exceed 512 bytes per write
 
-// Global state
-let device = null;
-let server = null;
+// Global state. The BLE connection itself lives in GrinderSession
+// (grinder-session.js) and is shared by every flow on the page.
 let otaService = null;
 let currentOtaStatus = BLE_OTA_IDLE;
 let statusCharacteristic = null;
@@ -59,17 +58,17 @@ function resolveFirmwareUrl(relativePath) {
     return new URL(relativePath, window.location.href).href;
 }
 
-// Remembers whether this browser has ever talked to a grinder (any successful
-// BLE connect or analytics pull). Drives the default My Grinder sub-tab: new
-// visitors land on Get Started, returning owners on Update.
+// Remembers whether this browser has ever talked to a grinder (the flag is
+// written by GrinderSession on every successful connect). Drives the default
+// My Grinder sub-tab: new visitors land on Get Started, returning owners on
+// Update.
 const GRINDER_SEEN_KEY = 'grinderSeen';
 
 function hasSeenGrinder() {
-    try { return !!localStorage.getItem(GRINDER_SEEN_KEY); } catch (e) { return false; }
-}
-
-function markGrinderSeen() {
-    try { localStorage.setItem(GRINDER_SEEN_KEY, '1'); } catch (e) { /* private mode */ }
+    try {
+        if (localStorage.getItem(GRINDER_SEEN_KEY)) return true;
+    } catch (e) { /* private mode */ }
+    return !!(window.GrinderSession && window.GrinderSession.getActive());
 }
 
 // Browser support check and load releases
@@ -203,53 +202,35 @@ async function downloadFirmware(url) {
 async function connectAndFlash() {
     const connectFlashBtn = document.getElementById('connectFlashBtn');
 
-    // Disable button during operation
-    connectFlashBtn.disabled = true;
-
-    const connected = await connectDevice();
-    if (connected) {
-        await flashFirmware();
-    }
-
-    // Re-enable button after operation
-    connectFlashBtn.disabled = false;
-}
-
-// BLE Connection
-async function connectDevice() {
     if (!('bluetooth' in navigator)) {
         updateStatus('Web Bluetooth not supported in this browser', 'error');
-        return false;
+        return;
     }
 
+    connectFlashBtn.disabled = true;
     try {
-        updateStatus('Scanning for device...', 'info');
-
-        device = await navigator.bluetooth.requestDevice({
-            filters: [{ name: DEVICE_NAME }],
-            optionalServices: [BLE_OTA_SERVICE_UUID]
-        });
-
-        updateStatus('Connecting to device...', 'info');
-        server = await device.gatt.connect();
+        updateStatus('Connecting to grinder...', 'info');
+        await GrinderSession.connect();
 
         updateStatus('Getting OTA service...', 'info');
-        otaService = await server.getPrimaryService(BLE_OTA_SERVICE_UUID);
+        otaService = await GrinderSession.getService(BLE_OTA_SERVICE_UUID);
 
-        // Set up status notifications
+        // Set up status notifications. The characteristic object persists for
+        // the life of the shared connection, so drop any handler from an
+        // earlier flash attempt before adding ours.
         statusCharacteristic = await otaService.getCharacteristic(BLE_OTA_STATUS_CHAR_UUID);
+        statusCharacteristic.removeEventListener('characteristicvaluechanged', handleStatusUpdate);
         await statusCharacteristic.startNotifications();
         statusCharacteristic.addEventListener('characteristicvaluechanged', handleStatusUpdate);
 
         updateStatus('Connected successfully!', 'success');
-        markGrinderSeen();
-
-        return true;
-
+        await flashFirmware();
     } catch (error) {
         updateStatus(`Connection failed: ${error.message}`, 'error');
         console.error('Connection error:', error);
-        return false;
+    } finally {
+        connectFlashBtn.disabled = false;
+        GrinderSession.release();
     }
 }
 
@@ -340,7 +321,7 @@ async function flashFirmware() {
         return;
     }
 
-    if (!server || !server.connected) {
+    if (!GrinderSession.isConnected()) {
         updateStatus('Not connected to device', 'error');
         return;
     }
@@ -467,6 +448,13 @@ async function flashFirmware() {
             updateProgress(0);
         }, 3000);
 
+        // The device reboots into the new firmware; refresh the cached
+        // snapshot once it's back up so the card and update banner reflect
+        // the new version. Silent and best-effort.
+        setTimeout(() => {
+            GrinderSession.refreshSnapshot({ interactive: false }).catch(() => {});
+        }, 25000);
+
     } catch (error) {
         updateStatus(`Flash failed: ${error.message}`, 'error');
         console.error('Flash error:', error);
@@ -577,6 +565,14 @@ async function loadReleases() {
             }
         });
 
+        // Publish the newest release for the grinder card and the Update
+        // panel's up-to-date/update-available banner (grinder-card.js).
+        const stable = indexEntries.find(entry => !entry.prerelease) || null;
+        window.latestFirmware = {
+            stable: stable ? { version: stable.version || stable.tag.replace(/^v/, ''), tag: stable.tag } : null,
+        };
+        window.dispatchEvent(new CustomEvent('releases-loaded'));
+
         if (!usbSelect.children.length) {
             usbSelect.innerHTML = '<option value="">No firmware available</option>';
         } else {
@@ -607,28 +603,22 @@ async function getDiagnosticReport() {
     const statusDiv = document.getElementById('diagnosticsStatus');
     const reportContainer = document.getElementById('diagnosticsReportContainer');
     const reportTextarea = document.getElementById('diagnosticsReport');
+    let debugTxChar = null;
+    let onChunk = null;
 
     try {
         btn.disabled = true;
         statusDiv.innerHTML = '<div class="status info">Connecting to device...</div>';
 
-        // Request device
-        device = await navigator.bluetooth.requestDevice({
-            filters: [{ name: DEVICE_NAME }],
-            optionalServices: [BLE_OTA_SERVICE_UUID, BLE_DEBUG_SERVICE_UUID, BLE_SYSINFO_SERVICE_UUID]
-        });
-
-        // Connect to GATT server
-        server = await device.gatt.connect();
-        markGrinderSeen();
+        await GrinderSession.connect();
         statusDiv.innerHTML = '<div class="status info">Connected. Requesting diagnostic report...</div>';
 
         // Get required services
-        const debugService = await server.getPrimaryService(BLE_DEBUG_SERVICE_UUID);
-        const sysinfoService = await server.getPrimaryService(BLE_SYSINFO_SERVICE_UUID);
+        const debugService = await GrinderSession.getService(BLE_DEBUG_SERVICE_UUID);
+        const sysinfoService = await GrinderSession.getService(BLE_SYSINFO_SERVICE_UUID);
 
         // Get characteristics
-        const debugTxChar = await debugService.getCharacteristic(BLE_DEBUG_TX_CHAR_UUID);
+        debugTxChar = await debugService.getCharacteristic(BLE_DEBUG_TX_CHAR_UUID);
         const diagnosticsChar = await sysinfoService.getCharacteristic(BLE_SYSINFO_DIAGNOSTICS_CHAR_UUID);
 
         // Collect report chunks
@@ -645,7 +635,7 @@ async function getDiagnosticReport() {
 
         // Set up notification handler
         await debugTxChar.startNotifications();
-        debugTxChar.addEventListener('characteristicvaluechanged', (event) => {
+        onChunk = (event) => {
             const chunk = new TextDecoder().decode(event.target.value);
             reportChunks.push(chunk);
 
@@ -653,7 +643,8 @@ async function getDiagnosticReport() {
             if (chunk.includes('=== END OF REPORT ===')) {
                 reportComplete = true;
             }
-        });
+        };
+        debugTxChar.addEventListener('characteristicvaluechanged', onChunk);
 
         // Trigger report generation by writing to diagnostics characteristic
         await diagnosticsChar.writeValue(new Uint8Array([0x01]));
@@ -664,18 +655,6 @@ async function getDiagnosticReport() {
         const startTime = Date.now();
         while (!reportComplete && (Date.now() - startTime) < timeout) {
             await new Promise(resolve => setTimeout(resolve, 100));
-        }
-
-        // Stop notifications
-        try {
-            await debugTxChar.stopNotifications();
-        } catch (e) {
-            // Ignore errors when stopping
-        }
-
-        // Disconnect
-        if (device && device.gatt.connected) {
-            device.gatt.disconnect();
         }
 
         if (reportComplete) {
@@ -695,21 +674,17 @@ async function getDiagnosticReport() {
     } catch (error) {
         console.error('Diagnostic error:', error);
         statusDiv.innerHTML = `<div class="status error">Error: ${error.message}</div>`;
-
-        // Try to clean up notifications on error
-        try {
-            const debugService = await server.getPrimaryService(BLE_DEBUG_SERVICE_UUID);
-            const debugTxChar = await debugService.getCharacteristic(BLE_DEBUG_TX_CHAR_UUID);
-            await debugTxChar.stopNotifications();
-        } catch (e) {
-            // Ignore cleanup errors
-        }
-
-        // Disconnect on error
-        if (device && device.gatt.connected) {
-            device.gatt.disconnect();
-        }
     } finally {
+        // Leave the shared connection clean for the next flow.
+        if (debugTxChar) {
+            if (onChunk) debugTxChar.removeEventListener('characteristicvaluechanged', onChunk);
+            try {
+                await debugTxChar.stopNotifications();
+            } catch (e) {
+                // Ignore cleanup errors
+            }
+        }
+        GrinderSession.release();
         btn.disabled = false;
     }
 }
@@ -792,30 +767,14 @@ window.addEventListener('load', () => {
     }
 });
 
+// The shared session already syncs the grinder's clock on every connect, so
+// this only needs the two WiFi characteristics.
 async function connectWifiChars() {
-    const wifiDevice = await navigator.bluetooth.requestDevice({
-        filters: [{ name: DEVICE_NAME }],
-        optionalServices: [BLE_SYSINFO_SERVICE_UUID],
-    });
-    const wifiServer = await wifiDevice.gatt.connect();
-    const sysinfoService = await wifiServer.getPrimaryService(BLE_SYSINFO_SERVICE_UUID);
+    await GrinderSession.connect();
+    const sysinfoService = await GrinderSession.getService(BLE_SYSINFO_SERVICE_UUID);
     const configChar = await sysinfoService.getCharacteristic(BLE_SYSINFO_WIFI_CONFIG_CHAR_UUID);
     const statusChar = await sysinfoService.getCharacteristic(BLE_SYSINFO_WIFI_STATUS_CHAR_UUID);
-    markGrinderSeen();
-
-    // Sync the clock immediately over BLE too - WiFi takes over from here on
-    try {
-        const timesyncChar = await sysinfoService.getCharacteristic(BLE_SYSINFO_TIMESYNC_CHAR_UUID);
-        const payload = new ArrayBuffer(6);
-        const view = new DataView(payload);
-        view.setUint32(0, Math.floor(Date.now() / 1000), true);
-        view.setInt16(4, -new Date().getTimezoneOffset(), true);
-        await timesyncChar.writeValue(payload);
-    } catch (e) {
-        console.log('BLE time sync unavailable:', e.message);
-    }
-
-    return { wifiDevice, configChar, statusChar };
+    return { configChar, statusChar };
 }
 
 function describeWifiStatus(status) {
@@ -855,22 +814,24 @@ async function configureWifi() {
     }
 
     btn.disabled = true;
-    let wifiDevice = null;
+    let statusChar = null;
+    let onStatusFrame = null;
     try {
         updateWifiStatusBox('Connecting to grinder…', 'info');
         const conn = await connectWifiChars();
-        wifiDevice = conn.wifiDevice;
-        const { configChar, statusChar } = conn;
+        const { configChar } = conn;
+        statusChar = conn.statusChar;
 
         // Live progress while the grinder tries the network
         let lastStatus = null;
-        await statusChar.startNotifications();
-        statusChar.addEventListener('characteristicvaluechanged', (event) => {
+        onStatusFrame = (event) => {
             try {
                 lastStatus = JSON.parse(new TextDecoder().decode(event.target.value));
                 updateWifiStatusBox(describeWifiStatus(lastStatus), 'info');
             } catch (e) { /* partial/invalid frame; wait for the next one */ }
-        });
+        };
+        await statusChar.startNotifications();
+        statusChar.addEventListener('characteristicvaluechanged', onStatusFrame);
 
         const tz = detectedTz || { rule: '', zoneName: '' };
         const enc = new TextEncoder();
@@ -908,52 +869,49 @@ async function configureWifi() {
         } else {
             updateWifiStatusBox('Credentials saved. No result yet — use Check Status in a minute.', 'info');
         }
+        const freshest = outcome || lastStatus;
+        if (freshest) GrinderSession.applyPatch({ wifi: freshest });
     } catch (error) {
         console.error('WiFi setup error:', error);
         updateWifiStatusBox(`WiFi setup failed: ${error.message}`, 'error');
     } finally {
-        if (wifiDevice && wifiDevice.gatt.connected) wifiDevice.gatt.disconnect();
+        if (statusChar) {
+            if (onStatusFrame) statusChar.removeEventListener('characteristicvaluechanged', onStatusFrame);
+            try { await statusChar.stopNotifications(); } catch (e) { /* best-effort */ }
+        }
+        GrinderSession.release();
         btn.disabled = false;
     }
 }
 
 async function checkWifiStatus() {
-    let wifiDevice = null;
     try {
         updateWifiStatusBox('Connecting to grinder…', 'info');
         const conn = await connectWifiChars();
-        wifiDevice = conn.wifiDevice;
         const value = await conn.statusChar.readValue();
         const status = JSON.parse(new TextDecoder().decode(value));
         updateWifiStatusBox(describeWifiStatus(status), status.time_synced ? 'success' : 'info');
+        GrinderSession.applyPatch({ wifi: status });
     } catch (error) {
         console.error('WiFi status error:', error);
         updateWifiStatusBox(`Could not read WiFi status: ${error.message}`, 'error');
     } finally {
-        if (wifiDevice && wifiDevice.gatt.connected) wifiDevice.gatt.disconnect();
+        GrinderSession.release();
     }
 }
 
 async function forgetWifi() {
     if (!confirm('Remove the stored WiFi credentials from the grinder?')) return;
-    let wifiDevice = null;
     try {
         updateWifiStatusBox('Connecting to grinder…', 'info');
         const conn = await connectWifiChars();
-        wifiDevice = conn.wifiDevice;
         await conn.configChar.writeValue(new Uint8Array([0x02]));
         updateWifiStatusBox('✓ WiFi credentials removed from the grinder.', 'success');
+        GrinderSession.applyPatch({ wifi: { configured: false } });
     } catch (error) {
         console.error('WiFi forget error:', error);
         updateWifiStatusBox(`Could not forget WiFi: ${error.message}`, 'error');
     } finally {
-        if (wifiDevice && wifiDevice.gatt.connected) wifiDevice.gatt.disconnect();
+        GrinderSession.release();
     }
 }
-
-// Handle disconnection
-window.addEventListener('beforeunload', () => {
-    if (device && device.gatt.connected) {
-        device.gatt.disconnect();
-    }
-});

@@ -73,6 +73,9 @@ export class GrinderDataClient {
         this._rejectReceive = null;
         this._lastChunkSizes = [];
         this._lastExpectedBytes = null;
+        this._sharedSession = null;
+        this._onTransferEvent = null;
+        this._onStatusEvent = null;
         this.onFileProgress = null; // (percent) => void, per-file transfer progress
     }
 
@@ -80,29 +83,42 @@ export class GrinderDataClient {
         return !!(this.server && this.server.connected);
     }
 
+    // Prefers the page-wide GrinderSession (one chooser + one connection
+    // shared with the update/WiFi/diagnostics flows); falls back to its own
+    // requestDevice when the module is used standalone.
     async connect() {
-        this.device = await navigator.bluetooth.requestDevice({
-            filters: [{ name: DEVICE_NAME }],
-            optionalServices: [BLE_DATA_SERVICE_UUID, BLE_SYSINFO_SERVICE_UUID, BLE_DEBUG_SERVICE_UUID],
-        });
-        this.server = await this.device.gatt.connect();
+        const shared = typeof window !== 'undefined' && window.GrinderSession && window.GrinderSession.isSupported()
+            ? window.GrinderSession : null;
+        if (shared) {
+            this.server = await shared.connect({ interactive: true });
+            this.device = shared.device;
+            this._sharedSession = shared;
+        } else {
+            this.device = await navigator.bluetooth.requestDevice({
+                filters: [{ name: DEVICE_NAME }],
+                optionalServices: [BLE_DATA_SERVICE_UUID, BLE_SYSINFO_SERVICE_UUID, BLE_DEBUG_SERVICE_UUID],
+            });
+            this.server = await this.device.gatt.connect();
+        }
 
         const dataService = await this.server.getPrimaryService(BLE_DATA_SERVICE_UUID);
         this.controlChar = await dataService.getCharacteristic(BLE_DATA_CONTROL_CHAR_UUID);
         this.transferChar = await dataService.getCharacteristic(BLE_DATA_TRANSFER_CHAR_UUID);
         this.statusChar = await dataService.getCharacteristic(BLE_DATA_STATUS_CHAR_UUID);
 
+        // On a shared connection the characteristic objects survive between
+        // pulls, so keep handler references and remove them on disconnect —
+        // a leftover handler would double-count chunks on the next pull.
+        this._onTransferEvent = (event) => this._onTransferChunk(event.target.value);
+        this._onStatusEvent = (event) => this._onStatusUpdate(event.target.value);
+
         await this.transferChar.startNotifications();
-        this.transferChar.addEventListener('characteristicvaluechanged', (event) => {
-            this._onTransferChunk(event.target.value);
-        });
+        this.transferChar.addEventListener('characteristicvaluechanged', this._onTransferEvent);
 
         await this.statusChar.startNotifications();
-        this.statusChar.addEventListener('characteristicvaluechanged', (event) => {
-            this._onStatusUpdate(event.target.value);
-        });
+        this.statusChar.addEventListener('characteristicvaluechanged', this._onStatusEvent);
 
-        await this.syncDeviceTime();
+        if (!this._sharedSession) await this.syncDeviceTime();
     }
 
     // Writes the wall clock to the grinder: [epoch_utc:u32 LE][tz_offset_min:i16 LE].
@@ -124,7 +140,18 @@ export class GrinderDataClient {
     }
 
     disconnect() {
-        if (this.device && this.device.gatt.connected) {
+        if (this.transferChar && this._onTransferEvent) {
+            this.transferChar.removeEventListener('characteristicvaluechanged', this._onTransferEvent);
+        }
+        if (this.statusChar && this._onStatusEvent) {
+            this.statusChar.removeEventListener('characteristicvaluechanged', this._onStatusEvent);
+        }
+        if (this._sharedSession) {
+            // Leave the shared connection up for other flows; it self-releases
+            // after a short idle window.
+            this._sharedSession.release();
+            this._sharedSession = null;
+        } else if (this.device && this.device.gatt.connected) {
             this.device.gatt.disconnect();
         }
         this.device = null;

@@ -608,6 +608,96 @@
         .next-step a { color: var(--accent); text-decoration: none; }
         .next-step a:hover { text-decoration: underline; }
 
+        /* ---- Grinder card / hero ---- */
+
+        .grinder-hero {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 22px 24px;
+            margin-bottom: 22px;
+        }
+
+        .grinder-hero h2 { margin: 0 0 6px; }
+        .grinder-hero .lede-line { margin-bottom: 16px; }
+
+        .hero-links { font-size: 13px; color: var(--ink-3); margin: 14px 0 0; }
+        .hero-links a { color: var(--accent); text-decoration: none; }
+        .hero-links a:hover { text-decoration: underline; }
+
+        .grinder-card {
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            padding: 13px 18px;
+            margin-bottom: 22px;
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px 16px;
+        }
+
+        .grinder-card .conn-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            background: var(--ink-3);
+            flex: none;
+        }
+
+        .grinder-card .conn-dot.connected { background: var(--good); }
+
+        .grinder-card .g-name {
+            font-family: var(--mono);
+            font-weight: 700;
+            font-size: 14px;
+        }
+
+        .grinder-card .g-facts {
+            font-family: var(--mono);
+            font-size: 12px;
+            color: var(--ink-2);
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 14px;
+        }
+
+        .grinder-card .g-actions {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .grinder-card select {
+            width: auto;
+            padding: 5px 8px;
+            font-size: 12px;
+        }
+
+        .g-chip {
+            font-family: var(--mono);
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 9px;
+            border-radius: 999px;
+            border: 1px solid;
+            background: transparent;
+        }
+
+        .g-chip.update {
+            color: var(--warning);
+            border-color: rgba(250, 178, 25, 0.45);
+            background: rgba(250, 178, 25, 0.08);
+            cursor: pointer;
+        }
+
+        .g-chip.warn {
+            color: var(--serious);
+            border-color: rgba(236, 131, 90, 0.45);
+            background: rgba(236, 131, 90, 0.08);
+        }
+
         details { margin: 20px 0; }
 
         details summary {
@@ -648,6 +738,10 @@
             <p>This tool needs <strong>Chrome</strong> (or Edge) for Web Bluetooth and Web Serial. iOS browsers and Firefox can't connect to the grinder.</p>
         </div>
 
+        <!-- Device-centric header: "Connect your grinder" hero, or the known
+             grinder's cached status. Rendered by grinder-card.js. -->
+        <div id="grinderCard"></div>
+
         <div class="tabs">
             <button class="tab active" onclick="showTab('grinder')">My Grinder</button>
             <button class="tab" onclick="showTab('analytics')">Analytics</button>
@@ -668,6 +762,8 @@
             <div class="form-stack">
                 <h2>Update firmware over Bluetooth</h2>
                 <p class="lede-line">Wireless update for an already-installed grinder. First-time installs use Get Started over USB.</p>
+
+                <div id="otaDeviceState" class="status info" style="display: none;"></div>
 
                 <div class="form-group">
                     <label for="firmwareSelect">Firmware version</label>
@@ -730,6 +826,8 @@
             <div class="form-stack">
                 <h2>WiFi time sync</h2>
                 <p class="lede-line">The grinder uses your home WiFi only to sync its clock (a few seconds a day, radio off otherwise). The clock then survives power loss, and daylight-saving changes are handled on the grinder using your timezone's rules — detected below from this browser.</p>
+
+                <div id="wifiKnownStatus" class="status info" style="display: none;"></div>
 
                 <div class="form-group">
                     <label for="wifiSsid">Network name (SSID)</label>
@@ -801,8 +899,10 @@
     </div>
 
     <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+    <script src="grinder-session.js"></script>
     <script src="tz-posix.js"></script>
     <script src="flasher.js"></script>
+    <script src="grinder-card.js"></script>
     <script type="module" src="analytics/app.js"></script>
 </body>
 </html>
