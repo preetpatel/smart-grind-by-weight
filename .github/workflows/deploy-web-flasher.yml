@@ -6,7 +6,7 @@ on:
     paths:
       - 'tools/web-flasher/**'  # Deploy when web-flasher files change (after firmware commit)
   release:
-    types: [ unpublished, deleted ]
+    types: [ published, unpublished, deleted ]
   workflow_dispatch:
 
 permissions:
@@ -67,33 +67,25 @@ jobs:
           if True:
               import json
               import os
-              import time
-              import urllib.request
+              import re
 
               firmware_root = "tools/web-flasher/firmware"
               entries = []
 
-              # Derive the GitHub Pages base URL from the repository running
-              # this workflow so forks deploy against their own Pages site.
-              owner, repo_name = os.environ["GITHUB_REPOSITORY"].split("/", 1)
-              pages_base = f"https://{owner}.github.io/{repo_name}"
+              def version_key(tag):
+                  """Sort tags by semantic version so v1.10.0 outranks v1.5.0."""
+                  base, _, suffix = tag.lstrip('v').partition('-')
+                  try:
+                      parts = tuple(int(p) for p in base.split('.'))
+                  except ValueError:
+                      return ((0,), 0, ())
+                  # A final release outranks its own pre-releases (1.5.0 > 1.5.0-rc.2).
+                  if not suffix:
+                      return (parts, 1, ())
+                  return (parts, 0, tuple(int(n) for n in re.findall(r'\d+', suffix)))
 
-              def wait_for(url, retries=30, delay=30):
-                  for attempt in range(retries):
-                      try:
-                          with urllib.request.urlopen(url) as response:
-                              if response.status == 200:
-                                  print(f"  [OK] {url} (attempt {attempt + 1})")
-                                  return True
-                      except Exception:
-                          print(f"  [WAIT] {url} (attempt {attempt + 1})")
-                      time.sleep(delay)
-                  total = retries * delay
-                  minutes = total // 60
-                  print(f"  [FAIL] {url} after {retries} attempts (~{minutes}m)")
-                  return False
-
-              for tag in sorted(os.listdir(firmware_root), reverse=True):
+              # Newest first: the web flasher preselects the first entry as "latest".
+              for tag in sorted(os.listdir(firmware_root), key=version_key, reverse=True):
                   tag_path = os.path.join(firmware_root, tag)
                   if not os.path.isdir(tag_path):
                       continue
@@ -111,11 +103,9 @@ jobs:
                   prerelease = any(key in tag for key in ("-rc", "-beta", "-alpha"))
                   version = tag.lstrip('v')
 
-                  manifest_url = f"{pages_base}/{manifest_rel}"
-                  ota_url = f"{pages_base}/{ota_rel}"
-
-                  if not wait_for(manifest_url) or not wait_for(ota_url):
-                      continue
+                  # The assets above ship in this same Pages artifact as index.json,
+                  # so they go live together — no need to probe the live site first.
+                  print(f"  [ADD] {tag}")
 
                   entries.append({
                       "tag": tag,
