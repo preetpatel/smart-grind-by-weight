@@ -442,23 +442,51 @@ class GrinderBLETool:
     def fetch_release_firmware(self, version: str) -> Optional[Path]:
         """Download the published release binary for a firmware version, for
         use as a delta base. A release-flashed device's app partition contains
-        exactly the published binary, so this base is always correct."""
+        exactly the published binary, so this base is always correct. The
+        download is verified against the release's SHA-256 manifest when one
+        was published (releases before v1.6.0-rc.6 have none)."""
         cached = self.firmware_cache_dir / f"release_v{version}.bin"
         if cached.exists():
             return cached
-        url = (f"https://github.com/{GITHUB_REPO}/releases/download/"
-               f"v{version}/smart-grind-by-weight-v{version}.bin")
+        bin_name = f"smart-grind-by-weight-v{version}.bin"
+        base_url = f"https://github.com/{GITHUB_REPO}/releases/download/v{version}"
         try:
             self.safe_print(f"[INFO] Fetching release v{version} to use as delta base...")
             import urllib.request
-            with urllib.request.urlopen(url, timeout=30) as response:
+            with urllib.request.urlopen(f"{base_url}/{bin_name}", timeout=30) as response:
                 data = response.read()
+
+            expected = self._fetch_release_hash(base_url, version, bin_name)
+            if expected:
+                actual = hashlib.sha256(data).hexdigest()
+                if actual != expected:
+                    self.safe_print(f"[ERROR] Downloaded {bin_name} fails its SHA-256 check - discarding")
+                    return None
+                self.safe_print("[OK] Release download verified against its SHA-256 manifest")
+
             self.firmware_cache_dir.mkdir(exist_ok=True)
             cached.write_bytes(data)
             return cached
         except Exception as e:
             self.safe_print(f"[WARNING] Could not fetch release v{version} ({e}) - falling back to full update")
             return None
+
+    def _fetch_release_hash(self, base_url: str, version: str, bin_name: str) -> Optional[str]:
+        """Expected SHA-256 for bin_name from the release's hash manifest,
+        or None when the release predates hash manifests."""
+        import urllib.request
+        try:
+            manifest_url = f"{base_url}/smart-grind-by-weight-v{version}.sha256"
+            with urllib.request.urlopen(manifest_url, timeout=15) as response:
+                manifest = response.read().decode('utf-8')
+        except Exception:
+            self.safe_print("[INFO] Release has no SHA-256 manifest (pre-rc.6) - skipping download verification")
+            return None
+        for line in manifest.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[-1].lstrip('*') == bin_name:
+                return parts[0].lower()
+        return None
 
     def _get_firmware_build_number(self, firmware_path: str) -> Optional[str]:
         """Extract build number from git_info.h in project directory."""

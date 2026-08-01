@@ -223,18 +223,46 @@ class GrinderTool:
             self.print_error("No host C++ compiler found (tried c++, g++, clang++)")
             return 1
 
+        # Regenerate the encoder/decoder fixtures with the installed Python
+        # detools so test_patch_compat exercises the actual toolchain
+        fixture_script = test_dir / "fixtures" / "make_patch_fixture.py"
+        if fixture_script.exists():
+            # The venv interpreter puts venv/bin/detools next to itself; in CI
+            # there is no venv and detools comes from the job's PATH instead.
+            fixture_python = self.venv_python if Path(self.venv_python).exists() else sys.executable
+            fixture_result = self.run_command(
+                [str(fixture_python), str(fixture_script)], capture_output=True)
+            if fixture_result.returncode != 0:
+                self.print_error("Fixture generation failed:")
+                self.safe_print((fixture_result.stdout + fixture_result.stderr).rstrip())
+                return 1
+
         failures = []
         with tempfile.TemporaryDirectory() as build_dir:
             for source in test_sources:
                 name = source.stem
                 binary = Path(build_dir) / name
 
+                # A test may pin its own include dirs (e.g. the real vendored
+                # detools headers instead of the support/ stubs) via a
+                # "// TEST_INCLUDE_DIRS: dir1 dir2" comment; they go first so
+                # they win over the defaults.
+                extra_includes = []
+                for line in source.read_text().splitlines()[:20]:
+                    if "TEST_INCLUDE_DIRS:" in line:
+                        for rel_dir in line.split("TEST_INCLUDE_DIRS:", 1)[1].split():
+                            extra_includes += ["-I", str(self.project_dir / rel_dir)]
+                        break
+
                 compile_result = self.run_command([
-                    compiler, "-std=c++17", "-Wall", "-I", str(self.project_dir / "src"),
+                    compiler, "-std=c++17", "-Wall",
+                    *extra_includes,
+                    "-I", str(self.project_dir / "src"),
                     # Host stubs of the ESP-IDF APIs (fake partition, heap
                     # hooks) so component code like delta.c compiles as-is
                     "-I", str(test_dir / "support"),
                     "-I", str(self.project_dir / "components" / "delta" / "include"),
+                    f'-DTEST_FIXTURE_DIR="{test_dir / "fixtures"}"',
                     "-o", str(binary), str(source)
                 ], capture_output=True)
 

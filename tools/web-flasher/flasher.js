@@ -349,6 +349,37 @@ function prepareFirmwareData(firmwareData) {
     return firmwareData;
 }
 
+// Verify a downloaded OTA binary against the release's SHA-256 manifest
+// (published alongside the assets since v1.6.0-rc.6; older releases skip).
+// Throws on mismatch so the flash never starts with corrupt bytes.
+async function verifyFirmwareDownload(firmwareUrl, data) {
+    if (!firmwareUrl.endsWith('-web-ota.bin')) return;
+    const manifestUrl = firmwareUrl.replace(/-web-ota\.bin$/, '.sha256');
+    let manifestText;
+    try {
+        const resp = await fetch(manifestUrl);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        manifestText = await resp.text();
+    } catch (e) {
+        console.log('No SHA-256 manifest for this release - skipping download verification');
+        return;
+    }
+    const fileName = firmwareUrl.split('/').pop();
+    const line = manifestText.split('\n').find(l => l.trim().endsWith(fileName));
+    if (!line) {
+        console.warn(`SHA-256 manifest has no entry for ${fileName} - skipping verification`);
+        return;
+    }
+    const expected = line.trim().split(/\s+/)[0].toLowerCase();
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    const actual = Array.from(new Uint8Array(digest))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+    if (actual !== expected) {
+        throw new Error('Downloaded firmware fails its SHA-256 check - try again');
+    }
+    updateStatus('Download verified against release SHA-256 manifest', 'info');
+}
+
 // zlib-compatible CRC-32; sent with the END command so the device can verify
 // the patch as staged in its flash before the 30-90s apply cycle.
 function crc32(data) {
@@ -384,8 +415,9 @@ async function flashFirmware() {
     }
     
     try {
-        // Download firmware
+        // Download firmware and verify it against the release hash manifest
         const firmwareData = await downloadFirmware(firmwareUrl);
+        await verifyFirmwareDownload(firmwareUrl, firmwareData);
         const patchData = prepareFirmwareData(firmwareData);
         
         updateStatus('Starting firmware update...', 'info');

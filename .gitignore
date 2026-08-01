@@ -25,3 +25,4 @@ failed_session_*.bin
 
 # Git worktrees
 .worktrees/
+tools/tests/fixtures/*.bin

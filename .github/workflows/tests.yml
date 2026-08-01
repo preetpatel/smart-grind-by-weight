@@ -27,5 +27,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install patch toolchain for the compat test
+        # test_patch_compat generates a patch with the pinned Python detools
+        # and applies it with the C decoder shipped in firmware
+        run: pip install detools==0.53.0 heatshrink2==0.14.0
+
       - name: Run host regression tests
         run: python3 tools/grinder.py test

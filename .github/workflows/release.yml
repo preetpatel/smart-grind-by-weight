@@ -58,8 +58,10 @@ jobs:
           # Create blank 8KB NVS partition file (0xe000 to 0x10000)
           dd if=/dev/zero of=release-artifacts/blank_8KB.bin bs=8192 count=1
 
-          # Generate web-specific OTA patch file
-          pip install detools
+          # Generate web-specific OTA patch file. Pinned to the versions the
+          # shipped C decoder is compatibility-tested against (see
+          # tools/tests/test_patch_compat.cpp).
+          pip install detools==0.53.0 heatshrink2==0.14.0
           echo "Generating web OTA patch for smart-grind-by-weight-${VERSION}.bin"
           touch empty.bin
           detools create_patch -c heatshrink empty.bin "release-artifacts/smart-grind-by-weight-${VERSION}.bin" "release-artifacts/smart-grind-by-weight-${VERSION}-web-ota.bin"
@@ -103,8 +105,14 @@ jobs:
           EOF
           echo "Generated manifest: smart-grind-by-weight-${VERSION}.manifest.json"
 
+          # SHA-256 manifest so clients can verify downloads (the CLI checks
+          # fetched delta bases, the web flasher checks the OTA binary)
+          sha256sum *.bin > "smart-grind-by-weight-${VERSION}.sha256"
+          echo "Generated hash manifest:"
+          cat "smart-grind-by-weight-${VERSION}.sha256"
+
           # Create a firmware package
-          tar -czf smart-grind-by-weight-${VERSION}.tar.gz *.bin *.manifest.json
+          tar -czf smart-grind-by-weight-${VERSION}.tar.gz *.bin *.manifest.json *.sha256
           cd ..
 
       - name: Prepare release notes
@@ -183,5 +191,6 @@ jobs:
           gh release upload "$TAG" "release-artifacts/smart-grind-by-weight-${TAG}-partitions.bin" --clobber
           gh release upload "$TAG" "release-artifacts/smart-grind-by-weight-${TAG}-web-ota.bin" --clobber
           gh release upload "$TAG" "release-artifacts/smart-grind-by-weight-${TAG}.manifest.json" --clobber
+          gh release upload "$TAG" "release-artifacts/smart-grind-by-weight-${TAG}.sha256" --clobber
           gh release upload "$TAG" "release-artifacts/blank_8KB.bin" --clobber
           gh release upload "$TAG" "release-artifacts/smart-grind-by-weight-${TAG}.tar.gz" --clobber
