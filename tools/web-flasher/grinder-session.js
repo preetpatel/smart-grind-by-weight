@@ -39,6 +39,7 @@
     const ACTIVE_KEY = 'activeGrinderId';
     const SEEN_KEY = 'grinderSeen';
     const IDLE_RELEASE_MS = 30000;
+    let holdCount = 0;  // >0 while a long operation owns the link (see hold())
     const SILENT_CONNECT_TIMEOUT_MS = 10000;
 
     let device = null;
@@ -252,8 +253,25 @@
     // Keeps the link warm briefly for follow-up actions, then lets go so the
     // grinder is reachable by other tools and its WiFi sync windows.
     function release() {
+        if (holdCount > 0) return;  // a long operation owns the link
         cancelIdle();
         idleTimer = setTimeout(() => disconnectNow(), IDLE_RELEASE_MS);
+    }
+
+    // Operations that run far longer than the idle window - firmware upload,
+    // grind-data export, the diagnostics stream - must hold the link for
+    // their duration. Without this, ANY concurrent flow calling release()
+    // (e.g. the device strip's background snapshot refresh) arms a 30s timer
+    // that disconnects mid-transfer. Always pair with releaseHold() in a
+    // finally block; holds nest.
+    function hold() {
+        holdCount++;
+        cancelIdle();
+    }
+
+    function releaseHold() {
+        if (holdCount > 0) holdCount--;
+        if (holdCount === 0) release();
     }
 
     function cancelIdle() {
@@ -265,6 +283,7 @@
 
     function disconnectNow() {
         cancelIdle();
+        holdCount = 0;  // link is gone; never leave a stuck hold behind
         if (device && device.gatt.connected) device.gatt.disconnect();
         server = null;
         serviceCache = new Map();
@@ -357,6 +376,8 @@
         connect,
         getService,
         release,
+        hold,
+        releaseHold,
         disconnectNow,
         refreshSnapshot,
         addGrinder,

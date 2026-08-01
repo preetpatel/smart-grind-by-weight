@@ -413,7 +413,13 @@ async function flashFirmware() {
         updateStatus('Not connected to device', 'error');
         return;
     }
-    
+
+    // Own the link for the whole upload + apply. Without this, any concurrent
+    // flow calling release() - the device strip's background snapshot refresh
+    // is the usual culprit - arms the 30s idle timer and the GATT server
+    // disconnects mid-transfer.
+    GrinderSession.hold();
+
     try {
         // Download firmware and verify it against the release hash manifest
         const firmwareData = await downloadFirmware(firmwareUrl);
@@ -579,6 +585,8 @@ async function flashFirmware() {
         } catch (abortError) {
             console.error('Could not send abort command:', abortError);
         }
+    } finally {
+        GrinderSession.releaseHold();
     }
 }
 
@@ -689,6 +697,11 @@ async function getDiagnosticReport() {
     let debugTxChar = null;
     let onChunk = null;
 
+    // The report streams for up to 30s - hold the link so a concurrent
+    // release() can't disconnect us partway through (see hold()). Taken
+    // outside the try so it pairs exactly with the finally below.
+    GrinderSession.hold();
+
     try {
         btn.disabled = true;
         statusDiv.innerHTML = '<div class="status info">Connecting to device...</div>';
@@ -767,7 +780,7 @@ async function getDiagnosticReport() {
                 // Ignore cleanup errors
             }
         }
-        GrinderSession.release();
+        GrinderSession.releaseHold();
         btn.disabled = false;
     }
 }

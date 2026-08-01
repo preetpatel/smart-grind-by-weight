@@ -93,6 +93,10 @@ export class GrinderDataClient {
             this.server = await shared.connect({ interactive: true });
             this.device = shared.device;
             this._sharedSession = shared;
+            // Pulling every session can run for minutes - hold the link so a
+            // concurrent release() (e.g. the device strip's snapshot refresh)
+            // cannot disconnect us mid-export. Released in disconnect().
+            if (typeof shared.hold === 'function') shared.hold();
         } else {
             this.device = await navigator.bluetooth.requestDevice({
                 filters: [{ name: DEVICE_NAME }],
@@ -148,8 +152,12 @@ export class GrinderDataClient {
         }
         if (this._sharedSession) {
             // Leave the shared connection up for other flows; it self-releases
-            // after a short idle window.
-            this._sharedSession.release();
+            // after a short idle window once our hold is dropped.
+            if (typeof this._sharedSession.releaseHold === 'function') {
+                this._sharedSession.releaseHold();
+            } else {
+                this._sharedSession.release();
+            }
             this._sharedSession = null;
         } else if (this.device && this.device.gatt.connected) {
             this.device.gatt.disconnect();
