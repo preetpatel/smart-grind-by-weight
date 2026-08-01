@@ -47,6 +47,13 @@ bool OtaDataExportController::update() {
     }
 
     if (ota_active_) {
+        if (bluetooth->get_ota_status() == BLE_OTA_SUCCESS) {
+            // Applied successfully - the device restarts a moment after this
+            // window. Keep the progress screen up instead of flashing the
+            // failure screen during the pre-reboot delay.
+            ota_active_ = false;
+            return true;
+        }
         // The transfer ended without the device rebooting, so it was aborted
         // (disconnect, stall, or a failed finalize). Leave the progress screen
         // instead of freezing at the last percentage.

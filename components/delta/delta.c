@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 
 #include "esp_err.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_system.h"
 
@@ -25,6 +26,16 @@
 #include "delta.h"
 
 static const char *TAG = "delta";
+
+/* Any flash operation while BLE is streaming (write or erase) stalls the
+ * radio and eventually drops the connection on multi-megabyte transfers.
+ * Preferred mode holds the entire patch in PSRAM and defers ALL flash work
+ * (including the erase) to the flush that runs after the transfer ends.
+ * Fallback (no PSRAM) coalesces writes into batches to at least cut the
+ * stall frequency. */
+#define DELTA_WRITE_BUFFER_SIZE (16 * 1024)
+#define DELTA_FLUSH_CHUNK_SIZE  (4 * 1024)
+#define DELTA_ERASE_CHUNK_SIZE  (256 * 1024)
 
 typedef struct flash_mem {
     const esp_partition_t *src;
@@ -192,6 +203,27 @@ static int delta_set_boot_partition(flash_mem_t *flash)
     return DELTA_OK;
 }
 
+static int delta_partition_erase(const delta_partition_writer_t *writer)
+{
+    size_t patch_page_size = ((writer->size + PARTITION_PAGE_SIZE - 1) / PARTITION_PAGE_SIZE) * PARTITION_PAGE_SIZE;
+    size_t erased = 0;
+
+    while (erased < patch_page_size) {
+        size_t chunk = patch_page_size - erased;
+        if (chunk > DELTA_ERASE_CHUNK_SIZE) {
+            chunk = DELTA_ERASE_CHUNK_SIZE;
+        }
+
+        if (esp_partition_erase_range(writer->patch, erased, chunk) != ESP_OK) {
+            ESP_LOGE(TAG, "Partition Error: Could not erase '%s' region!", writer->name);
+            return ESP_FAIL;
+        }
+
+        erased += chunk;
+    }
+    return ESP_OK;
+}
+
 int delta_partition_init(delta_partition_writer_t *writer, const char *partition, int patch_size)
 {
     if (writer == NULL || partition == NULL) {
@@ -205,29 +237,54 @@ int delta_partition_init(delta_partition_writer_t *writer, const char *partition
         return ESP_FAIL;
     }
 
-    size_t patch_page_size = ((patch_size + PARTITION_PAGE_SIZE - 1) / PARTITION_PAGE_SIZE) * PARTITION_PAGE_SIZE;
-    const size_t ERASE_CHUNK_SIZE = 256 * 1024;  // Reduce OTA start delay
-    size_t erased = 0;
-
-    while (erased < patch_page_size) {
-        size_t chunk = patch_page_size - erased;
-        if (chunk > ERASE_CHUNK_SIZE) {
-            chunk = ERASE_CHUNK_SIZE;
-        }
-
-        if (esp_partition_erase_range(patch, erased, chunk) != ESP_OK) {
-            ESP_LOGE(TAG, "Partition Error: Could not erase '%s' region!", partition);
-            return ESP_FAIL;
-        }
-
-        erased += chunk;
-    }
-
     writer->name = partition;
     writer->patch = patch;
     writer->size = patch_size;
     writer->offset = 0;
 
+    /* Re-init without deinit must not leak a previous buffer. */
+    delta_partition_deinit(writer);
+
+    /* Preferred: hold the whole patch in PSRAM, defer every flash operation
+     * (erase included) until after the BLE transfer completes. */
+    writer->buf = heap_caps_malloc(patch_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (writer->buf != NULL) {
+        writer->buf_cap = patch_size;
+        writer->buf_fill = 0;
+        writer->deferred = 1;
+        return ESP_OK;
+    }
+
+    /* Fallback: stream to flash in batches. Erase up front like before. */
+    ESP_LOGW(TAG, "No PSRAM for patch staging - streaming to flash in batches");
+    if (delta_partition_erase(writer) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    writer->buf = heap_caps_malloc(DELTA_WRITE_BUFFER_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (writer->buf != NULL) {
+        writer->buf_cap = DELTA_WRITE_BUFFER_SIZE;
+    } else {
+        ESP_LOGW(TAG, "No RAM for staging buffer - falling back to unbuffered writes");
+        writer->buf_cap = 0;
+    }
+    writer->buf_fill = 0;
+    writer->deferred = 0;
+
+    return ESP_OK;
+}
+
+/* Streaming-mode helper: write out the staged batch. */
+static int delta_partition_write_batch(delta_partition_writer_t *writer)
+{
+    if (writer->buf_fill == 0) {
+        return ESP_OK;
+    }
+    if (esp_partition_write(writer->patch, writer->offset, writer->buf, writer->buf_fill) != ESP_OK) {
+        ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", writer->name);
+        return ESP_FAIL;
+    }
+    writer->offset += writer->buf_fill;
+    writer->buf_fill = 0;
     return ESP_OK;
 }
 
@@ -237,17 +294,101 @@ int delta_partition_write(delta_partition_writer_t *writer, const char *buf, int
         return -DELTA_INVALID_ARGUMENT_ERROR;
     }
 
-    if (writer->offset >= writer->size) {
+    if (writer->offset + writer->buf_fill + size > writer->size) {
         return -DELTA_OUT_OF_BOUNDS_ERROR;
     }
 
-    if (esp_partition_write(writer->patch, writer->offset, buf, size) != ESP_OK) {
-        ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", writer->name);
-        return ESP_FAIL;
-    };
+    if (writer->deferred) {
+        memcpy(writer->buf + writer->buf_fill, buf, size);
+        writer->buf_fill += size;
+        return ESP_OK;
+    }
 
-    writer->offset += size;
+    if (writer->buf_cap == 0) {
+        /* Unbuffered fallback */
+        if (esp_partition_write(writer->patch, writer->offset, buf, size) != ESP_OK) {
+            ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", writer->name);
+            return ESP_FAIL;
+        }
+        writer->offset += size;
+        return ESP_OK;
+    }
+
+    while (size > 0) {
+        int space = writer->buf_cap - writer->buf_fill;
+        int n = (size < space) ? size : space;
+        memcpy(writer->buf + writer->buf_fill, buf, n);
+        writer->buf_fill += n;
+        buf += n;
+        size -= n;
+
+        if (writer->buf_fill == writer->buf_cap) {
+            int err = delta_partition_write_batch(writer);
+            if (err != ESP_OK) {
+                return err;
+            }
+        }
+    }
     return ESP_OK;
+}
+
+int delta_partition_flush(delta_partition_writer_t *writer)
+{
+    if (writer == NULL) {
+        return -DELTA_INVALID_ARGUMENT_ERROR;
+    }
+
+    if (!writer->deferred) {
+        return delta_partition_write_batch(writer);
+    }
+
+    /* Deferred mode: the transfer is done, flash stalls no longer threaten
+     * the BLE link. Erase, then copy the PSRAM-staged patch through a small
+     * internal-RAM scratch buffer (esp_partition_write must not source
+     * directly from external RAM on all IDF versions). */
+    ESP_LOGI(TAG, "Writing staged patch (%d bytes) to '%s'", writer->buf_fill, writer->name);
+    if (delta_partition_erase(writer) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    char *scratch = heap_caps_malloc(DELTA_FLUSH_CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (scratch == NULL) {
+        return -DELTA_OUT_OF_MEMORY;
+    }
+
+    int written = 0;
+    while (written < writer->buf_fill) {
+        int n = writer->buf_fill - written;
+        if (n > DELTA_FLUSH_CHUNK_SIZE) {
+            n = DELTA_FLUSH_CHUNK_SIZE;
+        }
+        memcpy(scratch, writer->buf + written, n);
+        if (esp_partition_write(writer->patch, written, scratch, n) != ESP_OK) {
+            ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", writer->name);
+            free(scratch);
+            return ESP_FAIL;
+        }
+        written += n;
+    }
+    free(scratch);
+
+    writer->offset = written;
+    writer->buf_fill = 0;
+    return ESP_OK;
+}
+
+void delta_partition_deinit(delta_partition_writer_t *writer)
+{
+    if (writer == NULL) {
+        return;
+    }
+    if (writer->buf != NULL) {
+        free(writer->buf);
+    }
+    writer->buf = NULL;
+    writer->buf_cap = 0;
+    writer->buf_fill = 0;
+    writer->deferred = 0;
 }
 
 int delta_check_and_apply(int patch_size, const delta_opts_t *opts)

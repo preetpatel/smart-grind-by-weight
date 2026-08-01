@@ -49,13 +49,29 @@ typedef struct {
 typedef struct {
     const char *name;
     const void *patch;
-    int offset;
-    int size;
+    int offset;      // Bytes written to flash so far
+    int size;        // Total expected patch size
+    char *buf;       // RAM staging buffer
+    int buf_fill;
+    int buf_cap;     // 0 = unbuffered fallback (allocation failed)
+    int deferred;    // 1 = whole patch held in PSRAM, flash untouched until flush
 } delta_partition_writer_t;
 
 int delta_partition_init(delta_partition_writer_t *writer, const char *partition, int patch_size);
 
+/* Stages incoming patch data in RAM. Flash operations while BLE is streaming
+ * stall the radio long enough to drop the connection mid-transfer, so when
+ * PSRAM can hold the whole patch nothing touches flash until flush; otherwise
+ * writes are coalesced into large batches as a fallback. */
 int delta_partition_write(delta_partition_writer_t *writer, const char *buf, int size);
+
+/* Write the staged patch (erasing first in deferred mode) to flash. Must be
+ * called after the final delta_partition_write and before the patch is
+ * applied - the BLE transfer is over by then, so flash stalls are harmless. */
+int delta_partition_flush(delta_partition_writer_t *writer);
+
+/* Release the staging buffer. Safe to call repeatedly. */
+void delta_partition_deinit(delta_partition_writer_t *writer);
 
 /**
  * Checks if there is patch in the patch partition

@@ -17,7 +17,8 @@ OTAHandler::OTAHandler()
     , current_firmware_build_number("")
     , is_full_update(false)
     , power_state(NORMAL_POWER)
-    , normal_cpu_freq_mhz(BLE_NORMAL_CPU_FREQ_MHZ) {
+    , normal_cpu_freq_mhz(BLE_NORMAL_CPU_FREQ_MHZ)
+    , patch_writer{} {
 }
 
 OTAHandler::~OTAHandler() {
@@ -261,6 +262,7 @@ void OTAHandler::abort_ota() {
         received_size = 0;
         patch_size = 0;
         current_status = BLE_OTA_ERROR;
+        delta_partition_deinit(&patch_writer);
 
         // Resume hardware tasks on abort
         LOG_BLE("OTA: Resuming hardware tasks after abort\n");
@@ -301,7 +303,16 @@ bool OTAHandler::start_update() {
 
 bool OTAHandler::finalize_update() {
     LOG_OTA_DEBUG("finalize_update() called\n");
-    
+
+    // Flush the buffered tail of the patch to flash and release the staging
+    // buffer - the apply phase needs the heap more than we do.
+    int flush_result = delta_partition_flush(&patch_writer);
+    delta_partition_deinit(&patch_writer);
+    if (flush_result != ESP_OK) {
+        LOG_BLE("OTA: Failed to flush patch staging buffer\n");
+        return false;
+    }
+
     // Verify received size matches expected
     LOG_OTA_DEBUG("Verifying received size: expected=%lu, got=%lu\n", 
                   (unsigned long)patch_size, (unsigned long)received_size);

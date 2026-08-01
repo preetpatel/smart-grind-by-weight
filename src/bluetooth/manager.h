@@ -219,6 +219,7 @@ public:
      * OTA progress information
      */
     float get_ota_progress() const { return ota_handler.get_progress(); }
+    BLEOTAStatus get_ota_status() const { return ota_handler.get_status(); }
     unsigned long get_remaining_time_ms() const;
     
     /**
