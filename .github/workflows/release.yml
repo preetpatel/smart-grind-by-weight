@@ -118,8 +118,51 @@ jobs:
       - name: Prepare release notes
         id: changelog
         run: |
+          TAG=${{ github.ref_name }}
+
+          # Only compare against tags we actually cut: vX.Y.Z or vX.Y.Z-rc.N.
+          # This filters out historical oddities (v0.1, v1.1.0-rc1) and any
+          # stray test tag, which -v:refname would otherwise sort to the top.
+          TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$'
+
+          if [[ "$TAG" == *"-rc."* ]] || [[ "$TAG" == *"-alpha"* ]] || [[ "$TAG" == *"-beta"* ]]; then
+            # Pre-release: diff against the preceding tag of any kind, so each
+            # RC shows just what changed since the previous one.
+            PREV=$(git tag --list --merged "${TAG}^" --sort=-v:refname \
+              | grep -E "$TAG_RE" | head -1 || true)
+          else
+            # Final release: diff against the last STABLE tag. Diffing against
+            # the preceding RC would list a single commit and hide the whole
+            # release cycle's work.
+            PREV=$(git tag --list --merged "${TAG}^" --sort=-v:refname \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1 || true)
+          fi
+
+          echo "Building changelog for $TAG against ${PREV:-<no previous tag>}"
+
+          {
+            echo "## What's Changed"
+            echo
+            if [ -n "$PREV" ]; then
+              # Release-automation commits are noise in a user-facing changelog.
+              git log --no-merges --pretty=format:'- %s' "${PREV}..${TAG}" \
+                | grep -v '^- chore: Creating release ' > changelog-body.md || true
+              if [ -s changelog-body.md ]; then
+                cat changelog-body.md
+              else
+                echo "- No user-facing changes since ${PREV}."
+              fi
+              echo
+              echo
+              echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV}...${TAG}"
+            else
+              echo "- Initial release."
+            fi
+            echo
+          } > release-notes.md
+
           # Create simple release notes with installation instructions
-          cat > release-notes.md << EOF
+          cat >> release-notes.md << EOF
           ## Installation
 
           ### Web Installer (Recommended)

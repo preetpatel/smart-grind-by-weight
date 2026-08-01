@@ -139,8 +139,16 @@ def update_firmware_version(new_version):
         return False
     return False
 
+# Only tags we actually cut. Anything else - a scratch tag like v1.99.0-test -
+# must never reach the semver comparison below: it would become the "current"
+# semver and mark every genuine RC of the real current version as old.
+RELEASE_TAG_RE = re.compile(r'^v\d+\.\d+\.\d+(-rc\.\d+)?$')
+
 def parse_version(version_str):
-    """Parse version string into (major, minor, patch) tuple"""
+    """Parse a recognized release tag into a (major, minor, patch) tuple"""
+    if not RELEASE_TAG_RE.match(version_str.strip()):
+        return None
+
     version = version_str.lstrip('v')
     # Strip RC/beta/alpha suffixes
     if '-' in version:
@@ -424,9 +432,11 @@ def create_release():
     print(f"\n✅ Release {new_version} created successfully!")
     print("GitHub Actions will now:")
     print("  1. Build firmware with the updated version")
-    print("  2. Create GitHub release with your custom release notes")
-    print("  3. Include automatic changelog from commits")
+    print("  2. Create a DRAFT GitHub release")
+    print("  3. Generate a changelog (final releases diff against the last")
+    print("     stable tag; RCs against the preceding tag)")
     print("  4. Upload firmware binaries for users")
+    print("\n⚠️  The release is a DRAFT — review the changelog, then publish it manually.")
     print(f"\nCheck the progress at: {get_repo_web_url()}/actions")
     
     return True

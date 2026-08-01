@@ -39,10 +39,15 @@ Once you push a tag (like `v1.0.0`):
    - The hosted web flasher queries GitHub releases directly, so no binary files are committed back to `main`
 
 3. **Creates GitHub Release (as draft)**
-   - Includes automatic changelog from commits since last tag
+   - Generates a changelog under "What's Changed", plus a compare link
+     - Final releases diff against the last **stable** tag, so the notes cover the
+       whole RC cycle rather than just the last RC
+     - Pre-releases diff against the preceding tag, so each RC shows only its own changes
+     - `chore: Creating release ...` commits are filtered out
    - Uploads firmware binaries for download
    - Marks as pre-release if tag contains `beta`, `alpha`, or `rc`
-   - **You must manually publish the draft release**
+   - **You must manually publish the draft release** — review and curate the
+     generated changelog before publishing
 
 ### Version Numbering
 
