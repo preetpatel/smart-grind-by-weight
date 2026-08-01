@@ -140,6 +140,7 @@ BLE_DATA_ERROR = 0x23
 DEVICE_NAME = "GrindByWeight"
 CHUNK_SIZE = 512
 DATA_CHUNK_SIZE = 500
+GITHUB_REPO = "preetpatel/smart-grind-by-weight"  # Source of release binaries for delta bases
 
 class GrinderBLETool:
     """Unified BLE tool for all grinder operations."""
@@ -317,6 +318,8 @@ class GrinderBLETool:
     # === Notification Handlers ===
     async def on_ota_status(self, _: BleakGATTCharacteristic, data: bytearray):
         if len(data) > 0:
+            if data[0] == BLE_OTA_ERROR:
+                self.safe_print("\n[ERROR] Grinder reported OTA failure")
             self.current_ota_status = data[0]
             self.status_updated.set()
     
@@ -368,7 +371,9 @@ class GrinderBLETool:
         while time.time() - start_time < timeout:
             if self.current_ota_status == expected_status:
                 return True
-        
+            if self.current_ota_status == BLE_OTA_ERROR and expected_status != BLE_OTA_ERROR:
+                return False
+
             self.status_updated.clear()
             try:
                 await asyncio.wait_for(self.status_updated.wait(), timeout=1)
@@ -386,8 +391,47 @@ class GrinderBLETool:
             return None
 
     def find_cached_firmware(self, build_number: str) -> Optional[Path]:
-        firmware_file = self.firmware_cache_dir / f"build_{int(build_number):03d}.bin"
+        try:
+            build_int = int(build_number)
+        except ValueError:
+            return None
+        # Release builds are never in the local dev cache: legacy CI compiled
+        # every release as build #1, new CI seeds build numbers >= 100001.
+        # Matching them against local build_NNN.bin entries generated delta
+        # patches against the wrong base image (guaranteed apply failure).
+        if build_int == 1 or build_int >= 100000:
+            return None
+        firmware_file = self.firmware_cache_dir / f"build_{build_int:03d}.bin"
         return firmware_file if firmware_file.exists() else None
+
+    async def get_device_firmware_version(self) -> Optional[str]:
+        try:
+            system_data = await self.client.read_gatt_char(BLE_SYSINFO_SYSTEM_CHAR_UUID)
+            version = json.loads(system_data.decode('utf-8')).get('version', '').strip()
+            return version or None
+        except Exception:
+            return None
+
+    def fetch_release_firmware(self, version: str) -> Optional[Path]:
+        """Download the published release binary for a firmware version, for
+        use as a delta base. A release-flashed device's app partition contains
+        exactly the published binary, so this base is always correct."""
+        cached = self.firmware_cache_dir / f"release_v{version}.bin"
+        if cached.exists():
+            return cached
+        url = (f"https://github.com/{GITHUB_REPO}/releases/download/"
+               f"v{version}/smart-grind-by-weight-v{version}.bin")
+        try:
+            self.safe_print(f"[INFO] Fetching release v{version} to use as delta base...")
+            import urllib.request
+            with urllib.request.urlopen(url, timeout=30) as response:
+                data = response.read()
+            self.firmware_cache_dir.mkdir(exist_ok=True)
+            cached.write_bytes(data)
+            return cached
+        except Exception as e:
+            self.safe_print(f"[WARNING] Could not fetch release v{version} ({e}) - falling back to full update")
+            return None
 
     def _get_firmware_build_number(self, firmware_path: str) -> Optional[str]:
         """Extract build number from git_info.h in project directory."""
@@ -471,6 +515,12 @@ class GrinderBLETool:
                 if new_build:
                     self.safe_print(f"[INFO] Upgrading to build: #{new_build}")
                 cached_firmware = self.find_cached_firmware(device_build)
+                if cached_firmware is None:
+                    # Release-flashed device (or missing cache entry): the
+                    # published release binary is the correct delta base.
+                    device_version = await self.get_device_firmware_version()
+                    if device_version:
+                        cached_firmware = self.fetch_release_firmware(device_version)
                 if cached_firmware:
                     patch_data = self.generate_delta_patch(cached_firmware, firmware_data)
                     if patch_data and len(patch_data) < original_size * 0.8:
@@ -532,20 +582,37 @@ class GrinderBLETool:
         try:
             for i in range(0, len(patch_data), CHUNK_SIZE):
                 chunk = patch_data[i:i + CHUNK_SIZE]
-                await self.client.write_gatt_char(BLE_OTA_DATA_CHAR_UUID, chunk)
+                # Chunk writes can fail transiently mid-transfer; retry before
+                # giving up on the whole upload.
+                for attempt in range(4):
+                    try:
+                        await self.client.write_gatt_char(BLE_OTA_DATA_CHAR_UUID, chunk)
+                        break
+                    except Exception as chunk_err:
+                        self.safe_print(f"\n[WARNING] Chunk write failed at offset {i} "
+                                        f"(attempt {attempt + 1}/4): {chunk_err}")
+                        if attempt == 3:
+                            raise
+                        await asyncio.sleep(1.0)
                 progress = int(((i + len(chunk)) / patch_size) * 100)
                 if progress % 5 == 0:
                     self._update_status(f"[UPLOAD] Uploading: {progress}%")
                 await asyncio.sleep(0.01)
-        except Exception:
-            await self.client.write_gatt_char(BLE_OTA_CONTROL_CHAR_UUID, bytes([BLE_OTA_CMD_ABORT]))
+        except Exception as loop_err:
+            self.safe_print(f"\n[ERROR] Upload aborted: {loop_err}")
+            try:
+                await self.client.write_gatt_char(BLE_OTA_CONTROL_CHAR_UUID, bytes([BLE_OTA_CMD_ABORT]))
+            except Exception:
+                pass  # Link is often already gone at this point
             return False
         
         self.safe_print(f"\n[OK] Upload complete in {time.time() - start_time:.1f}s")
-        self.safe_print("[INFO] Applying update...")
+        self.safe_print("[INFO] Applying update (takes 30-90s)...")
         try:
             await self.client.write_gatt_char(BLE_OTA_CONTROL_CHAR_UUID, bytes([BLE_OTA_CMD_END]))
-            return await self.wait_for_ota_status(BLE_OTA_SUCCESS, timeout=30)
+            # The apply blocks the device for 30-90s; a short wait here used to
+            # give up mid-apply and report false failures.
+            return await self.wait_for_ota_status(BLE_OTA_SUCCESS, timeout=480)
         except BleakError:
             return True
 

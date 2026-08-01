@@ -28,6 +28,16 @@ jobs:
         run: |
           pip install platformio
     
+      - name: Seed unique build number
+        run: |
+          # .build_number is gitignored, so CI used to compile every release as
+          # Build #1. Devices flashed with a release then matched the local
+          # firmware_cache/build_001.bin (an unrelated dev build) and BLE delta
+          # updates were generated against the wrong base image. Seed from the
+          # commit count, offset well past any local dev counter, so release
+          # build numbers are unique and can never collide with local caches.
+          echo $((100000 + $(git rev-list --count HEAD))) > .build_number
+
       - name: Build firmware
         run: |
           # Use platformio directly like local development to ensure identical build
