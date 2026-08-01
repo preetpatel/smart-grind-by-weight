@@ -21,6 +21,10 @@
 
 // Core debug logging settings
 #define DEBUG_SERIAL_OUTPUT 1                                             // Enable serial debug output
+#define DEBUG_BOOT_GUARD_DRILL 0                                          // DANGER: build deliberately panics ~5s after boot to exercise the boot-loop
+                                                                          // guard's crash rollback on hardware. Self-disarms after 4 boots (own NVS
+                                                                          // counter "bootguard/drill_boots") so a guard failure still leaves BLE up
+                                                                          // for an OTA rescue. Erase that key before re-running a drill.
 #define DEBUG_GRIND_CONTROLLER 0                                          // Enable detailed grind debugging
 #define DEBUG_LOAD_CELL 0                                                 // Enable detailed load cell debugging  
 #define DEBUG_UI_SYSTEM 0                                                 // Enable detailed UI debugging

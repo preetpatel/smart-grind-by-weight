@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <Preferences.h>
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include "hardware/hardware_manager.h"
@@ -220,6 +221,33 @@ void loop() {
 
     // Clear the boot-loop crash counter once the system has proven stable
     BootGuard::mark_healthy_if_due();
+
+#if DEBUG_BOOT_GUARD_DRILL
+    // Rollback drill: panic ~5s after boot - after the guard has counted
+    // (setup) and before the 30s healthy mark - so three cycles trip the
+    // crash rollback. The independent drill counter is the parachute: if
+    // the guard never fires, boot 5 disarms and the device stays reachable.
+    {
+        static bool drill_fired = false;
+        if (!drill_fired && millis() > 5000) {
+            drill_fired = true;
+            Preferences drill_prefs;
+            if (drill_prefs.begin("bootguard", false)) {
+                uint8_t drill_boots = drill_prefs.getUChar("drill_boots", 0);
+                if (drill_boots < 4) {
+                    drill_prefs.putUChar("drill_boots", drill_boots + 1);
+                    drill_prefs.end();
+                    LOG_BLE("[BOOT_GUARD_DRILL] Drill boot %u - forcing panic\n", drill_boots + 1);
+                    delay(200);
+                    abort();
+                }
+                drill_prefs.end();
+                LOG_BLE("[BOOT_GUARD_DRILL] Disarmed after %u boots - guard never fired, rescue via OTA\n",
+                        drill_boots);
+            }
+        }
+    }
+#endif
 
 #if SYS_ENABLE_REALTIME_HEARTBEAT
     // Calculate Core 1 main loop timing
