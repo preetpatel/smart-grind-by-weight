@@ -262,24 +262,68 @@ function handleStatusUpdate(event) {
 // Wait for specific OTA status
 async function waitForOtaStatus(expectedStatus, timeoutMs = 30000) {
     const startTime = Date.now();
-    
+
     return new Promise((resolve, reject) => {
         const checkStatus = () => {
             if (currentOtaStatus === expectedStatus) {
                 resolve(true);
                 return;
             }
-            
+
             if (Date.now() - startTime > timeoutMs) {
                 reject(new Error(`Timeout waiting for OTA status ${expectedStatus}`));
                 return;
             }
-            
+
             setTimeout(checkStatus, 100);
         };
-        
+
         checkStatus();
     });
+}
+
+// Wait until the device reports a terminal OTA status. Resolves with that
+// status (success or error); rejects only on timeout. The apply phase blocks
+// the device for 30-90s, so the timeout must be generous.
+async function waitForOtaOutcome(timeoutMs = 180000) {
+    const startTime = Date.now();
+
+    return new Promise((resolve, reject) => {
+        const checkStatus = () => {
+            if (currentOtaStatus === BLE_OTA_SUCCESS || currentOtaStatus === BLE_OTA_ERROR) {
+                resolve(currentOtaStatus);
+                return;
+            }
+
+            if (Date.now() - startTime > timeoutMs) {
+                reject(new Error('Timed out waiting for the device to apply the update'));
+                return;
+            }
+
+            setTimeout(checkStatus, 100);
+        };
+
+        checkStatus();
+    });
+}
+
+// After an apply that ended without a definitive status (link dropped during
+// the reboot), poll until the device comes back and compare the running
+// version. Returns true/false, or null if the device never reappeared.
+async function verifyVersionAfterReboot(expectedVersion, timeoutMs = 90000) {
+    if (!expectedVersion) return null;
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 10000));
+        try {
+            const snapshot = await GrinderSession.refreshSnapshot({ interactive: false });
+            const current = snapshot?.system?.version;
+            if (current) return current === expectedVersion;
+        } catch {
+            // Device still rebooting - keep polling
+        }
+    }
+    return null;
 }
 
 // Extract firmware version from firmware URL
@@ -358,28 +402,29 @@ async function flashFirmware() {
         const dataChar = await otaService.getCharacteristic(BLE_OTA_DATA_CHAR_UUID);
         
         // Build start command: [CMD][patch_size:4][is_full_update:1][build_number_length:1][build_number:N][firmware_version_length:1][firmware_version:M]
-        const buildNumberBytes = new TextEncoder().encode("1"); // Web flasher always sends build #1
         const versionBytes = expectedVersion ? new TextEncoder().encode(expectedVersion) : new Uint8Array(0);
-        
-        const startData = new ArrayBuffer(1 + 4 + 1 + 1 + buildNumberBytes.length + 1 + versionBytes.length);
+
+        const startData = new ArrayBuffer(1 + 4 + 1 + 1 + 1 + versionBytes.length);
         const startView = new DataView(startData);
         let offset = 0;
-        
+
         startView.setUint8(offset, BLE_OTA_CMD_START);
         offset += 1;
-        
+
         startView.setUint32(offset, patchData.length, true); // little-endian
         offset += 4;
-        
-        startView.setUint8(offset, 0); // is_full_update = 0 (use delta path with detools patch)
+
+        // web-ota.bin is a detools patch created against an empty file - a
+        // true full update, so the device must not use the running image as
+        // the patch source.
+        startView.setUint8(offset, 1);
         offset += 1;
-        
-        // Always send build number "1" for web flasher
-        startView.setUint8(offset, buildNumberBytes.length);
+
+        // Zero-length build number: the device verifies by firmware version
+        // (below); a made-up build number could only cause false failures.
+        startView.setUint8(offset, 0);
         offset += 1;
-        new Uint8Array(startData, offset).set(buildNumberBytes);
-        offset += buildNumberBytes.length;
-        
+
         // Send firmware version if available
         if (expectedVersion) {
             startView.setUint8(offset, versionBytes.length);
@@ -403,8 +448,20 @@ async function flashFirmware() {
         
         for (let i = 0; i < patchData.length; i += CHUNK_SIZE) {
             const chunk = patchData.slice(i, i + CHUNK_SIZE);
-            await dataChar.writeValue(chunk);
-            
+
+            // Chunk writes can fail transiently mid-transfer; retry before
+            // giving up on the whole upload.
+            for (let attempt = 1; ; attempt++) {
+                try {
+                    await dataChar.writeValue(chunk);
+                    break;
+                } catch (writeError) {
+                    if (attempt >= 3) throw writeError;
+                    console.warn(`Chunk write failed at offset ${i} (attempt ${attempt}/3), retrying`, writeError);
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+
             chunkCount++;
             // Update progress every 10 chunks (much faster UI)
             if (chunkCount % 10 === 0 || i + CHUNK_SIZE >= patchData.length) {
@@ -416,44 +473,48 @@ async function flashFirmware() {
             // No delay - let browser BLE handle flow control naturally
         }
 
-        updateStatus('Upload complete, applying update...', 'info');
-        
-        // Send end command
+        updateStatus('Upload complete, applying update (takes 30-90s)...', 'info');
+
+        // Send end command, then wait for the device's own verdict. The old
+        // behaviour treated timeouts and disconnects as success, which hid
+        // real failures from the user.
+        let outcome = null;
         try {
             const endCommand = new Uint8Array([BLE_OTA_CMD_END]);
             await controlChar.writeValue(endCommand);
-            
-            // Wait for completion or device disconnect (both are success indicators)
-            try {
-                await waitForOtaStatus(BLE_OTA_SUCCESS, 15000);
-                updateStatus('Firmware update completed successfully!', 'success');
-            } catch (statusError) {
-                // Timeout or disconnect during final phase is normal - device is rebooting
-                updateStatus('Firmware update completed - device rebooting', 'success');
-            }
-            
+            outcome = await waitForOtaOutcome(180000);
         } catch (endError) {
-            // If END command fails, device likely already disconnected (success!)
-            if (endError.message.includes('GATT') || endError.message.includes('disconnect')) {
-                updateStatus('Firmware update completed - device rebooting', 'success');
+            // Link dropped or no status in time - resolved by reconnecting below
+            console.warn('No definitive OTA status:', endError);
+        }
+
+        if (outcome === BLE_OTA_ERROR) {
+            throw new Error('The device reported the update failed while applying');
+        }
+
+        updateProgress(100);
+        setTimeout(() => { updateProgress(0); }, 3000);
+
+        if (outcome === BLE_OTA_SUCCESS) {
+            updateStatus('Firmware update completed successfully!', 'success');
+            // Refresh the cached snapshot once the device is back up so the
+            // card and update banner reflect the new version.
+            setTimeout(() => {
+                GrinderSession.refreshSnapshot({ interactive: false }).catch(() => {});
+            }, 25000);
+        } else {
+            // No definitive status - reconnect after the reboot and check the
+            // running version rather than assuming success.
+            updateStatus('Update sent - reconnecting to verify...', 'info');
+            const verified = await verifyVersionAfterReboot(expectedVersion);
+            if (verified === true) {
+                updateStatus(`Update verified - device is running v${expectedVersion}`, 'success');
+            } else if (verified === false) {
+                throw new Error(`Device did not come back on v${expectedVersion} - the update failed`);
             } else {
-                throw endError;
+                updateStatus('Could not confirm the update - reconnect to check the firmware version', 'error');
             }
         }
-        
-        updateProgress(100);
-
-        // Reset progress after delay
-        setTimeout(() => {
-            updateProgress(0);
-        }, 3000);
-
-        // The device reboots into the new firmware; refresh the cached
-        // snapshot once it's back up so the card and update banner reflect
-        // the new version. Silent and best-effort.
-        setTimeout(() => {
-            GrinderSession.refreshSnapshot({ interactive: false }).catch(() => {});
-        }, 25000);
 
     } catch (error) {
         updateStatus(`Flash failed: ${error.message}`, 'error');
