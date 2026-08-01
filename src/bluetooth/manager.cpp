@@ -21,6 +21,29 @@
 #include "../controllers/grind_controller.h"
 #include "../system/time_sync.h"
 #include "../system/wifi_service.h"
+#include "../system/boot_guard.h"
+#include <esp_partition.h>
+#include <esp_ota_ops.h>
+
+// Hex SHA-256 of the running app image, computed once (~200ms for 2.2MB,
+// hardware-accelerated) on first BLE enable and cached for the process
+// lifetime - the running image cannot change without a reboot.
+static const char* running_image_hash_hex() {
+    static char cached[65] = "";
+    if (cached[0] != '\0') {
+        return cached;
+    }
+    uint8_t digest[32];
+    const esp_partition_t* running = esp_ota_get_running_partition();
+    if (running == nullptr || esp_partition_get_sha256(running, digest) != ESP_OK) {
+        strlcpy(cached, "unavailable", sizeof(cached));
+        return cached;
+    }
+    for (int i = 0; i < 32; i++) {
+        snprintf(&cached[i * 2], 3, "%02x", digest[i]);
+    }
+    return cached;
+}
 
 BluetoothManager::BluetoothManager()
     : ble_server(nullptr)
@@ -32,6 +55,7 @@ BluetoothManager::BluetoothManager()
     , ota_control_characteristic(nullptr)
     , ota_status_characteristic(nullptr)
     , build_number_characteristic(nullptr)
+    , image_hash_characteristic(nullptr)
     , data_control_characteristic(nullptr)
     , data_transfer_characteristic(nullptr)
     , data_status_characteristic(nullptr)
@@ -207,6 +231,16 @@ void BluetoothManager::setup_gatt_services() {
     );
     build_number_characteristic->setValue(ota_handler.get_build_number().c_str());
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
+    // SHA-256 of the running app image. Update clients verify their delta
+    // base against this before generating a patch - a delta diffed against
+    // the wrong base is otherwise only caught after the full apply cycle.
+    image_hash_characteristic = ota_service->createCharacteristic(
+        BLE_OTA_IMAGE_HASH_CHAR_UUID,
+        BLECharacteristic::PROPERTY_READ
+    );
+    image_hash_characteristic->setValue(running_image_hash_hex());
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
     
     // Create measurement data service
     data_service = ble_server->createService(BLE_DATA_SERVICE_UUID);
@@ -366,7 +400,7 @@ void BluetoothManager::disable() {
     log("Bluetooth: Disabling BLE and restoring normal power...\n");
 
     if (ota_handler.is_ota_active()) {
-        ota_handler.abort_ota();
+        ota_handler.abort_ota("aborted: bluetooth disabled");
     }
 
     if (data_export_in_progress) {
@@ -992,6 +1026,15 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
             log("Bluetooth OTA: Received END command\n");
             LOG_OTA_DEBUG("BLE_OTA_CMD_END received, checking if OTA active...\n");
             if (ota_handler.is_ota_active()) {
+                // Optional trailing CRC-32 of the whole patch ([CMD][crc32:4]
+                // LE). Verified against the flash-staged patch before the
+                // apply. Older clients send the bare command.
+                if (data.length() >= 5) {
+                    uint32_t patch_crc = *(uint32_t*)(data.c_str() + 1);
+                    ota_handler.set_expected_patch_crc(patch_crc);
+                    log("Bluetooth OTA: Patch checksum received (crc32 0x%08lx)\n",
+                        (unsigned long)patch_crc);
+                }
                 // Deferred to the bluetooth task (same reason as the file
                 // list): the apply blocks for 30-90s, and running it here
                 // would freeze the NimBLE host task - and with it every BLE
@@ -1002,9 +1045,9 @@ void BluetoothManager::handle_ota_control_command(BLECharacteristic* characteris
                 LOG_OTA_DEBUG("OTA is NOT active - ignoring END command\n");
             }
             break;
-            
+
         case BLE_OTA_CMD_ABORT:
-            ota_handler.abort_ota();
+            ota_handler.abort_ota("aborted: client abort command");
             set_ota_status(BLE_OTA_ERROR);
             break;
     }
@@ -1146,9 +1189,9 @@ void BluetoothManager::onDisconnect(BLEServer* server) {
     last_disconnect_time = millis(); // Reset timeout countdown from now
     
     log("BLE: Client disconnected - timeout countdown resumed\n");
-    
+
     if (ota_handler.is_ota_active()) {
-        ota_handler.abort_ota();
+        ota_handler.abort_ota("aborted: client disconnected mid-transfer");
     }
     
     if (data_export_in_progress) {
@@ -1468,6 +1511,34 @@ void BluetoothManager::generate_diagnostic_report() {
         BUILD_TIMESTAMP
     );
     send_chunk(buf);
+
+    // Section 1b: OTA & boot-guard history - failures are otherwise only on
+    // the (inaccessible) serial log, making failed updates undiagnosable.
+    {
+        uint32_t last_ota_ts = 0;
+        String last_ota = ota_handler.get_last_outcome(&last_ota_ts);
+        char when[40] = "clock not synced at the time";
+        if (last_ota_ts > 0) {
+            time_t t = (time_t)last_ota_ts;
+            struct tm tm_info;
+            localtime_r(&t, &tm_info);  // TZ rule applied at boot by TimeSync
+            strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", &tm_info);
+        }
+        const char* rollback = BootGuard::last_rollback_info();
+        snprintf(buf, sizeof(buf),
+            "[OTA / BOOT GUARD]\n"
+            "  Last OTA: %s\n"
+            "  When: %s\n"
+            "  Image SHA-256: %s\n"
+            "  Crash rollback: %s\n"
+            "\n",
+            last_ota.length() ? last_ota.c_str() : "none recorded",
+            last_ota.length() ? when : "-",
+            running_image_hash_hex(),
+            (rollback && rollback[0]) ? rollback : "never"
+        );
+        send_chunk(buf);
+    }
 
     // Section 2: System Runtime
     size_t heap_free = ESP.getFreeHeap();

@@ -349,6 +349,19 @@ function prepareFirmwareData(firmwareData) {
     return firmwareData;
 }
 
+// zlib-compatible CRC-32; sent with the END command so the device can verify
+// the patch as staged in its flash before the 30-90s apply cycle.
+function crc32(data) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < data.length; i++) {
+        crc ^= data[i];
+        for (let bit = 0; bit < 8; bit++) {
+            crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+        }
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
 // Main firmware flash function
 async function flashFirmware() {
     const firmwareSelect = document.getElementById('firmwareSelect');
@@ -480,7 +493,11 @@ async function flashFirmware() {
         // real failures from the user.
         let outcome = null;
         try {
-            const endCommand = new Uint8Array([BLE_OTA_CMD_END]);
+            // END + CRC-32 of the patch; the device verifies its staged copy
+            // before applying (older firmware ignores the extra bytes)
+            const endCommand = new Uint8Array(5);
+            endCommand[0] = BLE_OTA_CMD_END;
+            new DataView(endCommand.buffer).setUint32(1, crc32(patchData), true);
             await controlChar.writeValue(endCommand);
             outcome = await waitForOtaOutcome(180000);
         } catch (endError) {

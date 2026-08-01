@@ -231,6 +231,10 @@ class GrinderTool:
 
                 compile_result = self.run_command([
                     compiler, "-std=c++17", "-Wall", "-I", str(self.project_dir / "src"),
+                    # Host stubs of the ESP-IDF APIs (fake partition, heap
+                    # hooks) so component code like delta.c compiles as-is
+                    "-I", str(test_dir / "support"),
+                    "-I", str(self.project_dir / "components" / "delta" / "include"),
                     "-o", str(binary), str(source)
                 ], capture_output=True)
 

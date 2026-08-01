@@ -62,9 +62,18 @@ private:
     BLEOTAStatus current_status;
     String current_firmware_build_number;
     bool is_full_update;
-    
+
+    // Optional patch CRC-32 sent by the client with the END command;
+    // verified against the flash-staged patch before applying.
+    uint32_t expected_patch_crc;
+    bool patch_crc_present;
+
     // OTA tracking
     Preferences* preferences;
+
+    // Persist a one-line outcome ("apply: patch checksum mismatch", ...) plus
+    // timestamp to NVS so failures are diagnosable over BLE afterwards.
+    void record_outcome(const char* outcome);
     
     // Power management
     BLEPowerState power_state;
@@ -120,9 +129,18 @@ public:
     bool is_applying() const { return apply_in_progress; }
     
     /**
-     * Abort OTA update
+     * Abort OTA update. The reason is persisted for the diagnostics report.
      */
-    void abort_ota();
+    void abort_ota(const char* reason = "aborted");
+
+    /**
+     * Record the patch CRC-32 the client sent with the END command.
+     * Verified against the staged patch before the apply starts.
+     */
+    void set_expected_patch_crc(uint32_t crc) {
+        expected_patch_crc = crc;
+        patch_crc_present = true;
+    }
 
     /**
      * Abort a transfer that has gone quiet while the BLE link is still up.
@@ -167,4 +185,15 @@ public:
      * @return Expected build number if OTA failed, empty string if no failure or no expectation
      */
     String check_ota_failure_after_boot();
+
+    /**
+     * Last recorded OTA outcome ("" if none) and its epoch timestamp
+     * (0 if the clock was unsynced), for the diagnostics report.
+     */
+    String get_last_outcome(uint32_t* epoch_out) const {
+        if (epoch_out) {
+            *epoch_out = preferences ? preferences->getUInt("last_ota_ts", 0) : 0;
+        }
+        return preferences ? preferences->getString("last_ota", "") : String("");
+    }
 };

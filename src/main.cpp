@@ -3,6 +3,7 @@
 #include <esp_system.h>
 #include <esp_heap_caps.h>
 #include "hardware/hardware_manager.h"
+#include "system/boot_guard.h"
 #include "system/state_machine.h"
 #include "system/statistics_manager.h"
 #include "system/time_sync.h"
@@ -57,6 +58,10 @@ void setup() {
         default: break;
     }
     LOG_BLE("[STARTUP] Reset reason: %s (%d)\n", rr_str, rr);
+
+    // Boot-loop guard: after 3 consecutive crash resets, revert to the other
+    // OTA slot. Runs before any subsystem that could be the crash source.
+    BootGuard::check_on_boot();
 
     // Memory census before anything allocates. LVGL, Bluedroid and the widget tree all draw from
     // the internal heap, so if PSRAM is missing here every large buffer falls back to internal
@@ -212,6 +217,9 @@ void loop() {
 
     // Duty-cycled WiFi time sync; gates itself off grind/OTA/export activity
     wifi_service.handle();
+
+    // Clear the boot-loop crash counter once the system has proven stable
+    BootGuard::mark_healthy_if_due();
 
 #if SYS_ENABLE_REALTIME_HEARTBEAT
     // Calculate Core 1 main loop timing

@@ -214,7 +214,7 @@ static int delta_partition_erase(const delta_partition_writer_t *writer)
             chunk = DELTA_ERASE_CHUNK_SIZE;
         }
 
-        if (esp_partition_erase_range(writer->patch, erased, chunk) != ESP_OK) {
+        if (esp_partition_erase_range((const esp_partition_t *)writer->patch, erased, chunk) != ESP_OK) {
             ESP_LOGE(TAG, "Partition Error: Could not erase '%s' region!", writer->name);
             return ESP_FAIL;
         }
@@ -247,7 +247,7 @@ int delta_partition_init(delta_partition_writer_t *writer, const char *partition
 
     /* Preferred: hold the whole patch in PSRAM, defer every flash operation
      * (erase included) until after the BLE transfer completes. */
-    writer->buf = heap_caps_malloc(patch_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    writer->buf = (char *)heap_caps_malloc(patch_size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (writer->buf != NULL) {
         writer->buf_cap = patch_size;
         writer->buf_fill = 0;
@@ -260,7 +260,7 @@ int delta_partition_init(delta_partition_writer_t *writer, const char *partition
     if (delta_partition_erase(writer) != ESP_OK) {
         return ESP_FAIL;
     }
-    writer->buf = heap_caps_malloc(DELTA_WRITE_BUFFER_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    writer->buf = (char *)heap_caps_malloc(DELTA_WRITE_BUFFER_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (writer->buf != NULL) {
         writer->buf_cap = DELTA_WRITE_BUFFER_SIZE;
     } else {
@@ -279,7 +279,7 @@ static int delta_partition_write_batch(delta_partition_writer_t *writer)
     if (writer->buf_fill == 0) {
         return ESP_OK;
     }
-    if (esp_partition_write(writer->patch, writer->offset, writer->buf, writer->buf_fill) != ESP_OK) {
+    if (esp_partition_write((const esp_partition_t *)writer->patch, writer->offset, writer->buf, writer->buf_fill) != ESP_OK) {
         ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", writer->name);
         return ESP_FAIL;
     }
@@ -306,7 +306,7 @@ int delta_partition_write(delta_partition_writer_t *writer, const char *buf, int
 
     if (writer->buf_cap == 0) {
         /* Unbuffered fallback */
-        if (esp_partition_write(writer->patch, writer->offset, buf, size) != ESP_OK) {
+        if (esp_partition_write((const esp_partition_t *)writer->patch, writer->offset, buf, size) != ESP_OK) {
             ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", writer->name);
             return ESP_FAIL;
         }
@@ -351,7 +351,7 @@ int delta_partition_flush(delta_partition_writer_t *writer)
         return ESP_FAIL;
     }
 
-    char *scratch = heap_caps_malloc(DELTA_FLUSH_CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    char *scratch = (char *)heap_caps_malloc(DELTA_FLUSH_CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     if (scratch == NULL) {
         return -DELTA_OUT_OF_MEMORY;
     }
@@ -363,7 +363,7 @@ int delta_partition_flush(delta_partition_writer_t *writer)
             n = DELTA_FLUSH_CHUNK_SIZE;
         }
         memcpy(scratch, writer->buf + written, n);
-        if (esp_partition_write(writer->patch, written, scratch, n) != ESP_OK) {
+        if (esp_partition_write((const esp_partition_t *)writer->patch, written, scratch, n) != ESP_OK) {
             ESP_LOGE(TAG, "Partition Error: Could not write to '%s' region!", writer->name);
             free(scratch);
             return ESP_FAIL;
@@ -391,6 +391,56 @@ void delta_partition_deinit(delta_partition_writer_t *writer)
     writer->deferred = 0;
 }
 
+uint32_t delta_crc32(uint32_t crc, const void *data, unsigned int length)
+{
+    /* Bitwise CRC-32 (reflected, poly 0xEDB88320) - zlib-compatible. ~1 ms
+     * per 100 KB at 240 MHz; table-free so host tests run the same code. */
+    const uint8_t *bytes = (const uint8_t *)data;
+    crc = ~crc;
+    for (unsigned int i = 0; i < length; i++) {
+        crc ^= bytes[i];
+        for (int bit = 0; bit < 8; bit++) {
+            crc = (crc >> 1) ^ (0xEDB88320UL & (uint32_t)(-(int32_t)(crc & 1)));
+        }
+    }
+    return ~crc;
+}
+
+int delta_partition_verify_crc32(const delta_partition_writer_t *writer, int size, uint32_t expected)
+{
+    if (writer == NULL || writer->patch == NULL || size < 0) {
+        return -DELTA_INVALID_ARGUMENT_ERROR;
+    }
+
+    char *scratch = (char *)heap_caps_malloc(DELTA_FLUSH_CHUNK_SIZE, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    if (scratch == NULL) {
+        return -DELTA_OUT_OF_MEMORY;
+    }
+
+    uint32_t crc = 0;
+    int offset = 0;
+    while (offset < size) {
+        int n = size - offset;
+        if (n > DELTA_FLUSH_CHUNK_SIZE) {
+            n = DELTA_FLUSH_CHUNK_SIZE;
+        }
+        if (esp_partition_read((const esp_partition_t *)writer->patch, offset, scratch, n) != ESP_OK) {
+            free(scratch);
+            return -DELTA_READING_PATCH_ERROR;
+        }
+        crc = delta_crc32(crc, scratch, (unsigned int)n);
+        offset += n;
+    }
+    free(scratch);
+
+    if (crc != expected) {
+        ESP_LOGE(TAG, "Patch checksum mismatch: expected 0x%08x, flash has 0x%08x",
+                 (unsigned int)expected, (unsigned int)crc);
+        return -DELTA_PATCH_CHECKSUM_ERROR;
+    }
+    return DELTA_OK;
+}
+
 int delta_check_and_apply(int patch_size, const delta_opts_t *opts)
 {
     static const delta_opts_t DEFAULT_DELTA_OPTS = {
@@ -408,7 +458,7 @@ int delta_check_and_apply(int patch_size, const delta_opts_t *opts)
     if (patch_size < 0) {
         return patch_size;
     } else if (patch_size > 0) {
-        flash = calloc(1, sizeof(flash_mem_t));
+        flash = (flash_mem_t *)calloc(1, sizeof(flash_mem_t));
         if (!flash) {
             return -DELTA_OUT_OF_MEMORY;
         }
@@ -485,6 +535,8 @@ const char *delta_error_as_string(int error)
         return "Flash partition not found.";
     case DELTA_TARGET_IMAGE_ERROR:
         return "Invalid target image to boot from.";
+    case DELTA_PATCH_CHECKSUM_ERROR:
+        return "Patch checksum mismatch.";
     default:
         return "Unknown error.";
     }

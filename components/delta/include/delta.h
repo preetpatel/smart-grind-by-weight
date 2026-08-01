@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include <stdint.h>
+
 /* PARTITION LABELS */
 #define DEFAULT_PARTITION_LABEL_SRC "factory"
 #define DEFAULT_PARTITION_LABEL_DEST "ota_0"
@@ -31,6 +33,7 @@
 #define DELTA_TARGET_IMAGE_ERROR                         37
 #define DELTA_INVALID_ARGUMENT_ERROR                     38
 #define DELTA_OUT_OF_BOUNDS_ERROR                        39
+#define DELTA_PATCH_CHECKSUM_ERROR                       40
 
 typedef struct {
     const char *src;
@@ -72,6 +75,17 @@ int delta_partition_flush(delta_partition_writer_t *writer);
 
 /* Release the staging buffer. Safe to call repeatedly. */
 void delta_partition_deinit(delta_partition_writer_t *writer);
+
+/* Standard CRC-32 (IEEE, zlib-compatible: matches Python's zlib.crc32 and
+ * the usual JS implementations). Pass 0 as the initial crc; chain calls by
+ * passing the previous return value. */
+uint32_t delta_crc32(uint32_t crc, const void *data, unsigned int length);
+
+/* Read `size` bytes back from the patch partition and compare their CRC-32
+ * against `expected`. Called after flush, so it validates both the transfer
+ * and the flash writes. Returns DELTA_OK, -DELTA_PATCH_CHECKSUM_ERROR on
+ * mismatch, or a read/argument error. */
+int delta_partition_verify_crc32(const delta_partition_writer_t *writer, int size, uint32_t expected);
 
 /**
  * Checks if there is patch in the patch partition

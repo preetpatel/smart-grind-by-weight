@@ -1,6 +1,7 @@
 #include "ota_handler.h"
 #include "../config/build_info.h"
 #include "../config/logging.h"
+#include "../system/time_sync.h"
 #include "../hardware/touch_driver.h"
 #include "../hardware/hardware_manager.h"
 #include "../tasks/task_manager.h"
@@ -16,9 +17,20 @@ OTAHandler::OTAHandler()
     , current_status(BLE_OTA_IDLE)
     , current_firmware_build_number("")
     , is_full_update(false)
+    , expected_patch_crc(0)
+    , patch_crc_present(false)
     , power_state(NORMAL_POWER)
     , normal_cpu_freq_mhz(BLE_NORMAL_CPU_FREQ_MHZ)
     , patch_writer{} {
+}
+
+void OTAHandler::record_outcome(const char* outcome) {
+    if (!preferences || !outcome) {
+        return;
+    }
+    preferences->putString("last_ota", outcome);
+    preferences->putUInt("last_ota_ts", TimeSync::now_epoch());
+    LOG_BLE("OTA: Outcome recorded: %s\n", outcome);
 }
 
 OTAHandler::~OTAHandler() {
@@ -113,6 +125,8 @@ bool OTAHandler::start_ota(uint32_t size, const String& expected_build_number, b
     patch_size = size;
     received_size = 0;
     this->is_full_update = is_full_update;
+    expected_patch_crc = 0;
+    patch_crc_present = false;
     
     LOG_BLE("OTA: Starting %s update (%lu KB)\n", is_full_update ? "full" : "delta", (unsigned long)patch_size / 1024);
     LOG_OTA_DEBUG("patch_size=%lu, received_size=%lu, is_full_update=%d\n", 
@@ -152,6 +166,7 @@ bool OTAHandler::start_ota(uint32_t size, const String& expected_build_number, b
     LOG_OTA_DEBUG("Calling start_update()...\n");
     if (!start_update()) {
         current_status = BLE_OTA_ERROR;
+        record_outcome("start: patch partition init failed");
         LOG_OTA_DEBUG("start_update() FAILED\n");
         
         // Resume hardware tasks on failure
@@ -176,6 +191,12 @@ bool OTAHandler::process_data_chunk(const uint8_t* data, size_t size) {
     // Write patch data to patch partition
     if (delta_partition_write(&patch_writer, (const char*)data, size) != ESP_OK) {
         LOG_BLE("OTA: Patch write failed at offset %lu\n", (unsigned long)received_size);
+        if (current_status != BLE_OTA_ERROR) {  // record the first failure only
+            char msg[64];
+            snprintf(msg, sizeof(msg), "receive: staging write failed at %lu",
+                     (unsigned long)received_size);
+            record_outcome(msg);
+        }
         current_status = BLE_OTA_ERROR;
         return false;
     }
@@ -231,6 +252,11 @@ bool OTAHandler::complete_ota() {
         current_status = BLE_OTA_SUCCESS;
         LOG_OTA_DEBUG("finalize_update() SUCCESS\n");
         LOG_BLE("OTA: Update complete (%lu KB) - ready to reboot\n", (unsigned long)received_size / 1024);
+        char msg[64];
+        snprintf(msg, sizeof(msg), "success: %s applied (%lu KB)",
+                 is_full_update ? "full update" : "delta",
+                 (unsigned long)received_size / 1024);
+        record_outcome(msg);
         // The caller notifies the client of success and restarts; hardware
         // tasks stay suspended for the few remaining milliseconds.
     } else {
@@ -249,7 +275,7 @@ bool OTAHandler::complete_ota() {
     return success;
 }
 
-void OTAHandler::abort_ota() {
+void OTAHandler::abort_ota(const char* reason) {
     if (apply_in_progress) {
         // Too late to abort - the target partition is mid-rewrite and the
         // hardware tasks must stay suspended until the apply resolves.
@@ -257,7 +283,10 @@ void OTAHandler::abort_ota() {
         return;
     }
     if (ota_in_progress) {
-        LOG_BLE("OTA: Aborting update\n");
+        LOG_BLE("OTA: Aborting update (%s)\n", reason ? reason : "no reason");
+        if (current_status != BLE_OTA_ERROR) {  // keep the first recorded failure
+            record_outcome(reason);
+        }
         ota_in_progress = false;
         received_size = 0;
         patch_size = 0;
@@ -283,7 +312,7 @@ bool OTAHandler::check_stalled_transfer() {
 
     LOG_BLE("OTA: No data for %lu ms at %.1f%% - aborting stalled transfer\n",
                  (unsigned long)(millis() - last_chunk_time_ms), get_progress());
-    abort_ota();
+    abort_ota("aborted: transfer stalled");
     return true;
 }
 
@@ -304,25 +333,45 @@ bool OTAHandler::start_update() {
 bool OTAHandler::finalize_update() {
     LOG_OTA_DEBUG("finalize_update() called\n");
 
-    // Flush the buffered tail of the patch to flash and release the staging
-    // buffer - the apply phase needs the heap more than we do.
+    // Flush the staged patch to flash and release the staging buffer - the
+    // apply phase needs the heap more than we do.
     int flush_result = delta_partition_flush(&patch_writer);
     delta_partition_deinit(&patch_writer);
     if (flush_result != ESP_OK) {
         LOG_BLE("OTA: Failed to flush patch staging buffer\n");
+        record_outcome("apply: patch flush to flash failed");
         return false;
     }
 
     // Verify received size matches expected
-    LOG_OTA_DEBUG("Verifying received size: expected=%lu, got=%lu\n", 
+    LOG_OTA_DEBUG("Verifying received size: expected=%lu, got=%lu\n",
                   (unsigned long)patch_size, (unsigned long)received_size);
     if (received_size != patch_size) {
-        LOG_BLE("OTA: Size mismatch - expected %lu, got %lu\n", 
+        LOG_BLE("OTA: Size mismatch - expected %lu, got %lu\n",
                      (unsigned long)patch_size, (unsigned long)received_size);
         LOG_OTA_DEBUG("Size verification FAILED\n");
+        char msg[64];
+        snprintf(msg, sizeof(msg), "apply: size mismatch (%lu of %lu)",
+                 (unsigned long)received_size, (unsigned long)patch_size);
+        record_outcome(msg);
         return false;
     }
     LOG_OTA_DEBUG("Size verification SUCCESS\n");
+
+    // Verify the client's CRC-32 against the patch as it landed in flash -
+    // catches both transfer corruption and bad flash writes before the
+    // 30-90s erase+apply cycle starts. Older clients don't send one.
+    if (patch_crc_present) {
+        int crc_result = delta_partition_verify_crc32(&patch_writer, (int)patch_size, expected_patch_crc);
+        if (crc_result != DELTA_OK) {
+            LOG_BLE("OTA: Patch checksum verification failed: %s\n", delta_error_as_string(crc_result));
+            record_outcome("apply: patch checksum mismatch");
+            return false;
+        }
+        LOG_BLE("OTA: Patch checksum verified (crc32 0x%08lx)\n", (unsigned long)expected_patch_crc);
+    } else {
+        LOG_BLE("OTA: No patch checksum provided - skipping verification\n");
+    }
     
     // A/B Partition Update Logic
     LOG_OTA_DEBUG("Getting running partition...\n");
@@ -330,6 +379,7 @@ bool OTAHandler::finalize_update() {
     if (!running_partition) {
         LOG_BLE("❌ Could not get running partition!\n");
         LOG_OTA_DEBUG("esp_ota_get_running_partition() FAILED\n");
+        record_outcome("apply: no running partition");
         return false;
     }
     LOG_OTA_DEBUG("Running partition: %s (addr=0x%lx, size=%lu)\n", 
@@ -341,6 +391,7 @@ bool OTAHandler::finalize_update() {
     if (!update_partition) {
         LOG_BLE("❌ Could not find a valid OTA update partition!\n");
         LOG_OTA_DEBUG("esp_ota_get_next_update_partition() FAILED\n");
+        record_outcome("apply: no update partition");
         return false;
     }
     LOG_OTA_DEBUG("Update partition: %s (addr=0x%lx, size=%lu)\n", 
@@ -368,6 +419,9 @@ bool OTAHandler::finalize_update() {
     if (result < 0) {
         LOG_BLE("Delta patch failed: %s\n", delta_error_as_string(result));
         LOG_OTA_DEBUG("Delta patch FAILED with error: %s\n", delta_error_as_string(result));
+        char msg[96];
+        snprintf(msg, sizeof(msg), "apply: %s (%d)", delta_error_as_string(result), result);
+        record_outcome(msg);
         return false;
     }
     
@@ -395,6 +449,10 @@ String OTAHandler::check_ota_failure_after_boot() {
         if (expected_version != current_version) {
             LOG_BLE("OTA: Version check failed - expected v%s, got v%s\n",
                          expected_version.c_str(), current_version.c_str());
+            char msg[80];
+            snprintf(msg, sizeof(msg), "verify: still on v%s, expected v%s",
+                     current_version.c_str(), expected_version.c_str());
+            record_outcome(msg);
             preferences->remove("new_build_nr");
             preferences->remove("new_fw_ver");
             return expected_version;  // Return expected version for display
@@ -413,6 +471,10 @@ String OTAHandler::check_ota_failure_after_boot() {
         if (current_build != expected_build_num) {
             LOG_BLE("OTA: Build number check failed - expected #%d, got #%d\n",
                          expected_build_num, current_build);
+            char msg[64];
+            snprintf(msg, sizeof(msg), "verify: still on #%d, expected #%d",
+                     current_build, expected_build_num);
+            record_outcome(msg);
             preferences->remove("new_build_nr");
             preferences->remove("new_fw_ver");
             return expected_build;

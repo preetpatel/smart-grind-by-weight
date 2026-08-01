@@ -21,6 +21,7 @@ Usage:
 
 import argparse
 import asyncio
+import hashlib
 import sys
 import os
 import struct
@@ -29,6 +30,7 @@ import subprocess
 import tempfile
 import sqlite3
 import json
+import zlib
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 from pathlib import Path
@@ -86,6 +88,7 @@ BLE_OTA_DATA_CHAR_UUID = "87654321-4321-4321-4321-cba987654321"
 BLE_OTA_CONTROL_CHAR_UUID = "11111111-2222-3333-4444-555555555555"
 BLE_OTA_STATUS_CHAR_UUID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 BLE_OTA_BUILD_NUMBER_CHAR_UUID = "66666666-7777-8888-9999-000000000000"
+BLE_OTA_IMAGE_HASH_CHAR_UUID = "77777777-8888-9999-aaaa-bbbbbbbbbbbb"  # SHA-256 (hex) of running image
 
 BLE_DATA_SERVICE_UUID = "22334455-6677-8899-aabb-ccddeeffffaa"
 BLE_DATA_CONTROL_CHAR_UUID = "33445566-7788-99aa-bbcc-ddeeffaabbcc"
@@ -404,6 +407,30 @@ class GrinderBLETool:
         firmware_file = self.firmware_cache_dir / f"build_{build_int:03d}.bin"
         return firmware_file if firmware_file.exists() else None
 
+    async def get_device_image_hash(self) -> Optional[str]:
+        """SHA-256 (hex) of the running app image, or None on older firmware."""
+        try:
+            hash_data = await self.client.read_gatt_char(BLE_OTA_IMAGE_HASH_CHAR_UUID)
+            digest = hash_data.decode('utf-8').strip().lower()
+            return digest if len(digest) == 64 else None
+        except Exception:
+            return None
+
+    async def verify_delta_base(self, base_path: Path) -> Optional[bool]:
+        """Compare a delta base candidate against the device's running image.
+        True = verified, False = mismatch, None = device can't say (older
+        firmware without the hash characteristic)."""
+        device_hash = await self.get_device_image_hash()
+        if not device_hash:
+            return None
+        data = base_path.read_bytes()
+        if len(data) <= 32:
+            return False
+        # esp_partition_get_sha256 hashes the app image minus its appended
+        # 32-byte SHA-256 digest (verified empirically against the device)
+        local_hash = hashlib.sha256(data[:-32]).hexdigest()
+        return local_hash == device_hash
+
     async def get_device_firmware_version(self) -> Optional[str]:
         try:
             system_data = await self.client.read_gatt_char(BLE_SYSINFO_SYSTEM_CHAR_UUID)
@@ -522,11 +549,21 @@ class GrinderBLETool:
                     if device_version:
                         cached_firmware = self.fetch_release_firmware(device_version)
                 if cached_firmware:
+                    # A delta against the wrong base always fails after the
+                    # full transfer+apply cycle - verify the base against the
+                    # device's running-image hash first when it offers one.
+                    verified = await self.verify_delta_base(cached_firmware)
+                    if verified is False:
+                        self.safe_print(f"[WARNING] {cached_firmware.name} does not match the running image - using full update")
+                        cached_firmware, full_reason = None, "delta base hash mismatch"
+                    elif verified is True:
+                        self.safe_print("[OK] Delta base verified against running image")
+                if cached_firmware:
                     patch_data = self.generate_delta_patch(cached_firmware, firmware_data)
                     if patch_data and len(patch_data) < original_size * 0.8:
                         use_delta = True
                     else: full_reason = "delta not beneficial"
-                else: full_reason = "no cached firmware"
+                elif not full_reason: full_reason = "no cached firmware"
             else: 
                 full_reason = "no device build info"
                 if new_build:
@@ -609,7 +646,16 @@ class GrinderBLETool:
         self.safe_print(f"\n[OK] Upload complete in {time.time() - start_time:.1f}s")
         self.safe_print("[INFO] Applying update (takes 30-90s)...")
         try:
-            await self.client.write_gatt_char(BLE_OTA_CONTROL_CHAR_UUID, bytes([BLE_OTA_CMD_END]))
+            # END carries the patch CRC-32; the device verifies the staged
+            # patch (as written to flash) against it before applying. Older
+            # firmware ignores the extra bytes.
+            patch_crc = zlib.crc32(patch_data) & 0xFFFFFFFF
+            if os.environ.get('GRINDER_OTA_CORRUPT_CRC'):
+                # Test hook: prove the device rejects a bad checksum
+                patch_crc ^= 0xDEADBEEF
+                self.safe_print("[WARNING] TEST MODE: sending corrupted patch checksum")
+            end_payload = bytes([BLE_OTA_CMD_END]) + struct.pack('<I', patch_crc)
+            await self.client.write_gatt_char(BLE_OTA_CONTROL_CHAR_UUID, end_payload)
             # The apply blocks the device for 30-90s; a short wait here used to
             # give up mid-apply and report false failures.
             return await self.wait_for_ota_status(BLE_OTA_SUCCESS, timeout=480)

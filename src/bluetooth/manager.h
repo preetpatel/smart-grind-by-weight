@@ -66,6 +66,7 @@ private:
     BLECharacteristic* ota_control_characteristic;
     BLECharacteristic* ota_status_characteristic;
     BLECharacteristic* build_number_characteristic;
+    BLECharacteristic* image_hash_characteristic;
     
     // Data export characteristics
     BLECharacteristic* data_control_characteristic;
