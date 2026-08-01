@@ -221,7 +221,7 @@ ESP32-S3 GND       →    Pin 4 (Ground)
    - After installation, device is ready for wireless updates
 
 2. **Future Updates (My Grinder → Update, BLE - After Installation)**
-   - Power on the grinder and enable Bluetooth in device settings
+   - Power on the grinder (Bluetooth is on by default and stays on)
    - Select firmware version from the Update dropdown
    - Click "Connect & Flash Firmware"
    - Update happens wirelessly - **no USB cable needed**
@@ -239,7 +239,7 @@ ESP32-S3 GND       →    Pin 4 (Ground)
 # First time (USB) - if web flasher unavailable
 python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 
-# Updates (BLE) - Enable device Bluetooth first  
+# Updates (BLE) - device advertises whenever it is powered on
 python3 tools/grinder.py upload smart-grind-by-weight-vX.X.X.bin
 ```
 
@@ -400,10 +400,9 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |
     +-- Settings
     |   +-- Bluetooth
-    |   |   |-- Bluetooth toggle (30m timer)
-    |   |   |-- Bluetooth startup toggle (configurable auto-enable)
-    |   |   |-- Connection status display
-    |   |   \-- Auto-disable timer display
+    |   |   |-- Bluetooth toggle (stays on until turned off)
+    |   |   |-- Bluetooth startup toggle (auto-enable at boot, default on)
+    |   |   \-- Connection status display
     |   |
     |   +-- Display
     |   |   |-- Normal brightness slider
@@ -469,7 +468,7 @@ Both automation settings rely on the same smoothed weight deltas used for flow d
 
 ## 🔵 Bluetooth Connectivity
 
-Bluetooth can be configured in **Menu → Bluetooth** with optional auto-startup (5-minute timer) or manual control (30-minute timer when manually enabled). The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, grind data export and analytics, and device management. Grind session logging is on by default and can be toggled under **Menu → Logs & Data**; cancelled grinds are never saved, and the oldest sessions are purged automatically when flash space runs low.
+Bluetooth is on by default and stays on — there is no inactivity timer, so a client can connect at any time without a trip to the menu. It can be configured in **Menu → Bluetooth**: the *Enabled* toggle turns the radio off until the next reboot, and the *Startup* toggle (on by default) controls whether it comes back up at boot. Turn both off for a permanently offline grinder. The blue Bluetooth symbol in the top-right corner indicates when active. Bluetooth enables wireless firmware updates via BLE OTA, grind data export and analytics, and device management. Grind session logging is on by default and can be toggled under **Menu → Logs & Data**; cancelled grinds are never saved, and the oldest sessions are purged automatically when flash space runs low.
 
 ---
 

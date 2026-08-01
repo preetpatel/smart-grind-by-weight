@@ -35,12 +35,6 @@ enum BLEOTAStatus {
     BLE_OTA_VALIDATION_ERROR = 0x05
 };
 
-// Power management states
-enum BLEPowerState {
-    NORMAL_POWER = 0,
-    BLE_REDUCED_POWER = 1
-};
-
 /**
  * OTAHandler - Manages over-the-air firmware updates via BLE
  * 
@@ -74,16 +68,10 @@ private:
     // Persist a one-line outcome ("apply: patch checksum mismatch", ...) plus
     // timestamp to NVS so failures are diagnosable over BLE afterwards.
     void record_outcome(const char* outcome);
-    
-    // Power management
-    BLEPowerState power_state;
-    uint32_t normal_cpu_freq_mhz;
-    
+
     // Delta OTA components
     delta_partition_writer_t patch_writer;
-    
-    void reduce_power_for_ble();
-    void restore_normal_power();
+
     bool start_update();
     bool finalize_update();
     
@@ -169,17 +157,7 @@ public:
      * Get current firmware build number
      */
     const String& get_build_number() const { return current_firmware_build_number; }
-    
-    /**
-     * Enable reduced power mode for BLE operations
-     */
-    void enable_ble_power_mode();
-    
-    /**
-     * Restore normal power mode
-     */
-    void restore_normal_power_mode();
-    
+
     /**
      * Check if OTA failed after reboot and return expected build number if so
      * @return Expected build number if OTA failed, empty string if no failure or no expectation

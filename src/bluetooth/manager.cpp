@@ -71,9 +71,6 @@ BluetoothManager::BluetoothManager()
     , sysinfo_wifi_status_characteristic(nullptr)
     , device_connected(false)
     , ble_enabled(false), enable_in_progress(false), debug_stream_active(false)
-    , enable_time(0)
-    , timeout_ms(BLE_AUTO_DISABLE_TIMEOUT_MS)
-    , last_disconnect_time(0)
     , data_export_in_progress(false)
     , data_status(BLE_DATA_IDLE)
     , current_chunk(0)
@@ -102,7 +99,7 @@ BluetoothManager::~BluetoothManager() {
 }
 
 void BluetoothManager::init(Preferences* prefs) {
-    log("Bluetooth: Manager initialized (enable via Developer Mode)\n");
+    log("Bluetooth: Manager initialized\n");
     ota_handler.init(prefs);
     // Create UI status queue to marshal UI updates to UI task
     if (!ui_status_queue) {
@@ -142,7 +139,7 @@ bool BluetoothManager::dequeue_ui_status(char* out, size_t out_len) {
     return false;
 }
 
-void BluetoothManager::enable(unsigned long timeout_ms) {
+void BluetoothManager::enable() {
     // The in-progress flag guards the multi-second first-time setup below:
     // ble_enabled only becomes true at the end, so without it a second caller
     // (e.g. the menu toggle during the bootup enable) would re-run the GATT
@@ -150,18 +147,7 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     if (ble_enabled || enable_in_progress) return;
     enable_in_progress = true;
 
-    // Use default timeout if none specified
-    if (timeout_ms == 0) {
-        timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
-    }
-    this->timeout_ms = timeout_ms;
-    unsigned long timeout_minutes = timeout_ms / 60000;
-    log("Bluetooth: Enabling BLE with reduced power settings (%lum timeout)\n", timeout_minutes);
-
-    // Enable reduced power mode for BLE
-    ota_handler.enable_ble_power_mode();
-    enable_time = millis();
-    last_disconnect_time = enable_time; // Start disconnected timeout from enable time
+    log("Bluetooth: Enabling BLE\n");
 
     // The BLE stack is initialized once and then stays up for the lifetime of
     // the device: Bluedroid rebuilds an empty GATT table on every
@@ -193,7 +179,7 @@ void BluetoothManager::enable(unsigned long timeout_ms) {
     sessions_info_dirty = true;
 
     start_advertising();
-    log("Bluetooth: Ready - device is advertising (%lum timeout)\n", timeout_minutes);
+    log("Bluetooth: Ready - device is advertising\n");
 }
 
 void BluetoothManager::setup_gatt_services() {
@@ -389,7 +375,7 @@ void BluetoothManager::enable_during_bootup() {
     Preferences prefs;
     prefs.begin("bluetooth", true);
     if (prefs.getBool("startup", true)) {
-        enable(BLE_BOOTUP_AUTO_DISABLE_TIMEOUT_MS);
+        enable();
     }
     prefs.end();
 }
@@ -397,7 +383,7 @@ void BluetoothManager::enable_during_bootup() {
 void BluetoothManager::disable() {
     if (!ble_enabled) return;
 
-    log("Bluetooth: Disabling BLE and restoring normal power...\n");
+    log("Bluetooth: Disabling BLE...\n");
 
     if (ota_handler.is_ota_active()) {
         ota_handler.abort_ota("aborted: bluetooth disabled");
@@ -428,28 +414,12 @@ void BluetoothManager::disable() {
     // cycle would expose an empty or duplicated table. Not advertising is
     // what turns Bluetooth "off" externally.
 
-    // Restore normal power settings
-    ota_handler.restore_normal_power_mode();
     log("Bluetooth: Disable complete\n");
 }
 
 void BluetoothManager::handle() {
     if (!ble_enabled) return;
-    
-    // Only check timeout when no client is connected
-    if (!device_connected) {
-        unsigned long disconnected_elapsed = millis() - last_disconnect_time;
-        
-        if (disconnected_elapsed > timeout_ms) {
-            log("Bluetooth: Timeout reached (%lu minutes disconnected), disabling BLE\n", timeout_ms / 60000);
-            disable();
-            return;
-        }
-    } else {
-        // While connected, constantly reset timeout to default for UI display
-        timeout_ms = BLE_AUTO_DISABLE_TIMEOUT_MS;
-    }
-    
+
     // A client can die mid-transfer without dropping the link (failed GATT
     // write, browser tab closed). Only a disconnect aborts the OTA otherwise,
     // so the hardware tasks would stay suspended indefinitely. (Stands down
@@ -615,31 +585,6 @@ void BluetoothManager::stop_advertising() {
     // flag before stopping advertising to keep onDisconnect from restarting it.
     if (ble_server) {
         BLEDevice::stopAdvertising();
-    }
-}
-
-unsigned long BluetoothManager::get_remaining_time_ms() const {
-    if (!ota_handler.is_ota_active()) return 0;
-    
-    unsigned long elapsed = millis() - enable_time;
-    float progress = ota_handler.get_progress();
-    if (progress <= 0) return 0;
-    
-    unsigned long total_estimated = elapsed * 100.0f / progress;
-    return (total_estimated > elapsed) ? (total_estimated - elapsed) : 0;
-}
-
-unsigned long BluetoothManager::get_bluetooth_timeout_remaining_ms() const {
-    if (!ble_enabled) return 0;
-    
-    if (device_connected) {
-        // When connected, use the full timeout from connection time
-        unsigned long elapsed = millis() - enable_time;
-        return (elapsed < timeout_ms) ? (timeout_ms - elapsed) : 0;
-    } else {
-        // When disconnected, use time since last disconnect
-        unsigned long disconnected_elapsed = millis() - last_disconnect_time;
-        return (disconnected_elapsed < timeout_ms) ? (timeout_ms - disconnected_elapsed) : 0;
     }
 }
 
@@ -1178,7 +1123,7 @@ void BluetoothManager::handle_time_sync(BLECharacteristic* characteristic) {
 // BLE Callbacks
 void BluetoothManager::onConnect(BLEServer* server) {
     device_connected = true;
-    log("BLE: Client connected - timeout paused while connected\n");
+    log("BLE: Client connected\n");
     mark_sessions_info_dirty();
 }
 
@@ -1186,9 +1131,8 @@ void BluetoothManager::onDisconnect(BLEServer* server) {
     device_connected = false;
     file_list_pending = false;
     ota_finalize_pending = false; // client gone before the apply started
-    last_disconnect_time = millis(); // Reset timeout countdown from now
-    
-    log("BLE: Client disconnected - timeout countdown resumed\n");
+
+    log("BLE: Client disconnected\n");
 
     if (ota_handler.is_ota_active()) {
         ota_handler.abort_ota("aborted: client disconnected mid-transfer");

@@ -61,9 +61,15 @@
 //------------------------------------------------------------------------------
 // BLE TIMEOUT SETTINGS
 //------------------------------------------------------------------------------
-#define BLE_AUTO_DISABLE_TIMEOUT_MS (30 * 60 * 1000)                          // Auto-disable BLE after inactivity
-#define BLE_BOOTUP_AUTO_DISABLE_TIMEOUT_MS (15 * 60 * 1000)                   // Auto-disable BLE after bootup period (long enough to run updates/diagnostics without re-enabling)
 #define BLE_OTA_STALL_TIMEOUT_MS (30 * 1000)                                   // Abort an OTA whose client stopped sending chunks (link still up)
+
+// NOTE: the advertising interval is deliberately left at the wrapper default
+// (~20-40ms). Slowing it to 500ms-1s was tried to cut radio duty next to the
+// HX711 now that advertising runs for the life of the device, and it made the
+// grinder unreliable to discover and connect to: at a realistic -75dBm the
+// fast rate's repetition is what carries discovery and the CONNECT_IND
+// exchange through packet loss. Load-cell noise measured identical with the
+// radio advertising at the default rate, so there was nothing to buy anyway.
 
 
 //------------------------------------------------------------------------------
@@ -82,9 +88,3 @@
 //------------------------------------------------------------------------------
 #define BLE_SHUTDOWN_ADVERTISING_DELAY_MS 50                                   // Delay to allow advertising to stop cleanly
 #define BLE_SHUTDOWN_DEINIT_DELAY_MS 100                                       // Delay to allow BLE stack to deinitialize
-
-//------------------------------------------------------------------------------
-// BLE POWER MANAGEMENT
-//------------------------------------------------------------------------------
-#define BLE_NORMAL_CPU_FREQ_MHZ 240                                            // Normal CPU frequency during BLE operations
-#define BLE_REDUCED_CPU_FREQ_MHZ 240                                           // Reduced CPU frequency for BLE mode

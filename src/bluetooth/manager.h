@@ -92,10 +92,7 @@ private:
     bool ble_enabled;
     bool enable_in_progress;
     bool debug_stream_active;
-    unsigned long enable_time;
-    unsigned long timeout_ms;
-    unsigned long last_disconnect_time;
-    
+
     // Component handlers
     OTAHandler ota_handler;
     DataStreamManager data_stream;
@@ -182,13 +179,13 @@ public:
     void init(Preferences* prefs);
     
     /**
-     * Enable BLE and start advertising
-     * @param timeout_ms Optional timeout in milliseconds (defaults to BLE_AUTO_DISABLE_TIMEOUT_MS)
+     * Enable BLE and start advertising. Stays up until disable() is called -
+     * there is no inactivity timeout.
      */
-    void enable(unsigned long timeout_ms = 0);
-    
+    void enable();
+
     /**
-     * Enable BLE during bootup with shorter timeout
+     * Enable BLE at boot, unless the user turned the startup preference off
      */
     void enable_during_bootup();
     
@@ -221,13 +218,7 @@ public:
      */
     float get_ota_progress() const { return ota_handler.get_progress(); }
     BLEOTAStatus get_ota_status() const { return ota_handler.get_status(); }
-    unsigned long get_remaining_time_ms() const;
-    
-    /**
-     * General Bluetooth timeout information
-     */
-    unsigned long get_bluetooth_timeout_remaining_ms() const;
-    
+
     /**
      * Data export methods
      */

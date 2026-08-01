@@ -359,7 +359,7 @@ void MenuUIController::handle_ble_toggle() {
 
     auto operation = [ble]() {
         ble->enable();
-        LOG_DEBUG_PRINTLN("Bluetooth enabled by user (30 minute timeout)");
+        LOG_DEBUG_PRINTLN("Bluetooth enabled by user");
     };
 
     auto& overlay = BlockingOperationOverlay::getInstance();

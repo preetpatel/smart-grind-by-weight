@@ -308,13 +308,6 @@ void MenuScreen::create_bluetooth_page(lv_obj_t* parent) {
     lv_obj_set_style_text_color(ble_status_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
     lv_obj_clear_flag(ble_status_label, LV_OBJ_FLAG_SCROLLABLE);
 
-    // BLE Timer label
-    ble_timer_label = lv_label_create(parent);
-    lv_label_set_text(ble_timer_label, "");
-    lv_obj_set_style_text_font(ble_timer_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(ble_timer_label, lv_color_hex(THEME_COLOR_WARNING), 0);
-    lv_obj_clear_flag(ble_timer_label, LV_OBJ_FLAG_SCROLLABLE);
-
     // Register events for the toggles (done here because widgets are created lazily)
     using ET = EventBridgeLVGL::EventType;
     if (ble_toggle) {
@@ -968,18 +961,9 @@ void MenuScreen::update_ble_status() {
         set_label_text_if_changed(ble_status_label,
                                   bluetooth_manager->is_connected() ? "Connected" : "Advertising");
         lv_obj_clear_flag(ble_status_label, LV_OBJ_FLAG_HIDDEN);
-
-        // Show remaining time
-        unsigned long remaining_ms = bluetooth_manager->get_bluetooth_timeout_remaining_ms();
-        unsigned long remaining_min = remaining_ms / (60 * 1000);
-        char timer_text[64];
-        snprintf(timer_text, sizeof(timer_text), "Auto-disable in: %lu min", remaining_min);
-        set_label_text_if_changed(ble_timer_label, timer_text);
-        lv_obj_clear_flag(ble_timer_label, LV_OBJ_FLAG_HIDDEN);
     } else {
-        // When nothing to display hide the status labels
+        // When nothing to display hide the status label
         lv_obj_add_flag(ble_status_label, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(ble_timer_label, LV_OBJ_FLAG_HIDDEN);
     }
 }
 

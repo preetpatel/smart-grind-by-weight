@@ -65,7 +65,6 @@ private:
     lv_obj_t* ble_toggle;
     lv_obj_t* ble_startup_toggle;
     lv_obj_t* ble_status_label;
-    lv_obj_t* ble_timer_label;
     lv_obj_t* wifi_toggle;
     lv_obj_t* wifi_network_label;
     lv_obj_t* wifi_status_label;
