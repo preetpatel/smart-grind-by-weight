@@ -43,6 +43,13 @@ namespace TimeSync {
     void set_use_24h(bool use_24h);
     bool use_24h();
 
+    // Whether the idle screen may become a clock face once the grinder has been
+    // left alone. Persisted alongside the clock style and cached in RAM, because
+    // the screen timeout controller consults it every UI frame. Defaults to on;
+    // the toggle sits next to the 12/24-hour one.
+    void set_idle_clock_enabled(bool enabled);
+    bool idle_clock_enabled();
+
     // Formats the current local time with strftime. Writes an empty string
     // when the clock has never been synced.
     void format_local_time(char* out, size_t len, const char* fmt);

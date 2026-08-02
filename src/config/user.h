@@ -46,10 +46,22 @@
 //------------------------------------------------------------------------------
 // SCREEN AUTO-DIMMING
 //------------------------------------------------------------------------------
-#define USER_SCREEN_AUTO_DIM_TIMEOUT_MS 300000                                 // Time before screen dims due to inactivity
+#define USER_SCREEN_AUTO_DIM_TIMEOUT_MS 300000                                 // Idle time before the screensaver starts (clock face, or dimming when the face is off)
 #define USER_SCREEN_BRIGHTNESS_NORMAL 1.0f                                     // Normal screen brightness
 #define USER_SCREEN_BRIGHTNESS_DIMMED 0.35f                                    // Dimmed screen brightness
-#define USER_WEIGHT_ACTIVITY_THRESHOLD_G 1.0f                                  // Weight change threshold for screen timeout reset (grams)
+
+//------------------------------------------------------------------------------
+// IDLE CLOCK FACE
+//------------------------------------------------------------------------------
+// After USER_SCREEN_AUTO_DIM_TIMEOUT_MS the screen becomes a clock so the grinder
+// is glanceable from across the kitchen; the backlight drops one stage later. A
+// near-black face at full brightness lights far fewer AMOLED pixels than the
+// normal UI dimmed, so arriving bright costs nothing.
+#define USER_IDLE_CLOCK_DIM_DELAY_MS 300000                                    // Extra idle time after the clock appears before the backlight dims
+#define USER_IDLE_WAKE_WEIGHT_THRESHOLD_G 0.5f                                 // Weight movement that counts as someone being there (grams)
+#define USER_IDLE_WAKE_WEIGHT_WINDOW_MS 1500                                   // Window that movement is measured over - short enough that thermal drift cannot trip it
+#define USER_IDLE_CLOCK_SHIFT_PX 8                                             // Pixel-shift radius applied to the face (AMOLED burn-in mitigation)
+#define USER_IDLE_CLOCK_SHIFT_INTERVAL_MS 60000                                // How often the face moves to its next position
 
 //------------------------------------------------------------------------------
 // AUTO ACTIONS

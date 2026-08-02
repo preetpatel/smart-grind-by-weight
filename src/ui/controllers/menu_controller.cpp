@@ -68,6 +68,7 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER, [this](lv_event_t*) { handle_brightness_screensaver_slider(); });
     EventBridgeLVGL::register_handler(ET::BRIGHTNESS_SCREENSAVER_SLIDER_RELEASED, [this](lv_event_t*) { handle_brightness_screensaver_slider_released(); });
     EventBridgeLVGL::register_handler(ET::CLOCK_24H_TOGGLE, [this](lv_event_t*) { handle_clock_24h_toggle(); });
+    EventBridgeLVGL::register_handler(ET::IDLE_CLOCK_TOGGLE, [this](lv_event_t*) { handle_idle_clock_toggle(); });
 
     // Note: Event registration for menu widgets is done in the page creation functions
     // (menu_screen.cpp) because those widgets do not exist yet when this runs. The menu is
@@ -736,6 +737,18 @@ void MenuUIController::handle_clock_24h_toggle() {
     }
 
     LOG_DEBUG_PRINTLN(use_24h ? "Clock set to 24-hour" : "Clock set to AM/PM");
+}
+
+void MenuUIController::handle_idle_clock_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_idle_clock_toggle();
+    if (!toggle) return;
+
+    bool enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+    TimeSync::set_idle_clock_enabled(enabled);
+
+    LOG_DEBUG_PRINTLN(enabled ? "Idle clock face enabled" : "Idle clock face disabled");
 }
 
 void MenuUIController::perform_factory_reset() {

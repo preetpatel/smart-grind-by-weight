@@ -46,6 +46,7 @@ public:
     void handle_brightness_screensaver_slider();
     void handle_brightness_screensaver_slider_released();
     void handle_clock_24h_toggle();
+    void handle_idle_clock_toggle();
 
     float get_normal_brightness() const;
     float get_screensaver_brightness() const;

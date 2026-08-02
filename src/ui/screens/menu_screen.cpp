@@ -416,6 +416,9 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
     create_description_label(parent, "Show the time as 24-hour instead of AM/PM.");
     create_toggle_row(parent, "24-Hour", &clock_24h_toggle);
 
+    create_description_label(parent, "Fill the screen with the time once the grinder has been left alone. A touch, or the slightest load on the scale, brings it back.");
+    create_toggle_row(parent, "Clock Face", &idle_clock_toggle);
+
     // Register events for the sliders (done here because widgets are created lazily)
     using ET = EventBridgeLVGL::EventType;
     if (brightness_normal_slider) {
@@ -433,6 +436,10 @@ void MenuScreen::create_display_page(lv_obj_t* parent) {
     if (clock_24h_toggle) {
         lv_obj_add_event_cb(clock_24h_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::CLOCK_24H_TOGGLE)));
+    }
+    if (idle_clock_toggle) {
+        lv_obj_add_event_cb(idle_clock_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::IDLE_CLOCK_TOGGLE)));
     }
 }
 
@@ -757,7 +764,7 @@ void MenuScreen::show() {
     update_brightness_sliders();
     update_bluetooth_startup_toggle();
     update_logging_toggle();
-    update_clock_format_toggle();
+    update_clock_toggles();
     update_grind_mode_toggles();
 
     LOG_BLE("[%lums MENU] Menu screen shown successfully\n", millis());
@@ -1433,13 +1440,21 @@ void MenuScreen::update_logging_toggle() {
     }
 }
 
-void MenuScreen::update_clock_format_toggle() {
-    if (!clock_24h_toggle) return;
+void MenuScreen::update_clock_toggles() {
+    if (clock_24h_toggle) {
+        if (TimeSync::use_24h()) {
+            lv_obj_add_state(clock_24h_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(clock_24h_toggle, LV_STATE_CHECKED);
+        }
+    }
 
-    if (TimeSync::use_24h()) {
-        lv_obj_add_state(clock_24h_toggle, LV_STATE_CHECKED);
-    } else {
-        lv_obj_clear_state(clock_24h_toggle, LV_STATE_CHECKED);
+    if (idle_clock_toggle) {
+        if (TimeSync::idle_clock_enabled()) {
+            lv_obj_add_state(idle_clock_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(idle_clock_toggle, LV_STATE_CHECKED);
+        }
     }
 }
 

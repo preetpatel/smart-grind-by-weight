@@ -1760,7 +1760,9 @@ void BluetoothManager::generate_diagnostic_report() {
         "  USER_SCREEN_AUTO_DIM_TIMEOUT_MS: %lu\n"
         "  USER_SCREEN_BRIGHTNESS_NORMAL: %.2f\n"
         "  USER_SCREEN_BRIGHTNESS_DIMMED: %.2f\n"
-        "  USER_WEIGHT_ACTIVITY_THRESHOLD_G: %.1f\n"
+        "  USER_IDLE_CLOCK_DIM_DELAY_MS: %lu\n"
+        "  USER_IDLE_WAKE_WEIGHT_THRESHOLD_G: %.2f\n"
+        "  USER_IDLE_WAKE_WEIGHT_WINDOW_MS: %lu\n"
         "  USER_AUTO_GRIND_TRIGGER_DELTA_G: %.1f\n"
         "  USER_AUTO_GRIND_TRIGGER_WINDOW_MS: %lu\n"
         "  USER_AUTO_GRIND_TRIGGER_SETTLING_MS: %lu\n"
@@ -1769,7 +1771,9 @@ void BluetoothManager::generate_diagnostic_report() {
         (unsigned long)USER_SCREEN_AUTO_DIM_TIMEOUT_MS,
         USER_SCREEN_BRIGHTNESS_NORMAL,
         USER_SCREEN_BRIGHTNESS_DIMMED,
-        USER_WEIGHT_ACTIVITY_THRESHOLD_G,
+        (unsigned long)USER_IDLE_CLOCK_DIM_DELAY_MS,
+        USER_IDLE_WAKE_WEIGHT_THRESHOLD_G,
+        (unsigned long)USER_IDLE_WAKE_WEIGHT_WINDOW_MS,
         USER_AUTO_GRIND_TRIGGER_DELTA_G,
         (unsigned long)USER_AUTO_GRIND_TRIGGER_WINDOW_MS,
         (unsigned long)USER_AUTO_GRIND_TRIGGER_SETTLING_MS,

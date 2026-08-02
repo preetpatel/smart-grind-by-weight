@@ -29,6 +29,7 @@ Complete build instructions, parts list, and usage guide for the Smart Grind-by-
     - [Basic Operation](#basic-operation)
     - [Quick Scale View](#quick-scale-view)
     - [Display Modes](#display-modes)
+    - [Idle Clock Face](#idle-clock-face)
   - [🗺️ User Interface Navigation](#️-user-interface-navigation)
   - [⚡ Automated Grind Flow](#-automated-grind-flow)
   - [🔵 Bluetooth Connectivity](#-bluetooth-connectivity)
@@ -370,6 +371,13 @@ Need a simple live readout? Open **Menu → Scale** to jump into a full-screen w
 - **Nerdy Layout**: Detailed charts showing flow rates and real-time grinding analytics
 - **Switching**: Tap anywhere on grind screen to switch between layouts during grinding
 
+### Idle Clock Face
+Left alone for five minutes, the grinder turns into a clock: the screen fills with the current time so it is readable from across the kitchen. Five minutes after that the backlight drops to the screensaver level and the clock stays put.
+
+Touching the screen brings the normal UI straight back, and so does the slightest load on the scale — setting a cup down wakes it before you have finished putting it down, and **Start on Cup** still fires on that same placement if you have it enabled. The waking tap is swallowed by the clock face, so it can never trigger the button underneath it.
+
+The face only appears once the clock has actually been set (by a Bluetooth client connecting, or over WiFi via SNTP) — an unsynced grinder just dims at five minutes as it always did. Turn it off entirely with **Menu → Display → Clock Face**.
+
 ---
 
 ## 🗺️ User Interface Navigation
@@ -407,7 +415,8 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
     |   +-- Display
     |   |   |-- Normal brightness slider
     |   |   |-- Screensaver brightness slider
-    |   |   \-- 24-Hour clock toggle (off = AM/PM, the default)
+    |   |   |-- 24-Hour clock toggle (off = AM/PM, the default)
+    |   |   \-- Clock Face toggle (idle screen becomes a clock, default on)
     |   |
     |   \-- Grind Settings
     |       |-- Swipe Gestures toggle (enable/disable vertical swipes)

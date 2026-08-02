@@ -86,6 +86,7 @@ private:
     lv_obj_t* brightness_normal_label;
     lv_obj_t* brightness_screensaver_label;
     lv_obj_t* clock_24h_toggle;
+    lv_obj_t* idle_clock_toggle;
     lv_obj_t* purge_button;
     lv_obj_t* reset_button;
     
@@ -154,7 +155,7 @@ public:
     void update_brightness_sliders();
     void update_bluetooth_startup_toggle();
     void update_logging_toggle();
-    void update_clock_format_toggle();
+    void update_clock_toggles();
     void update_grind_mode_toggles();
     void update_grinder_purge_amount_label(float amount_g);
     void update_grind_freshness_hours_label(float hours);
@@ -184,6 +185,7 @@ public:
     lv_obj_t* get_ble_startup_toggle() const { return ble_startup_toggle; }
     lv_obj_t* get_logging_toggle() const { return logging_toggle; }
     lv_obj_t* get_clock_24h_toggle() const { return clock_24h_toggle; }
+    lv_obj_t* get_idle_clock_toggle() const { return idle_clock_toggle; }
     lv_obj_t* get_refresh_stats_button() const { return refresh_stats_button; }
     lv_obj_t* get_diag_reset_button() const { return diag_reset_button; }
     lv_obj_t* get_diag_noise_test_button() const { return diag_noise_test_button; }

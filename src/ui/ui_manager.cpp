@@ -98,7 +98,11 @@ void UIManager::create_ui() {
     if (status_indicator_controller_) {
         status_indicator_controller_->build();
     }
-    
+
+    // Created last so it is the topmost child of the active screen: the clock face
+    // has to cover the status icon row as well as the screens.
+    idle_screen.create();
+
     // Set up initial state
     ready_screen.hide();
     edit_screen.hide();
@@ -181,6 +185,12 @@ void UIManager::update() {
 }
 
 void UIManager::switch_to_state(UIState new_state) {
+    // Whatever is being switched to deserves to be seen, and the switch may have
+    // come from BLE rather than from a touch.
+    if (screen_timeout_controller_) {
+        screen_timeout_controller_->wake();
+    }
+
     state_machine->transition_to(new_state);
 
     // Hide all screens before showing the requested one

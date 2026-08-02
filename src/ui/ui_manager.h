@@ -6,6 +6,7 @@
 #include "components/blocking_overlay.h"
 #include "components/ui_operations.h"
 #include "screens/ready_screen.h"
+#include "screens/idle_screen.h"
 #include "screens/edit_screen.h"
 #include "screens/grinding_screen.h"
 #include "screens/menu_screen.h"
@@ -100,6 +101,9 @@ private:
 
 public:
     ReadyScreen ready_screen;
+    // Sits above every other screen and is driven only by ScreenTimeoutController -
+    // it covers the UI rather than replacing it, so no state transition is involved.
+    IdleScreen idle_screen;
     EditScreen edit_screen;
     GrindingScreen grinding_screen;
     MenuScreen menu_screen;

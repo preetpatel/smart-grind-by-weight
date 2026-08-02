@@ -11,9 +11,11 @@ namespace {
     int16_t ble_tz_offset_min = 0;
     bool tz_rule_active = false;
     bool clock_24h = false;
+    bool idle_clock = true;
 
     constexpr const char* kPrefsNamespace = "clock";
     constexpr const char* kPrefsKey24h = "use_24h";
+    constexpr const char* kPrefsKeyIdleFace = "idle_face";
 
     // Breaks the current instant down into local wall-clock fields, honouring
     // whichever offset source is active. False when the clock has never synced.
@@ -36,6 +38,7 @@ void init() {
     Preferences prefs;
     prefs.begin(kPrefsNamespace, true);
     clock_24h = prefs.getBool(kPrefsKey24h, false);
+    idle_clock = prefs.getBool(kPrefsKeyIdleFace, true);
     prefs.end();
 }
 
@@ -113,6 +116,19 @@ void set_use_24h(bool use_24h) {
 
 bool use_24h() {
     return clock_24h;
+}
+
+void set_idle_clock_enabled(bool enabled) {
+    idle_clock = enabled;
+
+    Preferences prefs;
+    prefs.begin(kPrefsNamespace, false);
+    prefs.putBool(kPrefsKeyIdleFace, enabled);
+    prefs.end();
+}
+
+bool idle_clock_enabled() {
+    return idle_clock;
 }
 
 void format_local_time(char* out, size_t len, const char* fmt) {
