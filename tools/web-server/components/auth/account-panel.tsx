@@ -14,7 +14,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/client/auth';
-import { deleteStore, listMyStores, type OwnedStore, renameStore } from '@/lib/client/cloud';
+import {
+    deleteStore,
+    listMyStores,
+    type OwnedStore,
+    releaseStore,
+    renameStore,
+} from '@/lib/client/cloud';
 
 interface LinkedAccount {
     providerId: string;
@@ -44,6 +50,7 @@ export function AccountPanel({ github }: { github: boolean }) {
     const [deleteConfirm, setDeleteConfirm] = useState('');
     const [passkeyToRemove, setPasskeyToRemove] = useState<PasskeyEntry | null>(null);
     const [storeToRename, setStoreToRename] = useState<OwnedStore | null>(null);
+    const [storeToRelease, setStoreToRelease] = useState<OwnedStore | null>(null);
     const [storeToDelete, setStoreToDelete] = useState<OwnedStore | null>(null);
     const [deletePassword, setDeletePassword] = useState('');
 
@@ -153,6 +160,16 @@ export function AccountPanel({ github }: { github: boolean }) {
             reload();
         } catch (error) {
             showError(error, 'Rename failed');
+        }
+    };
+
+    const release = async (store: OwnedStore) => {
+        try {
+            await releaseStore(store.store_id);
+            setStatus({ text: 'Grinder released. This store is now an archive.', kind: 'info' });
+            reload();
+        } catch (error) {
+            showError(error, 'Release failed');
         }
     };
 
@@ -330,14 +347,37 @@ export function AccountPanel({ github }: { github: boolean }) {
                                 className="group flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b py-3"
                             >
                                 <span className="min-w-0">
-                                    <span className="block font-medium text-sm">
-                                        {store.name ?? store.store_id}
+                                    <span className="flex items-center gap-2">
+                                        <span className="font-medium text-sm">
+                                            {store.name ?? store.store_id}
+                                        </span>
+                                        {!store.device_id && (
+                                            <Badge variant="outline">Archive</Badge>
+                                        )}
                                     </span>
-                                    <span className="block font-mono text-muted-foreground text-xs">
-                                        {store.store_id} · {store.session_count} sessions
-                                        {store.last_received_at
-                                            ? ` · last upload ${new Date(store.last_received_at).toLocaleDateString()}`
-                                            : ''}
+                                    <span className="block text-muted-foreground text-xs">
+                                        <span className="font-mono tabular-nums">
+                                            {store.session_count}
+                                        </span>{' '}
+                                        grinds ·{' '}
+                                        {store.device_id ? (
+                                            <>
+                                                grinder{' '}
+                                                <span className="font-mono">{store.device_id}</span>
+                                            </>
+                                        ) : (
+                                            'no grinder'
+                                        )}
+                                        {store.last_received_at && (
+                                            <>
+                                                {' · last upload '}
+                                                <span className="font-mono tabular-nums">
+                                                    {new Date(
+                                                        store.last_received_at,
+                                                    ).toLocaleDateString()}
+                                                </span>
+                                            </>
+                                        )}
                                     </span>
                                 </span>
                                 <span className="flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100">
@@ -355,6 +395,15 @@ export function AccountPanel({ github }: { github: boolean }) {
                                     >
                                         Rename
                                     </Button>
+                                    {store.device_id && (
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => setStoreToRelease(store)}
+                                        >
+                                            Release
+                                        </Button>
+                                    )}
                                     <Button
                                         variant="ghost"
                                         size="sm"
@@ -447,10 +496,22 @@ export function AccountPanel({ github }: { github: boolean }) {
             />
 
             <ConfirmDialog
+                open={storeToRelease !== null}
+                onOpenChange={(open) => !open && setStoreToRelease(null)}
+                title="Release this grinder?"
+                description="Its grinds stay here as an archive. The grinder stops uploading, and whoever sets it up next starts a fresh history — how you hand one on."
+                confirmLabel="Release grinder"
+                onConfirm={() => {
+                    if (storeToRelease) release(storeToRelease);
+                    setStoreToRelease(null);
+                }}
+            />
+
+            <ConfirmDialog
                 open={storeToDelete !== null}
                 onOpenChange={(open) => !open && setStoreToDelete(null)}
                 title="Delete this store?"
-                description={`Permanently removes ${storeToDelete?.session_count ?? 0} sessions and breaks every share link to it. Any grinder uploading here will start failing until re-provisioned. This cannot be undone.`}
+                description={`Permanently removes ${storeToDelete?.session_count ?? 0} grinds and breaks every share link to it. This cannot be undone.`}
                 confirmLabel="Delete store"
                 destructive
                 onConfirm={() => {

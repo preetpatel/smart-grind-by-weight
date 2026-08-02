@@ -20,11 +20,11 @@ import { authClient } from '@/lib/client/auth';
 import type { CloudStatusJson, WifiStatusJson } from '@/lib/client/ble';
 import * as ble from '@/lib/client/ble';
 import {
-    createCloudStore,
+    CloudApiError,
+    claimStoreForDevice,
     deleteStore,
     getViewerSource,
     listMyStores,
-    provisionStore,
     saveViewerSource,
 } from '@/lib/client/cloud';
 import { detectPosixTz, type PosixTz } from '@/lib/client/tz-posix';
@@ -329,31 +329,48 @@ export function WifiSyncPanel() {
     };
 
     const setUpCloudBackup = async () => {
+        if (!session?.user) {
+            setCloudStatus({
+                text: 'Sign in first — backups belong to your account.',
+                kind: 'error',
+            });
+            return;
+        }
         setCloudBusy(true);
+        // The server round trip sits between two BLE operations; hold the link
+        // so the idle timer can't drop it mid-flow.
+        ble.hold();
         try {
-            if (!session?.user) {
+            const serverUrl = apiBaseForDevice();
+
+            setCloudStatus({ text: 'Connecting to grinder…', kind: 'info' });
+            // Read the grinder rather than the cached snapshot: this browser
+            // may never have seen it, and trusting the cache is exactly how a
+            // second store used to appear for a grinder that already had one.
+            const snapshot = await ble.refreshSnapshot({ interactive: true });
+            const deviceId = snapshot.system?.device_id;
+            if (typeof deviceId !== 'string' || !deviceId) {
                 setCloudStatus({
-                    text: 'Sign in first (top right) — cloud backups belong to your account, so your dashboards follow you to any browser.',
+                    text: 'Could not read this grinder’s id — update its firmware and try again.',
                     kind: 'error',
                 });
                 return;
             }
-            const serverUrl = apiBaseForDevice();
 
-            // If the grinder already carries one of this account's stores,
-            // re-provision it (rotate-on-provision mints a fresh upload key);
-            // otherwise create a new store named after the grinder.
+            // The store is chosen by grinder, not by browser: same device,
+            // same store, however many times this runs. Its own keys are the
+            // proof of possession that allows taking over a second-hand one.
             setCloudStatus({ text: 'Preparing your cloud store…', kind: 'info' });
-            const mine = await listMyStores();
-            const deviceCloud = active?.snapshot?.cloud;
-            const existing = deviceCloud?.configured
-                ? mine.find((store) => store.store_id === deviceCloud.store_id)
-                : undefined;
-            const credentials = existing
-                ? await provisionStore(existing.store_id)
-                : await createCloudStore(active?.label ?? null);
+            const onDevice = snapshot.cloud;
+            const credentials = await claimStoreForDevice({
+                deviceId,
+                name: active?.label ?? null,
+                proof:
+                    onDevice?.configured && onDevice.view_key
+                        ? { store_id: onDevice.store_id, view_key: onDevice.view_key }
+                        : undefined,
+            });
 
-            setCloudStatus({ text: 'Connecting to grinder…', kind: 'info' });
             const { configChar, statusChar } = await cloudChars();
             await configChar.writeValue(
                 nulJoinedPayload(0x01, [
@@ -371,7 +388,7 @@ export function WifiSyncPanel() {
             ble.applyPatch({ cloud: status });
             if (status.configured) {
                 setCloudStatus({
-                    text: `✓ Cloud backup is on. Sessions upload after every grind over WiFi — ${describeCloudStatus(status)}`,
+                    text: `Backing up. ${describeCloudStatus(status)}`,
                     kind: 'success',
                 });
             } else {
@@ -383,11 +400,14 @@ export function WifiSyncPanel() {
         } catch (error) {
             console.error('Cloud setup error:', error);
             setCloudStatus({
-                text: `Cloud setup failed: ${error instanceof Error ? error.message : error}`,
+                text:
+                    error instanceof CloudApiError && error.code === 'device_bound_elsewhere'
+                        ? 'This grinder is registered to another account. Its owner can release it from their account page.'
+                        : `Cloud setup failed: ${error instanceof Error ? error.message : error}`,
                 kind: 'error',
             });
         } finally {
-            ble.release();
+            ble.releaseHold();
             setCloudBusy(false);
         }
     };
@@ -410,7 +430,7 @@ export function WifiSyncPanel() {
                     linkedAt: Date.now(),
                 });
                 setCloudStatus({
-                    text: `${describeCloudStatus(status)} · This browser is now linked (view-only) — open Analytics to see the dashboard.`,
+                    text: `${describeCloudStatus(status)} · This browser is linked, read-only.`,
                     kind: 'success',
                 });
                 return;
@@ -449,8 +469,11 @@ export function WifiSyncPanel() {
                           (store) => store.store_id === deviceStoreId,
                       )
                     : false;
+            // The store keeps its grinder, so setting sync up again lands back
+            // on this history rather than starting a second store. Handing the
+            // grinder on is Release, over on the account page.
             setCloudStatus({
-                text: 'Sync removed from the grinder. The cloud store itself remains — manage it from your Account page.',
+                text: 'Sync removed. Uploaded grinds stay in your account.',
                 kind: 'success',
             });
             // Owning the store is the only case where deleting it is ours to
@@ -471,9 +494,8 @@ export function WifiSyncPanel() {
             <section>
                 <h2 className="font-medium text-base">WiFi</h2>
                 <p className="mt-1 mb-5 text-muted-foreground text-sm">
-                    The grinder joins your network for a few seconds a day to set its clock, then
-                    turns the radio off. Daylight-saving rules are read from this browser and run on
-                    the grinder itself, so transitions happen with no network at all.
+                    A few seconds a day to set the clock, then the radio goes off. Daylight saving
+                    is read from this browser and runs on the grinder itself.
                 </p>
 
                 {knownWifiText && (
@@ -568,9 +590,8 @@ export function WifiSyncPanel() {
             <section className="mt-10 border-t pt-8">
                 <h2 className="font-medium text-base">Cloud backup</h2>
                 <p className="mt-1 mb-5 text-muted-foreground text-sm">
-                    With WiFi set up, the grinder uploads each session to your own cloud store after
-                    the grind — your full history, beyond what fits on the device, readable in
-                    Analytics from any browser you sign in to.
+                    The grinder holds its last hundred or so grinds. Your account holds all of them,
+                    on every browser you sign in to.
                 </p>
 
                 <div className="flex flex-wrap gap-2">
@@ -600,7 +621,7 @@ export function WifiSyncPanel() {
                 open={confirmForgetWifi}
                 onOpenChange={setConfirmForgetWifi}
                 title="Forget this network?"
-                description="The grinder drops the stored credentials and stops syncing its clock. Nothing else about the device changes, and you can set it up again any time."
+                description="The grinder drops the credentials and stops syncing its clock. You can set it up again any time."
                 confirmLabel="Forget network"
                 destructive
                 onConfirm={() => forgetWifi()}
@@ -609,8 +630,8 @@ export function WifiSyncPanel() {
             <ConfirmDialog
                 open={confirmForgetCloud}
                 onOpenChange={setConfirmForgetCloud}
-                title="Stop backing up to the cloud?"
-                description="The grinder forgets its store keys and stops uploading. Sessions already uploaded stay in the store, and the grinder keeps its own copies."
+                title="Stop backing up?"
+                description="The grinder stops uploading. Everything already backed up stays in your account, and setting sync up again returns to the same history."
                 confirmLabel="Forget sync"
                 destructive
                 onConfirm={() => forgetCloud()}
@@ -619,8 +640,8 @@ export function WifiSyncPanel() {
             <ConfirmDialog
                 open={storeToDelete !== null}
                 onOpenChange={(open) => !open && setStoreToDelete(null)}
-                title="Also delete the cloud store?"
-                description="You own this store. Deleting it permanently removes every session it holds, for every browser and share link. This cannot be undone."
+                title="Also delete the backup?"
+                description="Permanently removes every grind it holds, for every browser and share link. This cannot be undone."
                 confirmLabel="Delete store"
                 cancelLabel="Keep it"
                 destructive

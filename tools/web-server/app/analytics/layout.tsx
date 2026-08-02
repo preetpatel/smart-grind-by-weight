@@ -16,7 +16,6 @@ function AnalyticsChrome({ children }: { children: ReactNode }) {
         source,
         ownedStores,
         signedIn,
-        records,
         refreshSources,
         syncFromCloud,
         backfillToCloud,
@@ -34,7 +33,6 @@ function AnalyticsChrome({ children }: { children: ReactNode }) {
                 onSync={() => syncFromCloud()}
                 onBackfill={() => backfillToCloud()}
                 onStatus={(text, kind) => showStatus(text, kind)}
-                hasRecords={records.length > 0}
             />
             <StatusRegion status={status} progress={progress} />
             {children}

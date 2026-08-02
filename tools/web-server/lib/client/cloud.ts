@@ -90,12 +90,23 @@ export function setActiveStoreId(storeId: string): void {
 
 // ---- HTTP helpers ---------------------------------------------------------
 
-async function errorMessage(response: Response): Promise<string> {
+// Carries the server's `code` for the few failures the UI has to tell apart
+// (a grinder registered to another account, mostly).
+export class CloudApiError extends Error {
+    readonly code: string | null;
+
+    constructor(message: string, code: string | null) {
+        super(message);
+        this.code = code;
+    }
+}
+
+async function apiError(response: Response): Promise<CloudApiError> {
     try {
-        const body = (await response.json()) as { error?: string };
-        return body.error ?? `HTTP ${response.status}`;
+        const body = (await response.json()) as { error?: string; code?: string };
+        return new CloudApiError(body.error ?? `HTTP ${response.status}`, body.code ?? null);
     } catch {
-        return `HTTP ${response.status}`;
+        return new CloudApiError(`HTTP ${response.status}`, null);
     }
 }
 
@@ -116,7 +127,7 @@ async function apiFetch(
         headers,
     });
     if (!response.ok) {
-        throw new Error(await errorMessage(response));
+        throw await apiError(response);
     }
     return response;
 }
@@ -128,7 +139,7 @@ async function ownerFetch(path: string, init: RequestInit = {}): Promise<Respons
         throw new Error('Sign in first (top right) to manage cloud backups');
     }
     if (!response.ok) {
-        throw new Error(await errorMessage(response));
+        throw await apiError(response);
     }
     return response;
 }
@@ -139,6 +150,9 @@ export interface OwnedStore {
     store_id: string;
     name: string | null;
     view_key: string;
+    // The grinder this store belongs to; null once released or claimed away,
+    // which leaves the store as a readable archive.
+    device_id: string | null;
     created_at: string;
     session_count: number;
     last_received_at: string | null;
@@ -154,24 +168,54 @@ export interface ProvisionCredentials {
     store_id: string;
     upload_key: string;
     view_key: string;
+    status?: 'created' | 'reused' | 'claimed';
 }
 
-// Creates a store owned by the signed-in account. The returned upload key
-// exists only for the caller's immediate BLE provisioning write.
-export async function createCloudStore(name: string | null): Promise<ProvisionCredentials> {
+// The grinder's own cloud store, created if it has none. Keyed on the device
+// id, so this is safe to call from any browser at any time: the same grinder
+// always lands on the same store instead of accumulating duplicates.
+//
+// `proof` is the store id + view key read off the grinder over BLE, which is
+// what lets someone holding a second-hand grinder take it over (they get an
+// empty store; the previous owner keeps their grinds). Throws CloudApiError
+// with code 'device_bound_elsewhere' when it is registered elsewhere and no
+// proof is available.
+export async function claimStoreForDevice({
+    deviceId,
+    name = null,
+    proof,
+}: {
+    deviceId: string;
+    name?: string | null;
+    proof?: { store_id: string; view_key: string };
+}): Promise<ProvisionCredentials> {
     const response = await ownerFetch('/api/stores', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ device_id: deviceId, name, proof }),
     });
     return (await response.json()) as ProvisionCredentials;
 }
 
 // Mints a fresh upload key for a device write (invalidating the previous
-// device credential — rotate-on-provision, docs/CLOUD_SYNC.md).
-export async function provisionStore(storeId: string): Promise<ProvisionCredentials> {
-    const response = await ownerFetch(`/api/stores/${storeId}/provision`, { method: 'POST' });
+// device credential — rotate-on-provision, docs/CLOUD_SYNC.md). Passing a
+// device id also binds a store that has none yet.
+export async function provisionStore(
+    storeId: string,
+    deviceId?: string | null,
+): Promise<ProvisionCredentials> {
+    const response = await ownerFetch(`/api/stores/${storeId}/provision`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ device_id: deviceId ?? null }),
+    });
     return (await response.json()) as ProvisionCredentials;
+}
+
+// Unbinds the grinder, keeping the store and its sessions as an archive. The
+// deliberate way to hand a grinder on: the next account provisions it fresh.
+export async function releaseStore(storeId: string): Promise<void> {
+    await ownerFetch(`/api/stores/${storeId}/release`, { method: 'POST' });
 }
 
 export async function renameStore(storeId: string, name: string): Promise<void> {
@@ -350,7 +394,7 @@ export async function pushToCloud(
                 `${apiBase(source.baseUrl)}/api/stores/${source.storeId}/sessions`,
                 { method: 'POST', headers, body: record.raw as BodyInit },
             );
-            if (!response.ok) throw new Error(await errorMessage(response));
+            if (!response.ok) throw await apiError(response);
             const result = (await response.json()) as { status: string };
             if (result.status === 'stored') stored++;
         } catch (error) {
@@ -388,7 +432,7 @@ export async function pushSnapshotToCloud(
         `${apiBase(source.baseUrl)}/api/stores/${source.storeId}/snapshots`,
         { method: 'POST', headers, body },
     );
-    if (!response.ok) throw new Error(await errorMessage(response));
+    if (!response.ok) throw await apiError(response);
     return true;
 }
 

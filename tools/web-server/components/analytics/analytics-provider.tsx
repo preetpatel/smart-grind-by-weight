@@ -104,11 +104,20 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const { data: session, isPending: sessionPending } = authClient.useSession();
     const signedIn = Boolean(session?.user);
 
-    // Source resolution: owned stores (via login) win over a viewer link.
+    // The grinder this browser is talking to. Its id is what its cloud store
+    // is bound to, so it also decides which store this dashboard shows.
+    const systemDeviceId = grinder.active?.snapshot?.system?.device_id;
+    const deviceId = typeof systemDeviceId === 'string' ? systemDeviceId : null;
+
+    // Source resolution: owned stores (via login) win over a viewer link, and
+    // within them an explicit pick wins over the connected grinder's own store.
     const source: CloudSource | null = useMemo(() => {
         if (ownedStores.length) {
             const activeId = getActiveStoreId();
-            const store = ownedStores.find((s) => s.store_id === activeId) ?? ownedStores[0];
+            const store =
+                ownedStores.find((s) => s.store_id === activeId) ??
+                ownedStores.find((s) => s.device_id && s.device_id === deviceId) ??
+                ownedStores[0];
             if (store) {
                 return {
                     storeId: store.store_id,
@@ -128,7 +137,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
             };
         }
         return null;
-    }, [ownedStores, viewer]);
+    }, [ownedStores, viewer, deviceId]);
     const sourceRef = useRef<CloudSource | null>(source);
     sourceRef.current = source;
 
@@ -198,11 +207,6 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         return stored;
     }, []);
 
-    const activeDeviceId = useCallback((): string | null => {
-        const id = grinder.active?.snapshot?.system?.device_id;
-        return typeof id === 'string' ? id : null;
-    }, [grinder.active]);
-
     const syncFromCloud = useCallback(
         async ({ silent = false } = {}) => {
             const activeSource = sourceRef.current;
@@ -262,7 +266,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                 const { stored, errors } = await pushToCloud(
                     activeSource,
                     recordsRef.current,
-                    activeDeviceId(),
+                    deviceId,
                     (p) => {
                         showStatus(p.message);
                         if (p.total) setProgress((p.index / p.total) * 100);
@@ -290,7 +294,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                 setProgress(null);
             }
         },
-        [activeDeviceId, showStatus],
+        [deviceId, showStatus],
     );
 
     // Boot: adopt a shared dashboard link, load local data, resolve the cloud
@@ -398,8 +402,8 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
             if (activeSource?.owned) {
                 if (pulled.length) await backfillToCloud({ silent: true });
                 if (health) {
-                    pushSnapshotToCloud(activeSource, health, activeDeviceId()).catch(
-                        (error: Error) => console.log('Cloud snapshot push failed:', error.message),
+                    pushSnapshotToCloud(activeSource, health, deviceId).catch((error: Error) =>
+                        console.log('Cloud snapshot push failed:', error.message),
                     );
                 }
             }
@@ -411,7 +415,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
             setProgress(null);
             setBusy(false);
         }
-    }, [activeDeviceId, backfillToCloud, grinder.supported, loadFromStore, showStatus]);
+    }, [backfillToCloud, deviceId, grinder.supported, loadFromStore, showStatus]);
 
     const exportJson = useCallback(() => {
         if (!recordsRef.current.length) {

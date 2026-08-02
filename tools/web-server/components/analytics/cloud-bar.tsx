@@ -28,7 +28,6 @@ import {
     buildShareLink,
     type CloudSource,
     clearViewerSource,
-    createCloudStore,
     type OwnedStore,
     rotateViewKey,
     setActiveStoreId,
@@ -42,7 +41,6 @@ export function CloudBar({
     onSync,
     onBackfill,
     onStatus,
-    hasRecords,
 }: {
     source: CloudSource | null;
     ownedStores: OwnedStore[];
@@ -51,24 +49,8 @@ export function CloudBar({
     onSync: () => void;
     onBackfill: () => void;
     onStatus: (text: string, kind: 'info' | 'success' | 'error') => void;
-    hasRecords: boolean;
 }) {
     const [confirmRotate, setConfirmRotate] = useState(false);
-
-    const setUp = async () => {
-        try {
-            await createCloudStore(null);
-            onSourcesChanged();
-            onStatus(
-                'Cloud store created. Sessions you pull are backed up automatically from now on — ' +
-                    'provision the grinder under WiFi & Sync so it uploads on its own too.',
-                'success',
-            );
-            if (hasRecords) onBackfill();
-        } catch (error) {
-            onStatus(`${error instanceof Error ? error.message : error}`, 'error');
-        }
-    };
 
     const copyLink = async () => {
         if (!source) return;
@@ -89,8 +71,7 @@ export function CloudBar({
             await rotateViewKey(source.storeId);
             onSourcesChanged();
             onStatus(
-                'Previous dashboard links no longer work. Re-provision the grinder under ' +
-                    'WiFi & Sync so it picks up the new key.',
+                'Previous links no longer work. Set the grinder up again so it picks up the new key.',
                 'success',
             );
         } catch (error) {
@@ -108,22 +89,17 @@ export function CloudBar({
                 <span className="text-muted-foreground">
                     Not backed up — this data lives only in this browser.
                 </span>
-                {signedIn ? (
-                    <Button variant="ghost" size="sm" onClick={setUp}>
-                        <Cloud />
-                        Set up cloud backup
-                    </Button>
-                ) : (
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        nativeButton={false}
-                        render={<Link href="/signin" />}
-                    >
-                        <Cloud />
-                        Sign in to back up
-                    </Button>
-                )}
+                {/* A store belongs to a grinder, so setting one up starts at
+                    the grinder rather than here. */}
+                <Button
+                    variant="ghost"
+                    size="sm"
+                    nativeButton={false}
+                    render={<Link href={signedIn ? '/grinder/wifi' : '/signin'} />}
+                >
+                    <Cloud />
+                    {signedIn ? 'Set up cloud backup' : 'Sign in to back up'}
+                </Button>
             </div>
         );
     }
@@ -220,8 +196,8 @@ export function CloudBar({
             <ConfirmDialog
                 open={confirmRotate}
                 onOpenChange={setConfirmRotate}
-                title="Revoke every shared dashboard link?"
-                description="A new view key is minted, so any link you have handed out stops working immediately. Your grinder holds the old key too — re-provision it under WiFi & Sync afterwards, or its own claim will fail. No grind data is deleted."
+                title="Revoke every shared link?"
+                description="Any link you have handed out stops working immediately. Your grinder holds the old key too, so set it up again afterwards. No grind data is deleted."
                 confirmLabel="Revoke links"
                 destructive
                 onConfirm={() => revokeLinks()}
