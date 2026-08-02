@@ -25,7 +25,8 @@ function simpleFlowRate(
     let first: FlowSample | null = null;
     let last: FlowSample | null = null;
     for (let i = 0; i <= uptoIndex; i++) {
-        const s = samples[i]!;
+        const s = samples[i];
+        if (!s) continue;
         if (s.timestamp_ms >= windowStart && s.timestamp_ms <= currentTs) {
             if (first === null) first = s;
             last = s;
@@ -57,8 +58,8 @@ function percentile95At(
 
     const collected: FlowSample[] = [];
     for (let i = 0; i <= uptoIndex; i++) {
-        const s = samples[i]!;
-        if (s.timestamp_ms >= windowStart && s.timestamp_ms <= currentTs) collected.push(s);
+        const s = samples[i];
+        if (s && s.timestamp_ms >= windowStart && s.timestamp_ms <= currentTs) collected.push(s);
     }
     if (collected.length < MIN_SAMPLES_FOR_PERCENTILE) {
         return simpleFlowRate(samples, uptoIndex, currentTs, effectiveWindowMs);
@@ -95,7 +96,8 @@ function percentile95At(
         flowRates.sort((a, b) => a - b);
         let idx = Math.floor(flowRates.length * 0.95);
         if (idx >= flowRates.length) idx = flowRates.length - 1;
-        return flowRates[idx]!;
+        // The guard above puts idx in range; the fallback is unreachable.
+        return flowRates[idx] ?? 0;
     }
     return simpleFlowRate(samples, uptoIndex, currentTs, effectiveWindowMs);
 }

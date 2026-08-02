@@ -20,8 +20,14 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
-const SIDEBAR_COOKIE_NAME = 'sidebar_state';
-const SIDEBAR_COOKIE_MAX_AGE = 60 * 60 * 24 * 7;
+// Upstream persists this in a cookie so a Server Component can read it with
+// cookies() and pass defaultOpen. This app never read it back, so the cookie
+// was written on every toggle and sent with every request — including session
+// blob downloads — while the preference itself did nothing. Reading it
+// server-side would opt every route out of static prerendering for the sake of
+// a rail toggle, so it lives in localStorage instead: client-only state, kept
+// off the wire, and actually applied on load.
+const SIDEBAR_STORAGE_KEY = 'sidebar_state';
 const SIDEBAR_WIDTH = '16rem';
 const SIDEBAR_WIDTH_MOBILE = '18rem';
 const SIDEBAR_WIDTH_ICON = '3rem';
@@ -67,6 +73,16 @@ function SidebarProvider({
     // This is the internal state of the sidebar.
     // We use openProp and setOpenProp for control from outside the component.
     const [_open, _setOpen] = React.useState(defaultOpen);
+
+    // After mount, so the static HTML and the first client render agree.
+    React.useEffect(() => {
+        try {
+            const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+            if (stored === 'true' || stored === 'false') _setOpen(stored === 'true');
+        } catch {
+            /* private mode */
+        }
+    }, []);
     const open = openProp ?? _open;
     const setOpen = React.useCallback(
         (value: boolean | ((value: boolean) => boolean)) => {
@@ -77,8 +93,11 @@ function SidebarProvider({
                 _setOpen(openState);
             }
 
-            // This sets the cookie to keep the sidebar state.
-            document.cookie = `${SIDEBAR_COOKIE_NAME}=${openState}; path=/; max-age=${SIDEBAR_COOKIE_MAX_AGE}`;
+            try {
+                localStorage.setItem(SIDEBAR_STORAGE_KEY, String(openState));
+            } catch {
+                /* private mode */
+            }
         },
         [setOpenProp, open],
     );

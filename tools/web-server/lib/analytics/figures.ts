@@ -289,7 +289,8 @@ export function eventMarkerLayers(
     const yMax = measurements.length ? Math.max(...measurements.map((m) => m.weight_grams)) : 10;
     const positions = staggeredPositions(sorted, yMax);
     const byIndex = new Map<ParsedGrindEvent, number>(
-        sorted.map((e, i): [ParsedGrindEvent, number] => [e, positions[i]!]),
+        // staggeredPositions pushes one entry per event, so this is in range.
+        sorted.map((e, i): [ParsedGrindEvent, number] => [e, positions[i] ?? 0]),
     );
 
     const shapes: PlotlyShape[] = sorted.map((e) => ({

@@ -57,7 +57,6 @@ export function RenameDialog({
                     </DialogHeader>
                     <div className="my-5 grid gap-2">
                         <Label htmlFor="rename-value">{label}</Label>
-                        {/* biome-ignore lint/a11y/noAutofocus: a single-field dialog opened by an explicit Rename action */}
                         <Input
                             id="rename-value"
                             value={value}

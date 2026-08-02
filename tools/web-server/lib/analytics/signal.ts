@@ -2,6 +2,8 @@
 // scipy/numpy operations used by the Streamlit report: linear detrend, DFT,
 // IIR filtering, and the RBJ notch filter design behind scipy.signal.iirnotch.
 
+import { at } from './frame';
+
 // scipy.signal.detrend(type='linear'): subtract the least-squares straight
 // line fitted against sample index.
 export function detrendLinear(values: number[]): number[] {
@@ -11,10 +13,10 @@ export function detrendLinear(values: number[]): number[] {
     let sumY = 0;
     let sumXY = 0;
     let sumXX = 0;
-    for (let i = 0; i < n; i++) {
+    for (const [i, value] of values.entries()) {
         sumX += i;
-        sumY += values[i]!;
-        sumXY += i * values[i]!;
+        sumY += value;
+        sumXY += i * value;
         sumXX += i * i;
     }
     const denom = n * sumXX - sumX * sumX;
@@ -39,10 +41,10 @@ export function amplitudeSpectrum(
     for (let k = 0; k < half; k++) {
         let re = 0;
         let im = 0;
-        for (let i = 0; i < n; i++) {
+        for (const [i, value] of values.entries()) {
             const angle = twoPiOverN * k * i;
-            re += values[i]! * Math.cos(angle);
-            im -= values[i]! * Math.sin(angle);
+            re += value * Math.cos(angle);
+            im -= value * Math.sin(angle);
         }
         freqs[k] = (k * samplingRate) / n;
         amps[k] = (2 / n) * Math.hypot(re, im);
@@ -52,19 +54,21 @@ export function amplitudeSpectrum(
 
 // scipy.signal.lfilter for a transfer function b/a (direct form II transposed).
 export function lfilter(b: number[], a: number[], x: number[]): number[] {
-    const a0 = a[0]!;
+    // An empty denominator is a caller bug; a0 is then NaN and the whole
+    // response is NaN, as it was before.
+    const a0 = at(a, 0);
     const bn = b.map((v) => v / a0);
     const an = a.map((v) => v / a0);
     const order = Math.max(bn.length, an.length) - 1;
     const state: number[] = new Array(order).fill(0);
     const y = new Array<number>(x.length);
-    for (let i = 0; i < x.length; i++) {
-        const xi = x[i]!;
-        const yi = bn[0]! * xi + (order > 0 ? state[0]! : 0);
+    const b0 = at(bn, 0);
+    for (const [i, xi] of x.entries()) {
+        const yi = b0 * xi + (order > 0 ? at(state, 0) : 0);
         for (let j = 0; j < order; j++) {
-            const bj = j + 1 < bn.length ? bn[j + 1]! : 0;
-            const aj = j + 1 < an.length ? an[j + 1]! : 0;
-            const next = j + 1 < order ? state[j + 1]! : 0;
+            const bj = j + 1 < bn.length ? at(bn, j + 1) : 0;
+            const aj = j + 1 < an.length ? at(an, j + 1) : 0;
+            const next = j + 1 < order ? at(state, j + 1) : 0;
             state[j] = bj * xi - aj * yi + next;
         }
         y[i] = yi;

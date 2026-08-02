@@ -2,6 +2,15 @@
 // report uses. All functions treat measurement arrays as already sorted by
 // timestamp_ms (the parser emits them in sequence order).
 
+// tsconfig sets noUncheckedIndexedAccess, so every indexed read is
+// `number | undefined` even inside a loop bounded by the array's own length.
+// Reading out of range is a caller bug in every function here, and NaN
+// propagates through the arithmetic below exactly as the undefined it stands in
+// for would have — visibly, rather than silently becoming 0.
+export function at(values: number[], index: number): number {
+    return values[index] ?? Number.NaN;
+}
+
 // Trailing time-window rolling mean, matching pandas
 // `series.rolling(window='Xms').mean()` on a millisecond datetime index:
 // sample i averages all values with timestamp in (t_i - windowMs, t_i].
@@ -14,15 +23,20 @@ export function rollingMeanByTime(
     let start = 0;
     let sum = 0;
     let count = 0;
-    for (let i = 0; i < values.length; i++) {
-        sum += values[i]!;
+    for (const [i, value] of values.entries()) {
+        sum += value;
         count++;
-        while (timestamps[start]! <= timestamps[i]! - windowMs) {
-            sum -= values[start]!;
+        // Walk the trailing edge forward. A start index past the end of
+        // `timestamps` ends the walk, matching the old comparison against
+        // undefined, which was false for every operand.
+        for (;;) {
+            const oldest = timestamps[start];
+            if (oldest === undefined || !(oldest <= at(timestamps, i) - windowMs)) break;
+            sum -= at(values, start);
             count--;
             start++;
         }
-        out[i] = count > 0 ? sum / count : values[i]!;
+        out[i] = count > 0 ? sum / count : value;
     }
     return out;
 }
@@ -30,18 +44,22 @@ export function rollingMeanByTime(
 // Linear interpolation at x over sorted (xs, ys), matching np.interp's
 // clamping behaviour outside the domain.
 export function interpolateAt(x: number, xs: number[], ys: number[]): number {
-    if (!xs.length) return 0;
-    if (x <= xs[0]!) return ys[0]!;
-    if (x >= xs[xs.length - 1]!) return ys[ys.length - 1]!;
+    const firstX = xs[0];
+    const lastX = xs[xs.length - 1];
+    if (firstX === undefined || lastX === undefined) return 0;
+    if (x <= firstX) return at(ys, 0);
+    if (x >= lastX) return at(ys, ys.length - 1);
     let lo = 0;
     let hi = xs.length - 1;
     while (hi - lo > 1) {
         const mid = (lo + hi) >> 1;
-        if (xs[mid]! <= x) lo = mid;
+        if (at(xs, mid) <= x) lo = mid;
         else hi = mid;
     }
-    const t = (x - xs[lo]!) / (xs[hi]! - xs[lo]!);
-    return ys[lo]! + t * (ys[hi]! - ys[lo]!);
+    const xLo = at(xs, lo);
+    const t = (x - xLo) / (at(xs, hi) - xLo);
+    const yLo = at(ys, lo);
+    return yLo + t * (at(ys, hi) - yLo);
 }
 
 // Downsample to fixed time bins keeping the last sample per bin, matching
@@ -70,9 +88,10 @@ export function pearson(xs: number[], ys: number[]): number {
     let cov = 0;
     let varX = 0;
     let varY = 0;
+    // n is the shorter of the two lengths, so both reads are in range.
     for (let i = 0; i < n; i++) {
-        const dx = xs[i]! - meanX;
-        const dy = ys[i]! - meanY;
+        const dx = at(xs, i) - meanX;
+        const dy = at(ys, i) - meanY;
         cov += dx * dy;
         varX += dx * dx;
         varY += dy * dy;
