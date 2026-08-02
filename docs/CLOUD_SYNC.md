@@ -181,8 +181,12 @@ agreed design; each decision was made deliberately — change them knowingly.
   sits in `app/(auth)`, which renders one centred column and a link home instead of a
   sidebar full of grinder routes a signed-out visitor can't use. URLs are unchanged —
   route groups don't appear in the path.
-- **`/account` is a list of facts, each with its action attached.** Sign-in methods are one
-  row per method (password / GitHub / each passkey); backups are one row per store, with
+- **`/account` is a list of facts, each with its action attached.** *Signing in* holds the
+  two singleton methods (password, GitHub) as one row each; **passkeys get their own
+  section**, because they are a collection you add to and remove from and because a row
+  labelled "This Mac" says nothing about what it is without a heading over it — that
+  section carries *Add a passkey* on its heading line and an empty state of its own.
+  Backups are one row per store, with
   *Copy link* inline and rename / release / delete behind a `⋯` menu. Nothing that is used
   once a year sits expanded: change-password and account deletion are dialogs
   (`components/auth/{change-password,delete-account}-dialog.tsx`), so the page stays

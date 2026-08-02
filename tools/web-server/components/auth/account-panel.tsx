@@ -59,18 +59,29 @@ function shortDate(value: Date | string | null | undefined): string | null {
         : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+// `action` sits on the heading line rather than under the list: for a section
+// that owns a collection, "Passkeys ………… Add" is what tells you at a glance
+// both what these rows are and that this is where you manage them.
 function Section({
     title,
     description,
+    action,
     children,
 }: {
     title: string;
     description?: ReactNode;
+    action?: ReactNode;
     children: ReactNode;
 }) {
     return (
         <section className="mt-10 border-t pt-8 first:mt-0 first:border-t-0 first:pt-0">
-            <h2 className="font-medium text-base">{title}</h2>
+            {/* The action pairs with the *title*, not the title block — putting
+                the description in the same flex row lets a long line wrap the
+                button underneath it, where it reads as part of the prose. */}
+            <div className="flex items-center justify-between gap-4">
+                <h2 className="min-w-0 font-medium text-base">{title}</h2>
+                {action && <div className="shrink-0">{action}</div>}
+            </div>
             {description && <p className="mt-1 text-muted-foreground text-sm">{description}</p>}
             <div className="mt-4">{children}</div>
         </section>
@@ -290,49 +301,73 @@ export function AccountPanel({ github }: { github: boolean }) {
                         title="Signing in"
                         description="There is no password recovery — a passkey or linked GitHub is your way back in."
                     >
-                        <div>
+                        <Row
+                            actions={
+                                hasPassword && (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setChangingPassword(true)}
+                                    >
+                                        Change
+                                    </Button>
+                                )
+                            }
+                        >
+                            <RowTitle>Password</RowTitle>
+                            <RowMeta>
+                                {hasPassword
+                                    ? 'In use'
+                                    : 'Not set — you sign in with GitHub or a passkey'}
+                            </RowMeta>
+                        </Row>
+
+                        {(github || hasGithub) && (
                             <Row
                                 actions={
-                                    hasPassword && (
+                                    !hasGithub && (
                                         <Button
                                             variant="ghost"
                                             size="sm"
-                                            onClick={() => setChangingPassword(true)}
+                                            disabled={busy}
+                                            onClick={linkGithub}
                                         >
-                                            Change
+                                            Link
                                         </Button>
                                     )
                                 }
                             >
-                                <RowTitle>Password</RowTitle>
-                                <RowMeta>
-                                    {hasPassword
-                                        ? 'In use'
-                                        : 'Not set — you sign in with GitHub or a passkey'}
-                                </RowMeta>
+                                <RowTitle>GitHub</RowTitle>
+                                <RowMeta>{hasGithub ? 'Linked' : 'Not linked'}</RowMeta>
                             </Row>
+                        )}
+                    </Section>
 
-                            {(github || hasGithub) && (
-                                <Row
-                                    actions={
-                                        !hasGithub && (
-                                            <Button
-                                                variant="ghost"
-                                                size="sm"
-                                                disabled={busy}
-                                                onClick={linkGithub}
-                                            >
-                                                Link
-                                            </Button>
-                                        )
-                                    }
-                                >
-                                    <RowTitle>GitHub</RowTitle>
-                                    <RowMeta>{hasGithub ? 'Linked' : 'Not linked'}</RowMeta>
-                                </Row>
-                            )}
-
-                            {passkeys.map((entry) => {
+                    {/* Passkeys get their own section rather than more rows in
+                        the list above: they are a collection you add to and
+                        remove from, and a device name like "This Mac" says
+                        nothing about what it is without a heading over it. */}
+                    <Section
+                        title="Passkeys"
+                        description="Sign in with Touch ID, Windows Hello or your phone — nothing to type, nothing to forget."
+                        action={
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={busy}
+                                onClick={addPasskey}
+                            >
+                                <KeyRound />
+                                Add a passkey
+                            </Button>
+                        }
+                    >
+                        {passkeys.length === 0 ? (
+                            <p className="text-muted-foreground text-sm">
+                                None yet — add one on each device you use.
+                            </p>
+                        ) : (
+                            passkeys.map((entry) => {
                                 const added = shortDate(entry.createdAt);
                                 return (
                                     <Row
@@ -349,22 +384,13 @@ export function AccountPanel({ github }: { github: boolean }) {
                                         }
                                     >
                                         <RowTitle>{entry.name ?? 'Passkey'}</RowTitle>
-                                        <RowMeta>{added ? `Added ${added}` : 'Passkey'}</RowMeta>
+                                        <RowMeta>
+                                            {added ? `Added ${added}` : 'Added on this device'}
+                                        </RowMeta>
                                     </Row>
                                 );
-                            })}
-                        </div>
-
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            className="mt-4"
-                            disabled={busy}
-                            onClick={addPasskey}
-                        >
-                            <KeyRound />
-                            Add a passkey
-                        </Button>
+                            })
+                        )}
                     </Section>
 
                     <Section title="Backups">
