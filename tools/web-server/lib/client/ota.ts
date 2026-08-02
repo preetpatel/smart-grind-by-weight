@@ -12,9 +12,20 @@ const STATUS_ERROR = 0x04;
 
 const CHUNK_SIZE = 512; // Browser BLE limit - cannot exceed 512 bytes per write
 
+// A dropped link mid-upload is recoverable: the device aborts its half of the
+// OTA the moment the link drops and resumes advertising, so the transfer can
+// restart from the first chunk (the protocol has no resume-from-offset).
+const MAX_TRANSFER_ATTEMPTS = 3;
+const RECONNECT_ATTEMPTS = 5;
+const RECONNECT_DELAY_MS = 2000;
+
 export interface OtaCallbacks {
     onStatus: (message: string, kind: 'info' | 'success' | 'error') => void;
     onProgress: (percent: number | null) => void;
+}
+
+function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // zlib-compatible CRC-32; sent with the END command so the device can verify
@@ -110,7 +121,7 @@ async function verifyVersionAfterReboot(
     if (!expectedVersion) return null;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 10000));
+        await delay(10000);
         try {
             const snapshot = await ble.refreshSnapshot({ interactive: false });
             const current = snapshot.system?.version;
@@ -122,19 +133,40 @@ async function verifyVersionAfterReboot(
     return null;
 }
 
-// Connects (via the shared session) and flashes the given OTA binary URL.
-// Holds the link for the whole upload + apply; the device's own success/error
-// status is the verdict, with a version check after reboot as the fallback.
-export async function connectAndFlash(
-    firmwareUrl: string,
+// Re-establish the shared session after a mid-transfer link drop. The device
+// needs a beat to notice the disconnect and restart advertising, so each
+// attempt is preceded by a short wait.
+async function reconnectAfterDrop(callbacks: OtaCallbacks): Promise<void> {
+    for (let attempt = 1; attempt <= RECONNECT_ATTEMPTS; attempt++) {
+        await delay(RECONNECT_DELAY_MS);
+        callbacks.onStatus(
+            `Reconnecting to grinder (attempt ${attempt}/${RECONNECT_ATTEMPTS})...`,
+            'info',
+        );
+        try {
+            await ble.connect({ interactive: false });
+            return;
+        } catch (error) {
+            console.warn('Reconnect attempt failed:', error);
+        }
+    }
+    throw new Error('The link dropped mid-transfer and the grinder could not be reached again');
+}
+
+// One full transfer over the current connection: START, chunk stream, END+CRC,
+// then the device's own verdict. Returns the final status byte, or null when
+// the link dropped after END was delivered (resolved by the caller via
+// verifyVersionAfterReboot). A throw before END means nothing was applied -
+// the caller may reconnect and call this again.
+async function uploadOnce(
+    firmwareData: Uint8Array,
     expectedVersion: string | null,
     callbacks: OtaCallbacks,
-): Promise<void> {
-    callbacks.onStatus('Connecting to grinder...', 'info');
-    await ble.connect({ interactive: true });
-
+): Promise<number | null> {
     const otaService = await ble.getService(ble.UUIDS.OTA_SERVICE);
     const statusChar = await otaService.getCharacteristic(ble.UUIDS.OTA_STATUS);
+    const controlChar = await otaService.getCharacteristic(ble.UUIDS.OTA_CONTROL);
+    const dataChar = await otaService.getCharacteristic(ble.UUIDS.OTA_DATA);
 
     let currentStatus = 0;
     const onStatusUpdate = (event: Event) => {
@@ -144,7 +176,6 @@ export async function connectAndFlash(
             currentStatus = value.getUint8(0);
         }
     };
-    statusChar.removeEventListener('characteristicvaluechanged', onStatusUpdate);
     await statusChar.startNotifications();
     statusChar.addEventListener('characteristicvaluechanged', onStatusUpdate);
 
@@ -169,25 +200,7 @@ export async function connectAndFlash(
             check();
         });
 
-    // Own the link for the whole upload + apply. Without this, any concurrent
-    // flow calling release() - the device strip's background snapshot refresh
-    // is the usual culprit - arms the 30s idle timer and the GATT server
-    // disconnects mid-transfer.
-    ble.hold();
     try {
-        const firmwareData = await downloadFirmware(firmwareUrl, callbacks);
-        await verifyFirmwareDownload(firmwareUrl, firmwareData, callbacks);
-
-        callbacks.onStatus('Starting firmware update...', 'info');
-        callbacks.onProgress(0);
-
-        const controlChar = await otaService.getCharacteristic(ble.UUIDS.OTA_CONTROL);
-        const dataChar = await otaService.getCharacteristic(ble.UUIDS.OTA_DATA);
-
-        if (expectedVersion) {
-            callbacks.onStatus(`Installing version: ${expectedVersion}`, 'info');
-        }
-
         // Build start command:
         // [CMD][patch_size:4][is_full_update:1][build_number_length:1][firmware_version_length:1][firmware_version:M]
         const versionBytes = expectedVersion
@@ -218,7 +231,8 @@ export async function connectAndFlash(
         await waitForStatus((s) => s === STATUS_RECEIVING, 15000, 'device ready');
 
         // Send firmware data in chunks; chunk writes can fail transiently
-        // mid-transfer, so retry before giving up on the whole upload.
+        // mid-transfer, so retry before giving up - unless the link itself is
+        // gone, in which case retrying on the dead connection is pointless.
         callbacks.onStatus('Uploading firmware...', 'info');
         let chunkCount = 0;
         for (let i = 0; i < firmwareData.length; i += CHUNK_SIZE) {
@@ -228,12 +242,12 @@ export async function connectAndFlash(
                     await dataChar.writeValue(chunk as BufferSource);
                     break;
                 } catch (writeError) {
-                    if (attempt >= 3) throw writeError;
+                    if (!ble.isConnected() || attempt >= 3) throw writeError;
                     console.warn(
                         `Chunk write failed at offset ${i} (attempt ${attempt}/3), retrying`,
                         writeError,
                     );
-                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                    await delay(1000);
                 }
             }
             chunkCount++;
@@ -244,25 +258,77 @@ export async function connectAndFlash(
             }
         }
 
-        callbacks.onStatus('Upload complete, applying update (takes 30-90s)...', 'info');
-
         // END + CRC-32 of the patch; the device verifies its staged copy
         // before applying. Then wait for the device's own verdict — treating
         // timeouts/disconnects as success would hide real failures.
-        let outcome: number | null = null;
+        const endCommand = new Uint8Array(5);
+        endCommand[0] = CMD_END;
+        new DataView(endCommand.buffer).setUint32(1, crc32(firmwareData), true);
+        await controlChar.writeValue(endCommand);
+        callbacks.onStatus('Upload complete, applying update (takes 30-90s)...', 'info');
+
         try {
-            const endCommand = new Uint8Array(5);
-            endCommand[0] = CMD_END;
-            new DataView(endCommand.buffer).setUint32(1, crc32(firmwareData), true);
-            await controlChar.writeValue(endCommand);
-            outcome = await waitForStatus(
+            return await waitForStatus(
                 (s) => s === STATUS_SUCCESS || s === STATUS_ERROR,
                 180000,
                 'the device to apply the update',
             );
-        } catch (endError) {
-            // Link dropped or no status in time - resolved by reconnecting below
-            console.warn('No definitive OTA status:', endError);
+        } catch (applyError) {
+            // END was delivered, so the device is applying/rebooting on its
+            // own - resolved by the version check after reboot, not a retry.
+            console.warn('No definitive OTA status:', applyError);
+            return null;
+        }
+    } finally {
+        statusChar.removeEventListener('characteristicvaluechanged', onStatusUpdate);
+    }
+}
+
+// Connects (via the shared session) and flashes the given OTA binary URL.
+// Holds the link for the whole upload + apply; a link drop during the upload
+// reconnects and restarts the transfer, and the device's own success/error
+// status is the verdict, with a version check after reboot as the fallback.
+export async function connectAndFlash(
+    firmwareUrl: string,
+    expectedVersion: string | null,
+    callbacks: OtaCallbacks,
+): Promise<void> {
+    callbacks.onStatus('Connecting to grinder...', 'info');
+    await ble.connect({ interactive: true });
+
+    // Own the link for the whole upload + apply. Without this, any concurrent
+    // flow calling release() - the device strip's background snapshot refresh
+    // is the usual culprit - arms the 30s idle timer and the GATT server
+    // disconnects mid-transfer.
+    ble.hold();
+    try {
+        const firmwareData = await downloadFirmware(firmwareUrl, callbacks);
+        await verifyFirmwareDownload(firmwareUrl, firmwareData, callbacks);
+
+        callbacks.onStatus('Starting firmware update...', 'info');
+        callbacks.onProgress(0);
+        if (expectedVersion) {
+            callbacks.onStatus(`Installing version: ${expectedVersion}`, 'info');
+        }
+
+        let outcome: number | null = null;
+        for (let attempt = 1; ; attempt++) {
+            try {
+                outcome = await uploadOnce(firmwareData, expectedVersion, callbacks);
+                break;
+            } catch (error) {
+                // Restart only makes sense when the link itself died; errors
+                // on a live connection (device rejected the update, END-stage
+                // CRC mismatch) would just fail identically on a retry.
+                if (ble.isConnected() || attempt >= MAX_TRANSFER_ATTEMPTS) throw error;
+                console.warn(`Transfer attempt ${attempt} lost the link:`, error);
+                callbacks.onStatus(
+                    `Connection lost mid-upload - restarting transfer (attempt ${attempt + 1}/${MAX_TRANSFER_ATTEMPTS})...`,
+                    'info',
+                );
+                callbacks.onProgress(0);
+                await reconnectAfterDrop(callbacks);
+            }
         }
 
         if (outcome === STATUS_ERROR) {
@@ -299,16 +365,19 @@ export async function connectAndFlash(
             }
         }
     } catch (error) {
-        // Try to abort OTA on error so the device returns to idle.
-        try {
-            const controlChar = await otaService.getCharacteristic(ble.UUIDS.OTA_CONTROL);
-            await controlChar.writeValue(new Uint8Array([CMD_ABORT]));
-        } catch (abortError) {
-            console.error('Could not send abort command:', abortError);
+        // Try to abort OTA on error so the device returns to idle; on a dead
+        // link the device has already aborted by itself.
+        if (ble.isConnected()) {
+            try {
+                const otaService = await ble.getService(ble.UUIDS.OTA_SERVICE);
+                const controlChar = await otaService.getCharacteristic(ble.UUIDS.OTA_CONTROL);
+                await controlChar.writeValue(new Uint8Array([CMD_ABORT]));
+            } catch (abortError) {
+                console.error('Could not send abort command:', abortError);
+            }
         }
         throw error;
     } finally {
-        statusChar.removeEventListener('characteristicvaluechanged', onStatusUpdate);
         ble.releaseHold();
         ble.release();
     }
