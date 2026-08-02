@@ -92,15 +92,26 @@ export default function SessionPage() {
                 title={`Session #${record.session.session_id}`}
                 description={sessionStartLabel(record.session)}
                 actions={
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        nativeButton={false}
-                        render={<Link href="/analytics/sessions" />}
-                    >
-                        <ArrowLeft />
-                        All sessions
-                    </Button>
+                    <>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-muted-foreground hover:text-destructive"
+                            onClick={() => setConfirmDelete(true)}
+                        >
+                            <Trash2 />
+                            Delete
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            nativeButton={false}
+                            render={<Link href="/analytics/sessions" />}
+                        >
+                            <ArrowLeft />
+                            All sessions
+                        </Button>
+                    </>
                 }
             />
 
