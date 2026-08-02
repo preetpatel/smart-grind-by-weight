@@ -11,15 +11,16 @@
 //   (WiFi password, upload key) are never readable back.
 import { useEffect, useMemo, useState } from 'react';
 import { StatusBox, type StatusMessage } from '@/components/ui';
+import { authClient } from '@/lib/client/auth';
 import type { CloudStatusJson, WifiStatusJson } from '@/lib/client/ble';
 import * as ble from '@/lib/client/ble';
 import {
-    type CloudConfig,
-    clearCloudConfig,
     createCloudStore,
-    deleteCloudStore,
-    getCloudConfig,
-    saveCloudConfig,
+    deleteStore,
+    getViewerSource,
+    listMyStores,
+    provisionStore,
+    saveViewerSource,
 } from '@/lib/client/cloud';
 import { detectPosixTz, type PosixTz } from '@/lib/client/tz-posix';
 import { useGrinder } from '@/lib/client/use-grinder';
@@ -132,6 +133,7 @@ function apiBaseForDevice(): string {
 
 export function WifiSyncPanel() {
     const { active } = useGrinder();
+    const { data: session } = authClient.useSession();
     const [ssid, setSsid] = useState('');
     const [password, setPassword] = useState('');
     const [tz, setTz] = useState<PosixTz | null>(null);
@@ -307,27 +309,36 @@ export function WifiSyncPanel() {
     const setUpCloudBackup = async () => {
         setCloudBusy(true);
         try {
-            // Reuse this browser's store if it already provisioned one;
-            // otherwise mint a fresh store on the API.
-            let config = getCloudConfig();
-            if (!config?.uploadKey) {
-                setCloudStatus({ text: 'Creating your cloud store…', kind: 'info' });
-                apiBaseForDevice();
-                config = await createCloudStore(active?.label ?? null);
+            if (!session?.user) {
+                setCloudStatus({
+                    text: 'Sign in first (top right) — cloud backups belong to your account, so your dashboards follow you to any browser.',
+                    kind: 'error',
+                });
+                return;
             }
-            if (!config.baseUrl) {
-                config = { ...config, baseUrl: apiBaseForDevice() };
-                saveCloudConfig(config);
-            }
+            const serverUrl = apiBaseForDevice();
+
+            // If the grinder already carries one of this account's stores,
+            // re-provision it (rotate-on-provision mints a fresh upload key);
+            // otherwise create a new store named after the grinder.
+            setCloudStatus({ text: 'Preparing your cloud store…', kind: 'info' });
+            const mine = await listMyStores();
+            const deviceCloud = active?.snapshot?.cloud;
+            const existing = deviceCloud?.configured
+                ? mine.find((store) => store.store_id === deviceCloud.store_id)
+                : undefined;
+            const credentials = existing
+                ? await provisionStore(existing.store_id)
+                : await createCloudStore(active?.label ?? null);
 
             setCloudStatus({ text: 'Connecting to grinder…', kind: 'info' });
             const { configChar, statusChar } = await cloudChars();
             await configChar.writeValue(
                 nulJoinedPayload(0x01, [
-                    config.baseUrl || apiBaseForDevice(),
-                    config.storeId,
-                    config.uploadKey ?? '',
-                    config.viewKey ?? '',
+                    serverUrl,
+                    credentials.store_id,
+                    credentials.upload_key,
+                    credentials.view_key,
                 ]) as BufferSource,
             );
 
@@ -366,18 +377,18 @@ export function WifiSyncPanel() {
             const status = await readJsonChar<CloudStatusJson>(statusChar);
             ble.applyPatch({ cloud: status });
 
-            // Claim by possession: any browser reading a provisioned grinder
-            // gets the read-only keys and can open the dashboard.
-            const local = getCloudConfig();
-            if (status.configured && status.view_key && !local) {
-                saveCloudConfig({
+            // Claim by possession, read-only: any browser reading a
+            // provisioned grinder gets the view keys and can open the
+            // dashboard. Owners get full access by signing in instead.
+            if (status.configured && status.view_key && !getViewerSource()) {
+                saveViewerSource({
                     storeId: status.store_id,
                     viewKey: status.view_key,
                     baseUrl: status.server_url || '',
                     linkedAt: Date.now(),
                 });
                 setCloudStatus({
-                    text: `${describeCloudStatus(status)} · This browser is now linked — open Analytics to see the dashboard.`,
+                    text: `${describeCloudStatus(status)} · This browser is now linked (view-only) — open Analytics to see the dashboard.`,
                     kind: 'success',
                 });
                 return;
@@ -404,26 +415,38 @@ export function WifiSyncPanel() {
         ) {
             return;
         }
+        // Capture the store id from the cached snapshot before the forget
+        // wipes it — needed for the optional owner-side deletion below.
+        const deviceStoreId = active?.snapshot?.cloud?.configured
+            ? active.snapshot.cloud.store_id
+            : null;
         try {
             setCloudStatus({ text: 'Connecting to grinder…', kind: 'info' });
             const { configChar } = await cloudChars();
             await configChar.writeValue(new Uint8Array([0x02]) as BufferSource);
             ble.applyPatch({ cloud: { configured: false } as CloudStatusJson });
 
-            const config: CloudConfig | null = getCloudConfig();
+            // Offer server-side deletion only when the signed-in account owns
+            // the store the grinder was uploading to.
+            const ownsIt =
+                session?.user && deviceStoreId
+                    ? (await listMyStores().catch(() => [])).some(
+                          (store) => store.store_id === deviceStoreId,
+                      )
+                    : false;
             if (
-                config?.uploadKey &&
+                ownsIt &&
+                deviceStoreId &&
                 confirm('Also permanently delete the cloud store and every session in it?')
             ) {
-                await deleteCloudStore(config);
-                clearCloudConfig();
+                await deleteStore(deviceStoreId);
                 setCloudStatus({
                     text: '✓ Sync removed from the grinder and the cloud store deleted.',
                     kind: 'success',
                 });
             } else {
                 setCloudStatus({
-                    text: "✓ Sync removed from the grinder. The cloud store (and this browser's link to it) remains.",
+                    text: '✓ Sync removed from the grinder. The cloud store itself remains (manage it from your Account page).',
                     kind: 'success',
                 });
             }

@@ -890,3 +890,68 @@ a.tab {
 .link-inline:hover {
     text-decoration: underline;
 }
+
+/* ---- Accounts ---- */
+
+.masthead .account-slot {
+    margin-left: auto;
+    min-height: 33px;
+    display: inline-flex;
+    align-items: center;
+}
+
+a.account-link {
+    text-decoration: none;
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 12px;
+}
+
+.auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin: 18px 0;
+}
+
+.auth-divider::before,
+.auth-divider::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--line);
+}
+
+.account-list {
+    list-style: none;
+    padding: 0;
+    margin: 10px 0 20px;
+}
+
+.account-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 14px;
+}
+
+.account-list li:last-child {
+    border-bottom: none;
+}
+
+.account-list .store-line {
+    margin: 0;
+}
+
+.account-list-actions {
+    display: inline-flex;
+    gap: 8px;
+}

@@ -1,25 +1,32 @@
 'use client';
 
-// Cloud store link/state bar for the Analytics page (docs/CLOUD_SYNC.md).
+// Cloud source bar for the Analytics page (docs/CLOUD_SYNC.md). Three
+// states: signed-out prompt, owned store(s) with a picker, or a read-only
+// viewer link (share link / BLE claim).
+import Link from 'next/link';
 import {
     buildShareLink,
-    type CloudConfig,
-    clearCloudConfig,
+    type CloudSource,
+    clearViewerSource,
     createCloudStore,
-    deleteCloudStore,
-    getCloudConfig,
+    type OwnedStore,
+    setActiveStoreId,
 } from '@/lib/client/cloud';
 
 export function CloudBar({
-    config,
-    onConfigChange,
+    source,
+    ownedStores,
+    signedIn,
+    onSourcesChanged,
     onSync,
     onBackfill,
     onStatus,
     hasRecords,
 }: {
-    config: CloudConfig | null;
-    onConfigChange: () => void;
+    source: CloudSource | null;
+    ownedStores: OwnedStore[];
+    signedIn: boolean;
+    onSourcesChanged: () => void;
     onSync: () => void;
     onBackfill: () => void;
     onStatus: (text: string, kind: 'info' | 'success' | 'error') => void;
@@ -28,73 +35,46 @@ export function CloudBar({
     const setUp = async () => {
         try {
             await createCloudStore(null);
-            onConfigChange();
+            onSourcesChanged();
             onStatus(
-                'Cloud store created. Sessions you pull are now backed up automatically.',
+                'Cloud store created. Sessions you pull are now backed up automatically — ' +
+                    'provision your grinder under My Grinder → WiFi & Sync so it uploads on its own.',
                 'success',
             );
             if (hasRecords) onBackfill();
         } catch (error) {
-            onStatus(
-                `${error instanceof Error ? error.message : error}. Cloud backup needs the hosted app (or your self-hosted server).`,
-                'error',
-            );
-        }
-    };
-
-    const disconnect = () => {
-        if (!config) return;
-        const warning = config.uploadKey
-            ? 'Disconnect this browser from the cloud store? The store and its data stay on the server, ' +
-              'but this browser holds the only upload key — without a provisioned grinder, copy the ' +
-              'dashboard link first or the store becomes unreachable.'
-            : 'Disconnect this browser from the cloud store? You can re-link with the dashboard link.';
-        if (!window.confirm(warning)) return;
-        clearCloudConfig();
-        onConfigChange();
-        onStatus('Disconnected from the cloud store.', 'info');
-    };
-
-    const destroy = async () => {
-        if (!config?.uploadKey) return;
-        if (
-            !window.confirm(
-                'Permanently delete the cloud store and every session in it? Local data in this browser is kept.',
-            )
-        ) {
-            return;
-        }
-        try {
-            await deleteCloudStore(config);
-            clearCloudConfig();
-            onConfigChange();
-            onStatus('Cloud store deleted.', 'info');
-        } catch (error) {
-            onStatus(`Delete failed: ${error instanceof Error ? error.message : error}`, 'error');
+            onStatus(`${error instanceof Error ? error.message : error}`, 'error');
         }
     };
 
     const copyLink = async () => {
-        if (!config) return;
+        if (!source) return;
         try {
-            await navigator.clipboard.writeText(buildShareLink(config));
+            await navigator.clipboard.writeText(buildShareLink(source));
             onStatus(
                 'Dashboard link copied — anyone with it can view (not modify) this store.',
                 'success',
             );
         } catch {
-            onStatus(`Dashboard link: ${buildShareLink(config)}`, 'info');
+            onStatus(`Dashboard link: ${buildShareLink(source)}`, 'info');
         }
     };
 
-    if (!config) {
+    if (!source) {
         return (
             <div className="analytics-toolbar">
-                <button type="button" className="btn-ghost" onClick={setUp}>
-                    Set up cloud backup
-                </button>
+                {signedIn ? (
+                    <button type="button" className="btn-ghost" onClick={setUp}>
+                        Set up cloud backup
+                    </button>
+                ) : (
+                    <Link href="/signin" className="btn-ghost">
+                        Sign in for cloud backup
+                    </Link>
+                )}
                 <span className="store-line">
-                    Keep your full grind history beyond the grinder&apos;s own storage.
+                    Keep your full grind history beyond the grinder&apos;s own storage, on every
+                    browser you sign in to.
                 </span>
             </div>
         );
@@ -102,14 +82,30 @@ export function CloudBar({
 
     return (
         <div className="analytics-toolbar">
-            <span className="store-line">
-                cloud store {config.storeId}
-                {config.uploadKey ? '' : ' · read-only link'}
-            </span>
+            {source.owned && ownedStores.length > 1 ? (
+                <select
+                    value={source.storeId}
+                    onChange={(e) => {
+                        setActiveStoreId(e.target.value);
+                        onSourcesChanged();
+                    }}
+                >
+                    {ownedStores.map((store) => (
+                        <option key={store.store_id} value={store.store_id}>
+                            {store.name ?? store.store_id}
+                        </option>
+                    ))}
+                </select>
+            ) : (
+                <span className="store-line">
+                    cloud store {source.name ?? source.storeId}
+                    {source.owned ? '' : ' · read-only link'}
+                </span>
+            )}
             <button type="button" className="btn-ghost" onClick={onSync}>
                 Sync from cloud
             </button>
-            {config.uploadKey && (
+            {source.owned && (
                 <button type="button" className="btn-ghost" onClick={onBackfill}>
                     Back up local sessions
                 </button>
@@ -117,16 +113,23 @@ export function CloudBar({
             <button type="button" className="btn-ghost" onClick={copyLink}>
                 Copy dashboard link
             </button>
-            <button type="button" className="btn-ghost" onClick={disconnect}>
-                Disconnect
-            </button>
-            {config.uploadKey && (
-                <button type="button" className="btn-ghost danger" onClick={destroy}>
-                    Delete cloud store
+            {source.owned ? (
+                <Link href="/account" className="btn-ghost">
+                    Manage
+                </Link>
+            ) : (
+                <button
+                    type="button"
+                    className="btn-ghost"
+                    onClick={() => {
+                        clearViewerSource();
+                        onSourcesChanged();
+                        onStatus('Disconnected from the shared store.', 'info');
+                    }}
+                >
+                    Disconnect
                 </button>
             )}
         </div>
     );
 }
-
-export { getCloudConfig };

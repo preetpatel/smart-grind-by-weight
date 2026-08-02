@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { AccountMenu } from '@/components/account-menu';
 import { DeviceStrip } from '@/components/device-strip';
 import { TabsNav } from '@/components/tabs-nav';
 
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                         <div className="lede">
                             firmware · diagnostics · grind telemetry, over Web Bluetooth
                         </div>
+                        <AccountMenu />
                     </header>
 
                     <DeviceStrip />

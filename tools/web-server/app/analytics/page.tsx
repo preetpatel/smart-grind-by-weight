@@ -3,7 +3,7 @@
 // Analytics dashboard: pull data over BLE or sync from the cloud store,
 // persist locally (IndexedDB keyed by content hash), and render the session
 // browser + analysis views. React port of the flasher's analytics/app.js.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CloudBar } from '@/components/analytics/cloud-bar';
 import { HealthView } from '@/components/analytics/health-view';
 import { Hero } from '@/components/analytics/hero';
@@ -28,15 +28,20 @@ import {
     saveSessions,
 } from '@/lib/analytics/store';
 import type { DeviceReports, StoredRecord } from '@/lib/analytics/types';
+import { authClient } from '@/lib/client/auth';
 import * as ble from '@/lib/client/ble';
 import {
     adoptShareFragment,
-    type CloudConfig,
-    getCloudConfig,
+    type CloudSource,
+    getActiveStoreId,
+    getViewerSource,
+    listMyStores,
+    type OwnedStore,
     pullFromCloud,
     pushSnapshotToCloud,
     pushToCloud,
-    saveCloudConfig,
+    saveViewerSource,
+    type ViewerSource,
 } from '@/lib/client/cloud';
 import { GrinderDataClient } from '@/lib/client/data-export';
 import { useGrinder } from '@/lib/client/use-grinder';
@@ -81,10 +86,55 @@ export default function AnalyticsPage() {
     const [detailTab, setDetailTab] = useState<DetailTab>('overall');
     const [includeTaring, setIncludeTaring] = useState(false);
     const [smoothingMs, setSmoothingMs] = useState(500);
-    const [cloudConfig, setCloudConfig] = useState<CloudConfig | null>(null);
+    const [ownedStores, setOwnedStores] = useState<OwnedStore[]>([]);
+    const [viewer, setViewer] = useState<ViewerSource | null>(null);
     const importInput = useRef<HTMLInputElement>(null);
     const recordsRef = useRef<StoredRecord[]>([]);
     recordsRef.current = records;
+
+    const { data: session, isPending: sessionPending } = authClient.useSession();
+    const signedIn = Boolean(session?.user);
+
+    // Source resolution: owned stores (via login) win over a viewer link.
+    const source: CloudSource | null = useMemo(() => {
+        if (ownedStores.length) {
+            const activeId = getActiveStoreId();
+            const store = ownedStores.find((s) => s.store_id === activeId) ?? ownedStores[0];
+            if (store) {
+                return {
+                    storeId: store.store_id,
+                    viewKey: store.view_key,
+                    baseUrl: '',
+                    owned: true,
+                    name: store.name,
+                };
+            }
+        }
+        if (viewer) {
+            return {
+                storeId: viewer.storeId,
+                viewKey: viewer.viewKey,
+                baseUrl: viewer.baseUrl,
+                owned: false,
+            };
+        }
+        return null;
+    }, [ownedStores, viewer]);
+    const sourceRef = useRef<CloudSource | null>(source);
+    sourceRef.current = source;
+
+    const refreshSources = useCallback(async () => {
+        setViewer(getViewerSource());
+        if (signedIn) {
+            try {
+                setOwnedStores(await listMyStores());
+                return;
+            } catch {
+                // Not signed in after all / API unreachable — fall through.
+            }
+        }
+        setOwnedStores([]);
+    }, [signedIn]);
 
     const showStatus = useCallback(
         (text: string, kind: StatusMessage['kind'] = 'info') => setStatus({ text, kind }),
@@ -113,8 +163,8 @@ export default function AnalyticsPage() {
 
     const syncFromCloud = useCallback(
         async ({ silent = false } = {}) => {
-            const config = getCloudConfig();
-            if (!config) return;
+            const activeSource = sourceRef.current;
+            if (!activeSource) return;
             try {
                 if (!silent) showStatus('Checking the cloud store...');
                 const known = new Set(recordsRef.current.map((r) => r.sha256));
@@ -122,7 +172,7 @@ export default function AnalyticsPage() {
                     records: fetched,
                     errors,
                     cloudTotal,
-                } = await pullFromCloud(config, known, (p) => {
+                } = await pullFromCloud(activeSource, known, (p) => {
                     showStatus(p.message);
                     if (p.total) setProgress((p.index / p.total) * 100);
                 });
@@ -163,11 +213,11 @@ export default function AnalyticsPage() {
     // bytes; the server dedups by content hash, so always safe to re-run).
     const backfillToCloud = useCallback(
         async ({ silent = false } = {}) => {
-            const config = getCloudConfig();
-            if (!config?.uploadKey) return;
+            const activeSource = sourceRef.current;
+            if (!activeSource?.owned) return;
             try {
                 const { stored, errors } = await pushToCloud(
-                    config,
+                    activeSource,
                     recordsRef.current,
                     activeDeviceId(),
                     (p) => {
@@ -200,33 +250,39 @@ export default function AnalyticsPage() {
         [activeDeviceId, showStatus],
     );
 
-    // Boot: adopt a shared dashboard link, load local data, then refresh from
-    // the cloud in the background — no grinder needed.
+    // Boot: adopt a shared dashboard link, load local data, resolve the cloud
+    // sources — no grinder needed. Re-runs when sign-in state changes.
     useEffect(() => {
-        const adopted = adoptShareFragment();
-        setCloudConfig(getCloudConfig());
-        loadFromStore().then(() => {
-            if (getCloudConfig()) {
-                syncFromCloud({ silent: !adopted });
-            }
-        });
-    }, [loadFromStore, syncFromCloud]);
+        if (sessionPending) return;
+        adoptShareFragment();
+        loadFromStore().then(() => refreshSources());
+    }, [loadFromStore, refreshSources, sessionPending]);
 
-    // Claim the device's cloud store by possession: a grinder this browser
-    // can read hands out its read-only dashboard keys (docs/CLOUD_SYNC.md).
+    // Background sync whenever the resolved source changes (first resolution,
+    // store picker, sign-in).
+    const lastSyncedStore = useRef<string | null>(null);
+    useEffect(() => {
+        if (source && lastSyncedStore.current !== source.storeId) {
+            lastSyncedStore.current = source.storeId;
+            syncFromCloud({ silent: true });
+        }
+    }, [source, syncFromCloud]);
+
+    // Claim the device's cloud store by possession, read-only: a grinder this
+    // browser can read hands out its dashboard keys (docs/CLOUD_SYNC.md).
+    // Owners see their stores via login instead, so this only fills a blank.
     const cloud = grinder.active?.snapshot?.cloud;
     useEffect(() => {
-        if (cloud?.configured && cloud.view_key && !getCloudConfig()) {
-            saveCloudConfig({
+        if (cloud?.configured && cloud.view_key && !ownedStores.length && !getViewerSource()) {
+            saveViewerSource({
                 storeId: cloud.store_id,
                 viewKey: cloud.view_key,
                 baseUrl: cloud.server_url || '',
                 linkedAt: Date.now(),
             });
-            setCloudConfig(getCloudConfig());
-            syncFromCloud({ silent: true });
+            setViewer(getViewerSource());
         }
-    }, [cloud, syncFromCloud]);
+    }, [cloud, ownedStores.length]);
 
     const pullData = async () => {
         if (!grinder.supported) {
@@ -295,12 +351,12 @@ export default function AnalyticsPage() {
 
             // Automatic cloud backup: idempotent push of anything the store
             // is missing, plus a best-effort health observation.
-            const config = getCloudConfig();
-            if (config?.uploadKey) {
+            const activeSource = sourceRef.current;
+            if (activeSource?.owned) {
                 if (pulled.length) await backfillToCloud({ silent: true });
                 if (health) {
-                    pushSnapshotToCloud(config, health, activeDeviceId()).catch((error: Error) =>
-                        console.log('Cloud snapshot push failed:', error.message),
+                    pushSnapshotToCloud(activeSource, health, activeDeviceId()).catch(
+                        (error: Error) => console.log('Cloud snapshot push failed:', error.message),
                     );
                 }
             }
@@ -409,8 +465,10 @@ export default function AnalyticsPage() {
             />
 
             <CloudBar
-                config={cloudConfig}
-                onConfigChange={() => setCloudConfig(getCloudConfig())}
+                source={source}
+                ownedStores={ownedStores}
+                signedIn={signedIn}
+                onSourcesChanged={() => refreshSources()}
                 onSync={() => syncFromCloud()}
                 onBackfill={() => backfillToCloud()}
                 onStatus={(text, kind) => showStatus(text, kind)}
