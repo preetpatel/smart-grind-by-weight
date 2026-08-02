@@ -101,6 +101,63 @@ export const snapshots = pgTable(
     ],
 );
 
+// What the grinder can't know: which beans went in and what the burrs were set
+// to. Keyed by the session's content hash rather than a foreign key, so an
+// annotation written before a session finishes uploading still lands on it, and
+// survives the row being re-ingested. Local-first in the browser (IndexedDB);
+// this table is the copy that follows an account across browsers, reconciled
+// last-write-wins on updatedAt.
+export const annotations = pgTable(
+    'annotations',
+    {
+        id: bigserial('id', { mode: 'number' }).primaryKey(),
+        storeId: text('store_id')
+            .notNull()
+            .references(() => stores.id, { onDelete: 'cascade' }),
+        sha256: text('sha256').notNull(),
+        bean: text('bean'),
+        roastDate: text('roast_date'),
+        grindSetting: text('grind_setting'),
+        note: text('note'),
+        tags: jsonb('tags').$type<string[]>().notNull().default([]),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        uniqueIndex('annotations_store_sha_uq').on(table.storeId, table.sha256),
+        index('annotations_store_updated_idx').on(table.storeId, table.updatedAt),
+    ],
+);
+
+// Deleting a session has to outlive the next sync: the manifest handshake is
+// stateless, so without a tombstone the grinder simply uploads it again. Rows
+// here are consulted by the manifest and by ingest.
+export const deletedSessions = pgTable(
+    'deleted_sessions',
+    {
+        id: bigserial('id', { mode: 'number' }).primaryKey(),
+        storeId: text('store_id')
+            .notNull()
+            .references(() => stores.id, { onDelete: 'cascade' }),
+        sha256: text('sha256').notNull(),
+        // The manifest identifies files by (session_id, timestamp), not hash —
+        // the device has not uploaded the bytes yet, so it cannot know the
+        // hash. Both are recorded so either side can be matched.
+        sessionId: bigint('session_id', { mode: 'number' }).notNull(),
+        sessionTimestamp: bigint('session_timestamp', { mode: 'number' }).notNull(),
+        deletedAt: timestamp('deleted_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [
+        uniqueIndex('deleted_sessions_store_sha_uq').on(table.storeId, table.sha256),
+        index('deleted_sessions_store_session_idx').on(
+            table.storeId,
+            table.sessionId,
+            table.sessionTimestamp,
+        ),
+    ],
+);
+
 export type Store = typeof stores.$inferSelect;
 export type SessionRow = typeof sessions.$inferSelect;
 export type SnapshotRow = typeof snapshots.$inferSelect;
+export type AnnotationRow = typeof annotations.$inferSelect;
+export type DeletedSessionRow = typeof deletedSessions.$inferSelect;

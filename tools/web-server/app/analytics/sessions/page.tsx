@@ -7,7 +7,7 @@ import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 
 export default function SessionsPage() {
-    const { records, loaded } = useAnalytics();
+    const { records, loaded, annotations } = useAnalytics();
 
     if (!loaded) return null;
 
@@ -15,10 +15,10 @@ export default function SessionsPage() {
         <>
             <PageHeader
                 title="Sessions"
-                description="Every grind this browser knows about. Open one for its full analysis, or select a few and send them to Compare."
+                description="Every grind this browser knows about. Open one for its full analysis, or select a few and send them to Compare. Filter by bean once you have annotated a few."
             />
             {records.length ? (
-                <SessionsDataTable records={records} />
+                <SessionsDataTable records={records} annotations={annotations} />
             ) : (
                 <EmptyState
                     icon={ListFilter}

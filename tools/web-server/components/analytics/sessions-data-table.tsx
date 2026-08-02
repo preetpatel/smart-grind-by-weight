@@ -44,6 +44,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { sessionErrorLabel, sessionStartLabel, sessionTargetLabel } from '@/lib/analytics/labels';
+import type { Annotation } from '@/lib/analytics/types';
 import { type StoredRecord, TOLERANCE_G } from '@/lib/analytics/types';
 import { MODE_MAP, PROFILE_MAP } from '@/lib/parser';
 import { cn } from '@/lib/utils';
@@ -154,13 +155,20 @@ function FacetFilter({
     );
 }
 
-export function SessionsDataTable({ records }: { records: StoredRecord[] }) {
+export function SessionsDataTable({
+    records,
+    annotations,
+}: {
+    records: StoredRecord[];
+    annotations: Map<string, Annotation>;
+}) {
     const router = useRouter();
     const [sorting, setSorting] = useState<SortingState>([{ id: 'started', desc: true }]);
     const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
     const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
         events: false,
         samples: false,
+        setting: false,
     });
     const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
     const [search, setSearch] = useState('');
@@ -284,6 +292,30 @@ export function SessionsDataTable({ records }: { records: StoredRecord[] }) {
                 cell: ({ getValue }) => <ResultBadge status={getValue<string>()} />,
             },
             {
+                id: 'bean',
+                accessorFn: (r) => annotations.get(r.sha256)?.bean ?? '—',
+                header: 'Bean',
+                filterFn: (row, id, value: string[]) =>
+                    !value.length || value.includes(row.getValue(id)),
+                cell: ({ getValue }) => {
+                    const bean = getValue<string>();
+                    return bean === '—' ? (
+                        <span className="text-muted-foreground/50">—</span>
+                    ) : (
+                        <span className="truncate">{bean}</span>
+                    );
+                },
+            },
+            {
+                id: 'setting',
+                accessorFn: (r) => annotations.get(r.sha256)?.grind_setting ?? '',
+                header: 'Setting',
+                cell: ({ getValue }) => (
+                    <span className="text-muted-foreground">{getValue<string>() || '—'}</span>
+                ),
+                meta: { numeric: true },
+            },
+            {
                 id: 'events',
                 accessorFn: (r) => r.events.length,
                 header: 'Events',
@@ -296,7 +328,7 @@ export function SessionsDataTable({ records }: { records: StoredRecord[] }) {
                 meta: { numeric: true },
             },
         ],
-        [],
+        [annotations],
     );
 
     const table = useReactTable({
@@ -311,8 +343,9 @@ export function SessionsDataTable({ records }: { records: StoredRecord[] }) {
         onGlobalFilterChange: setSearch,
         globalFilterFn: (row, _id, value: string) => {
             const s = row.original.session;
+            const annotation = annotations.get(row.original.sha256);
             const haystack =
-                `#${s.session_id} ${sessionStartLabel(s)} ${MODE_MAP[s.grind_mode]} ${PROFILE_MAP[s.profile_id]} ${s.result_status}`.toLowerCase();
+                `#${s.session_id} ${sessionStartLabel(s)} ${MODE_MAP[s.grind_mode]} ${PROFILE_MAP[s.profile_id]} ${s.result_status} ${annotation?.bean ?? ''} ${annotation?.grind_setting ?? ''} ${annotation?.note ?? ''} ${annotation?.tags.join(' ') ?? ''}`.toLowerCase();
             return haystack.includes(value.toLowerCase());
         },
         getCoreRowModel: getCoreRowModel(),
@@ -366,6 +399,12 @@ export function SessionsDataTable({ records }: { records: StoredRecord[] }) {
                     values={facet('profile')}
                     selected={filterValue('profile')}
                     onChange={(next) => setFilter('profile', next)}
+                />
+                <FacetFilter
+                    label="Bean"
+                    values={facet('bean')}
+                    selected={filterValue('bean')}
+                    onChange={(next) => setFilter('bean', next)}
                 />
 
                 <div className="flex-1" />

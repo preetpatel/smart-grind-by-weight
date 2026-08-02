@@ -2,11 +2,12 @@
 
 // One grind, in full. The session is addressable by its content hash, so a
 // link to a specific grind survives re-pulls, cloud syncs and factory resets.
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Trash2 } from 'lucide-react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useState } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useMemo, useState } from 'react';
 import { useAnalytics } from '@/components/analytics/analytics-provider';
+import { AnnotationEditor } from '@/components/analytics/annotation-editor';
 import { OverallTab } from '@/components/analytics/overall-tab';
 import {
     ControllerTab,
@@ -14,6 +15,7 @@ import {
     PulseTab,
     VibrationTab,
 } from '@/components/analytics/single-views';
+import { ConfirmDialog } from '@/components/confirm-dialog';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
@@ -39,9 +41,23 @@ const SMOOTHING_OPTIONS: Array<[string, number]> = [
 
 export default function SessionPage() {
     const params = useParams<{ sha: string }>();
-    const { records, loaded } = useAnalytics();
+    const router = useRouter();
+    const { records, loaded, annotations, saveAnnotation, deleteSession, source } = useAnalytics();
     const [includeTaring, setIncludeTaring] = useState(false);
     const [smoothingMs, setSmoothingMs] = useState(500);
+    const [confirmDelete, setConfirmDelete] = useState(false);
+
+    // Suggestions come from what has already been typed, so the vocabulary
+    // grows with use instead of being configured up front.
+    const suggestions = useMemo(() => {
+        const beans = new Set<string>();
+        const settings = new Set<string>();
+        for (const entry of annotations.values()) {
+            if (entry.bean) beans.add(entry.bean);
+            if (entry.grind_setting) settings.add(entry.grind_setting);
+        }
+        return { beans: [...beans].sort(), settings: [...settings].sort() };
+    }, [annotations]);
 
     if (!loaded) return null;
 
@@ -106,6 +122,9 @@ export default function SessionPage() {
                     <Select
                         value={String(smoothingMs)}
                         onValueChange={(value) => setSmoothingMs(Number(value))}
+                        items={Object.fromEntries(
+                            SMOOTHING_OPTIONS.map(([label, value]) => [String(value), label]),
+                        )}
                     >
                         <SelectTrigger id="flow-smoothing" size="sm" className="w-32">
                             <SelectValue />
@@ -145,6 +164,30 @@ export default function SessionPage() {
                     <ControllerTab record={record} includeTaring={includeTaring} />
                 </TabsContent>
             </Tabs>
+
+            <AnnotationEditor
+                annotation={annotations.get(record.sha256)}
+                beanSuggestions={suggestions.beans}
+                settingSuggestions={suggestions.settings}
+                onSave={(patch) => saveAnnotation(record.sha256, patch)}
+            />
+
+            <ConfirmDialog
+                open={confirmDelete}
+                onOpenChange={setConfirmDelete}
+                title={`Delete grind #${record.session.session_id}?`}
+                description={
+                    source?.owned
+                        ? 'Removed from this browser and from your cloud store for good — the grinder will not be able to upload it again. Its own copy on the device is untouched.'
+                        : 'Removed from this browser. The grinder keeps its own copy, so pulling again will bring it back.'
+                }
+                confirmLabel="Delete grind"
+                destructive
+                onConfirm={async () => {
+                    await deleteSession(record.sha256);
+                    router.push('/analytics/sessions');
+                }}
+            />
         </>
     );
 }

@@ -17,7 +17,7 @@ import { config } from './config';
 import type { Db } from './db';
 import { ApiError } from './http';
 import { sha256Hex } from './keys';
-import { type Store, sessions } from './schema';
+import { deletedSessions, type Store, sessions } from './schema';
 
 type SessionInsert = typeof sessions.$inferInsert;
 export type SessionSummary = Omit<
@@ -31,7 +31,7 @@ export interface IngestOptions {
 }
 
 export interface IngestResult {
-    status: 'stored' | 'duplicate';
+    status: 'stored' | 'duplicate' | 'deleted';
     sha256: string;
     rotated: number;
 }
@@ -162,6 +162,15 @@ export async function ingestSession(
     await enforceUploadRate(db, store.id);
 
     const { sha256, summary } = validateSessionBlob(buffer);
+
+    // A grind the owner deleted stays deleted. The manifest already tells a
+    // well-behaved device not to send it, but ingest is reachable directly, so
+    // the tombstone is enforced here too rather than trusted upstream.
+    const tombstoned = await db
+        .select({ sha256: deletedSessions.sha256 })
+        .from(deletedSessions)
+        .where(and(eq(deletedSessions.storeId, store.id), eq(deletedSessions.sha256, sha256)));
+    if (tombstoned.length) return { status: 'deleted', sha256, rotated: 0 };
 
     const inserted = await db
         .insert(sessions)

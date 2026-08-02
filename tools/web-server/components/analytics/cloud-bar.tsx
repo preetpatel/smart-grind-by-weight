@@ -139,6 +139,9 @@ export function CloudBar({
                         setActiveStoreId(value);
                         onSourcesChanged();
                     }}
+                    items={Object.fromEntries(
+                        ownedStores.map((store) => [store.store_id, store.name ?? store.store_id]),
+                    )}
                 >
                     <SelectTrigger size="sm" className="w-56">
                         <SelectValue />

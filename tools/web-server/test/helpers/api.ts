@@ -9,6 +9,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import * as authRoute from '@/app/api/auth/[...all]/route';
 import * as myStoresRoute from '@/app/api/me/stores/route';
+import * as annotationsRoute from '@/app/api/stores/[id]/annotations/route';
 import * as manifestRoute from '@/app/api/stores/[id]/manifest/route';
 import * as provisionRoute from '@/app/api/stores/[id]/provision/route';
 import * as rotateRoute from '@/app/api/stores/[id]/rotate-view-key/route';
@@ -82,6 +83,15 @@ export const api = {
         sessionsRoute.GET(request('GET', `/api/stores/${id}/sessions`, opts), ctx({ id })),
     getBlob: (id: string, sha: string, opts: RequestOptions) =>
         blobRoute.GET(request('GET', `/api/stores/${id}/sessions/${sha}`, opts), ctx({ id, sha })),
+    deleteSession: (id: string, sha: string, opts: RequestOptions) =>
+        blobRoute.DELETE(
+            request('DELETE', `/api/stores/${id}/sessions/${sha}`, opts),
+            ctx({ id, sha }),
+        ),
+    getAnnotations: (id: string, opts: RequestOptions) =>
+        annotationsRoute.GET(request('GET', `/api/stores/${id}/annotations`, opts), ctx({ id })),
+    putAnnotations: (id: string, opts: RequestOptions) =>
+        annotationsRoute.PUT(request('PUT', `/api/stores/${id}/annotations`, opts), ctx({ id })),
     postSnapshot: (id: string, opts: RequestOptions) =>
         snapshotsRoute.POST(request('POST', `/api/stores/${id}/snapshots`, opts), ctx({ id })),
     listSnapshots: (id: string, opts: RequestOptions) =>

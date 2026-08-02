@@ -60,7 +60,16 @@ export function FirmwareSelect({
     }
 
     return (
-        <Select value={selected} onValueChange={(value) => onSelect(value ?? '')}>
+        <Select
+            value={selected}
+            onValueChange={(value) => onSelect(value ?? '')}
+            items={Object.fromEntries(
+                visible.map((entry) => [
+                    entry.tag,
+                    entry.prerelease ? `${entry.display} (pre-release)` : entry.display,
+                ]),
+            )}
+        >
             <SelectTrigger id={id} className="w-full max-w-sm font-mono">
                 <SelectValue />
             </SelectTrigger>

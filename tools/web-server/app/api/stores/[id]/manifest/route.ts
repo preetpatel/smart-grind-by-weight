@@ -4,7 +4,7 @@ import { config } from '@/lib/config';
 import { withCors } from '@/lib/cors';
 import { getDb } from '@/lib/db';
 import { ApiError, handleErrors, json } from '@/lib/http';
-import { sessions } from '@/lib/schema';
+import { deletedSessions, sessions } from '@/lib/schema';
 
 export { OPTIONS } from '@/lib/cors';
 
@@ -79,12 +79,29 @@ export async function POST(request: Request, { params }: Context): Promise<Respo
                         `${row.sessionId}:${row.sessionTimestamp}:${row.sessionSize}:${row.headerChecksum}`,
                 ),
             );
+            // Sessions the owner deleted must not come back on the next
+            // sync, so tombstones count as "already have it" here. Matched on
+            // (session_id, timestamp) because the device has not uploaded the
+            // bytes and so cannot know the content hash.
+            const tombstones = await db
+                .select({
+                    sessionId: deletedSessions.sessionId,
+                    sessionTimestamp: deletedSessions.sessionTimestamp,
+                })
+                .from(deletedSessions)
+                .where(
+                    and(eq(deletedSessions.storeId, id), inArray(deletedSessions.sessionId, ids)),
+                );
+            const deleted = new Set(
+                tombstones.map((row) => `${row.sessionId}:${row.sessionTimestamp}`),
+            );
+
             const want = entries
                 .filter(
                     (entry) =>
                         !known.has(
                             `${entry.session_id}:${entry.session_timestamp}:${entry.session_size}:${entry.checksum}`,
-                        ),
+                        ) && !deleted.has(`${entry.session_id}:${entry.session_timestamp}`),
                 )
                 .map((entry) => entry.session_id);
             return json({ want });

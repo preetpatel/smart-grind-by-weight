@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '@/lib/db';
+import * as schema from '@/lib/schema';
 import { api, freshDb, newStore, signUp } from './helpers/api';
 import { buildSessionBlob } from './helpers/blob';
 
@@ -412,5 +413,151 @@ describe('snapshots', () => {
             (await api.postSnapshot(store.store_id, { key: store.upload_key, body: 'not json' }))
                 .status,
         ).toBe(400);
+    });
+});
+
+describe('session deletion', () => {
+    it('tombstones a deleted session so the next manifest does not re-request it', async () => {
+        const store = await newStore();
+        const blob = buildSessionBlob({ sessionId: 41, timestamp: 1_800_000_000 });
+        const ingested = await api.ingest(store.store_id, {
+            key: store.upload_key,
+            body: blob,
+        });
+        const { sha256 } = (await ingested.json()) as { sha256: string };
+
+        // The manifest matches the whole tuple, and session_size/checksum are
+        // header fields rather than the file's byte length — take them from
+        // what the server actually recorded so this is a real control.
+        const [row] = await db
+            .select({
+                sessionSize: schema.sessions.sessionSize,
+                headerChecksum: schema.sessions.headerChecksum,
+            })
+            .from(schema.sessions);
+        const manifestEntry = {
+            session_id: 41,
+            session_timestamp: 1_800_000_000,
+            session_size: row?.sessionSize ?? 0,
+            checksum: row?.headerChecksum ?? 0,
+        };
+        const before = await api.postManifest(store.store_id, {
+            key: store.upload_key,
+            body: { sessions: [manifestEntry] },
+        });
+        expect(((await before.json()) as { want: number[] }).want).toEqual([]);
+
+        const deleted = await api.deleteSession(store.store_id, sha256, {
+            cookie: store.cookie,
+        });
+        expect(deleted.status).toBe(200);
+        expect(await listedSessions(store.store_id, store.view_key)).toHaveLength(0);
+
+        // The row is gone, but the manifest must still not ask for it — the
+        // device has no idea it was deleted and will offer the file forever.
+        const after = await api.postManifest(store.store_id, {
+            key: store.upload_key,
+            body: { sessions: [manifestEntry] },
+        });
+        expect(((await after.json()) as { want: number[] }).want).toEqual([]);
+    });
+
+    it('refuses to resurrect a deleted session through direct ingest', async () => {
+        const store = await newStore();
+        const blob = buildSessionBlob({ sessionId: 42, timestamp: 1_800_000_100 });
+        const first = await api.ingest(store.store_id, { key: store.upload_key, body: blob });
+        const { sha256 } = (await first.json()) as { sha256: string };
+        await api.deleteSession(store.store_id, sha256, { cookie: store.cookie });
+
+        const again = await api.ingest(store.store_id, { key: store.upload_key, body: blob });
+        expect(((await again.json()) as { status: string }).status).toBe('deleted');
+        expect(await listedSessions(store.store_id, store.view_key)).toHaveLength(0);
+    });
+
+    it('rejects deletion by anyone but the owner', async () => {
+        const store = await newStore();
+        const blob = buildSessionBlob({ sessionId: 43 });
+        const { sha256 } = (await (
+            await api.ingest(store.store_id, { key: store.upload_key, body: blob })
+        ).json()) as { sha256: string };
+
+        const withUploadKey = await api.deleteSession(store.store_id, sha256, {
+            key: store.upload_key,
+        });
+        expect(withUploadKey.status).toBe(401);
+
+        const otherCookie = await signUp();
+        const withOtherAccount = await api.deleteSession(store.store_id, sha256, {
+            cookie: otherCookie,
+        });
+        expect(withOtherAccount.status).toBe(403);
+        expect(await listedSessions(store.store_id, store.view_key)).toHaveLength(1);
+    });
+});
+
+describe('annotations', () => {
+    const SHA = 'a'.repeat(64);
+
+    it('stores and returns annotations for a store', async () => {
+        const store = await newStore();
+        const stored = await api.putAnnotations(store.store_id, {
+            cookie: store.cookie,
+            body: {
+                annotations: [
+                    {
+                        sha256: SHA,
+                        bean: '  Kenya Nyeri  ',
+                        grind_setting: '2.4',
+                        note: 'sweeter than yesterday',
+                        tags: ['espresso', 'espresso', '  filter  ', ''],
+                        updated_at: '2026-08-02T10:00:00.000Z',
+                    },
+                ],
+            },
+        });
+        expect(stored.status).toBe(200);
+
+        const listed = await api.getAnnotations(store.store_id, { key: store.view_key });
+        const { annotations } = (await listed.json()) as {
+            annotations: Array<Record<string, unknown>>;
+        };
+        expect(annotations).toHaveLength(1);
+        expect(annotations[0]?.bean).toBe('Kenya Nyeri');
+        expect(annotations[0]?.grind_setting).toBe('2.4');
+        // Tags are trimmed, de-duplicated, and empties dropped.
+        expect(annotations[0]?.tags).toEqual(['espresso', 'filter']);
+        // An unset field is null rather than an empty string, so downstream
+        // comparisons have one representation of "no value".
+        expect(annotations[0]?.roast_date).toBeNull();
+    });
+
+    it('resolves conflicts last-write-wins and drops stale edits', async () => {
+        const store = await newStore();
+        const write = (bean: string, updatedAt: string) =>
+            api.putAnnotations(store.store_id, {
+                cookie: store.cookie,
+                body: { annotations: [{ sha256: SHA, bean, tags: [], updated_at: updatedAt }] },
+            });
+
+        await write('first', '2026-08-02T10:00:00.000Z');
+        await write('newer', '2026-08-02T12:00:00.000Z');
+        // An older tab flushing late must not clobber the newer edit.
+        await write('stale', '2026-08-02T11:00:00.000Z');
+
+        const listed = await api.getAnnotations(store.store_id, { key: store.view_key });
+        const { annotations } = (await listed.json()) as {
+            annotations: Array<{ bean: string }>;
+        };
+        expect(annotations).toHaveLength(1);
+        expect(annotations[0]?.bean).toBe('newer');
+    });
+
+    it('rejects annotation writes that carry only the view key', async () => {
+        const store = await newStore();
+        const response = await api.putAnnotations(store.store_id, {
+            key: store.view_key,
+            body: { annotations: [{ sha256: SHA, bean: 'nope', tags: [] }] },
+        });
+        expect(response.status).toBe(403);
     });
 });

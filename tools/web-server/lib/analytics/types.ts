@@ -51,3 +51,25 @@ export const EPOCH_THRESHOLD = 1577836800;
 export function isEpochTimestamp(ts: number): boolean {
     return ts >= EPOCH_THRESHOLD;
 }
+
+// What the grinder can't record: what went in and what it was set to. Keyed by
+// the session's content hash, written locally first, and synced to a cloud
+// store only when one exists — annotating must not require an account.
+export interface Annotation {
+    sha256: string;
+    bean: string | null;
+    roast_date: string | null;
+    grind_setting: string | null;
+    note: string | null;
+    tags: string[];
+    /** ISO 8601; the field conflicts are resolved on, last write wins. */
+    updated_at: string;
+}
+
+export const EMPTY_ANNOTATION: Omit<Annotation, 'sha256' | 'updated_at'> = {
+    bean: null,
+    roast_date: null,
+    grind_setting: null,
+    note: null,
+    tags: [],
+};

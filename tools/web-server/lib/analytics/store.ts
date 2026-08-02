@@ -5,12 +5,17 @@
 // arriving twice (BLE pull and cloud sync) lands on one record, and a
 // factory-reset grinder's reborn session ids don't collide. `raw` holds the
 // verbatim device bytes for the cloud backfill (docs/CLOUD_SYNC.md).
-import type { DeviceReports, StoredRecord } from './types';
+//
+// v3 adds annotations — what the grinder can't know, keyed by the same sha256.
+// They are written locally first and work with no account at all; syncing to a
+// cloud store is an extra, not a requirement.
+import type { Annotation, DeviceReports, StoredRecord } from './types';
 
 const DB_NAME = 'sgbw-analytics';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const SESSIONS_STORE = 'sessions';
 const META_STORE = 'meta';
+const ANNOTATIONS_STORE = 'annotations';
 
 export const EXPORT_FORMAT = 'sgbw-analytics';
 export const EXPORT_VERSION = 1;
@@ -28,6 +33,11 @@ function openDb(): Promise<IDBDatabase> {
             db.createObjectStore(SESSIONS_STORE, { keyPath: 'sha256' });
             if (!db.objectStoreNames.contains(META_STORE)) {
                 db.createObjectStore(META_STORE, { keyPath: 'key' });
+            }
+            // Annotations are user-authored and not re-pullable from anywhere
+            // else, so unlike sessions this store is created, never dropped.
+            if (!db.objectStoreNames.contains(ANNOTATIONS_STORE)) {
+                db.createObjectStore(ANNOTATIONS_STORE, { keyPath: 'sha256' });
             }
         };
         request.onsuccess = () => resolve(request.result);
@@ -76,12 +86,27 @@ export async function loadSessions(): Promise<StoredRecord[]> {
     }
 }
 
+// Removes one grind and any annotation on it. The grinder keeps its own copy;
+// only the cloud tombstone makes a delete permanent across a re-sync.
+export async function removeSession(sha256: string): Promise<void> {
+    const db = await openDb();
+    try {
+        const tx = db.transaction([SESSIONS_STORE, ANNOTATIONS_STORE], 'readwrite');
+        tx.objectStore(SESSIONS_STORE).delete(sha256);
+        tx.objectStore(ANNOTATIONS_STORE).delete(sha256);
+        await transactionDone(tx);
+    } finally {
+        db.close();
+    }
+}
+
 export async function clearAll(): Promise<void> {
     const db = await openDb();
     try {
-        const tx = db.transaction([SESSIONS_STORE, META_STORE], 'readwrite');
+        const tx = db.transaction([SESSIONS_STORE, META_STORE, ANNOTATIONS_STORE], 'readwrite');
         tx.objectStore(SESSIONS_STORE).clear();
         tx.objectStore(META_STORE).clear();
+        tx.objectStore(ANNOTATIONS_STORE).clear();
         await transactionDone(tx);
     } finally {
         db.close();
@@ -112,9 +137,50 @@ export async function loadMeta<T>(key: string): Promise<T | null> {
     }
 }
 
+// ---- annotations ----------------------------------------------------------
+
+export async function loadAnnotations(): Promise<Annotation[]> {
+    const db = await openDb();
+    try {
+        const tx = db.transaction(ANNOTATIONS_STORE, 'readonly');
+        const request = tx.objectStore(ANNOTATIONS_STORE).getAll();
+        await transactionDone(tx);
+        return request.result as Annotation[];
+    } finally {
+        db.close();
+    }
+}
+
+export async function saveAnnotations(entries: Annotation[]): Promise<void> {
+    if (!entries.length) return;
+    const db = await openDb();
+    try {
+        const tx = db.transaction(ANNOTATIONS_STORE, 'readwrite');
+        const store = tx.objectStore(ANNOTATIONS_STORE);
+        for (const entry of entries) store.put(entry);
+        await transactionDone(tx);
+    } finally {
+        db.close();
+    }
+}
+
+// True when every field is empty — the annotation exists only as a tombstone
+// of an edit that cleared it, which still has to sync so other browsers drop
+// their copy too.
+export function isBlankAnnotation(entry: Annotation): boolean {
+    return (
+        !entry.bean &&
+        !entry.roast_date &&
+        !entry.grind_setting &&
+        !entry.note &&
+        entry.tags.length === 0
+    );
+}
+
 export function buildExportJson(
     records: StoredRecord[],
     deviceReports: DeviceReports | null,
+    annotations: Annotation[] = [],
 ): string {
     const payload: Record<string, unknown> = {
         format: EXPORT_FORMAT,
@@ -127,6 +193,9 @@ export function buildExportJson(
     if (deviceReports) {
         payload.deviceReports = deviceReports;
     }
+    if (annotations.length) {
+        payload.annotations = annotations;
+    }
     return JSON.stringify(payload);
 }
 
@@ -134,6 +203,7 @@ export function buildExportJson(
 export function parseImportJson(text: string): {
     records: StoredRecord[];
     deviceReports: DeviceReports | null;
+    annotations: Annotation[];
 } {
     let payload: Record<string, unknown>;
     try {
@@ -167,8 +237,14 @@ export function parseImportJson(text: string): {
             source: record.source ?? 'import',
         } satisfies StoredRecord;
     });
+    const annotations = Array.isArray(payload.annotations)
+        ? (payload.annotations as Annotation[]).filter(
+              (entry) => entry && typeof entry.sha256 === 'string',
+          )
+        : [];
     return {
         records,
         deviceReports: (payload.deviceReports as DeviceReports | undefined) ?? null,
+        annotations,
     };
 }

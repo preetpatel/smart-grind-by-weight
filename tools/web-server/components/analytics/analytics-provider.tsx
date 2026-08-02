@@ -17,23 +17,30 @@ import type { StatusMessage } from '@/components/status-region';
 import {
     buildExportJson,
     clearAll,
+    isBlankAnnotation,
+    loadAnnotations,
     loadMeta,
     loadSessions,
     parseImportJson,
+    removeSession,
+    saveAnnotations,
     saveMeta,
     saveSessions,
 } from '@/lib/analytics/store';
-import type { DeviceReports, StoredRecord } from '@/lib/analytics/types';
+import type { Annotation, DeviceReports, StoredRecord } from '@/lib/analytics/types';
 import { authClient } from '@/lib/client/auth';
 import * as ble from '@/lib/client/ble';
 import {
     adoptShareFragment,
     type CloudSource,
+    deleteCloudSession,
+    fetchAnnotations,
     getActiveStoreId,
     getViewerSource,
     listMyStores,
     type OwnedStore,
     pullFromCloud,
+    pushAnnotations,
     pushSnapshotToCloud,
     pushToCloud,
     saveViewerSource,
@@ -44,6 +51,7 @@ import { useGrinder } from '@/lib/client/use-grinder';
 
 interface AnalyticsState {
     records: StoredRecord[];
+    annotations: Map<string, Annotation>;
     deviceReports: DeviceReports | null;
     lastPull: string | null;
     status: StatusMessage | null;
@@ -61,6 +69,8 @@ interface AnalyticsState {
     exportJson: () => void;
     importJson: (file: File) => Promise<void>;
     clearStoredData: () => Promise<void>;
+    saveAnnotation: (sha256: string, patch: Partial<Omit<Annotation, 'sha256'>>) => Promise<void>;
+    deleteSession: (sha256: string) => Promise<void>;
     syncFromCloud: (options?: { silent?: boolean }) => Promise<void>;
     backfillToCloud: (options?: { silent?: boolean }) => Promise<void>;
     refreshSources: () => Promise<void>;
@@ -77,6 +87,7 @@ export function useAnalytics(): AnalyticsState {
 export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const grinder = useGrinder();
     const [records, setRecords] = useState<StoredRecord[]>([]);
+    const [annotations, setAnnotations] = useState<Map<string, Annotation>>(() => new Map());
     const [deviceReports, setDeviceReports] = useState<DeviceReports | null>(null);
     const [lastPull, setLastPull] = useState<string | null>(null);
     const [status, setStatus] = useState<StatusMessage | null>(null);
@@ -87,6 +98,8 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const [viewer, setViewer] = useState<ViewerSource | null>(null);
     const recordsRef = useRef<StoredRecord[]>([]);
     recordsRef.current = records;
+    const annotationsRef = useRef<Map<string, Annotation>>(annotations);
+    annotationsRef.current = annotations;
 
     const { data: session, isPending: sessionPending } = authClient.useSession();
     const signedIn = Boolean(session?.user);
@@ -119,6 +132,43 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const sourceRef = useRef<CloudSource | null>(source);
     sourceRef.current = source;
 
+    // Annotations are local-first: whatever this browser holds is authoritative
+    // until a store says otherwise, and then only per row, newest updated_at
+    // winning. Blank entries still travel — they are how a cleared annotation
+    // reaches other browsers.
+    const reconcileAnnotations = useCallback(async (source: CloudSource) => {
+        try {
+            const remote = await fetchAnnotations(source);
+            const local = new Map((await loadAnnotations()).map((e) => [e.sha256, e]));
+            const incoming: Annotation[] = [];
+            for (const entry of remote) {
+                const mine = local.get(entry.sha256);
+                if (!mine || Date.parse(entry.updated_at) > Date.parse(mine.updated_at)) {
+                    incoming.push(entry);
+                }
+            }
+            if (incoming.length) await saveAnnotations(incoming);
+
+            if (source.owned) {
+                const remoteAt = new Map(remote.map((e) => [e.sha256, Date.parse(e.updated_at)]));
+                const outgoing = [...local.values()].filter((entry) => {
+                    const seen = remoteAt.get(entry.sha256);
+                    return seen === undefined
+                        ? !isBlankAnnotation(entry)
+                        : Date.parse(entry.updated_at) > seen;
+                });
+                if (outgoing.length) await pushAnnotations(source, outgoing);
+            }
+            setAnnotations(
+                new Map((await loadAnnotations()).map((entry) => [entry.sha256, entry])),
+            );
+        } catch (error) {
+            // A store without the annotations endpoint (or an offline browser)
+            // must not break the session sync it rides along with.
+            console.log('Annotation sync skipped:', (error as Error).message);
+        }
+    }, []);
+
     const showStatus = useCallback(
         (text: string, kind: StatusMessage['kind'] = 'info') => setStatus({ text, kind }),
         [],
@@ -141,6 +191,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const loadFromStore = useCallback(async () => {
         const stored = await loadSessions();
         setRecords(stored);
+        setAnnotations(new Map((await loadAnnotations()).map((entry) => [entry.sha256, entry])));
         setDeviceReports(await loadMeta<DeviceReports>('deviceReports'));
         setLastPull(await loadMeta<string>('lastPull'));
         setLoaded(true);
@@ -170,8 +221,9 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                 if (fetched.length) {
                     await saveSessions(fetched);
                     await saveMeta('lastPull', new Date().toISOString());
-                    await loadFromStore();
                 }
+                await reconcileAnnotations(activeSource);
+                if (fetched.length) await loadFromStore();
                 if (errors.length) {
                     showStatus(
                         `Cloud sync: ${fetched.length} sessions added, ${errors.length} failed.`,
@@ -197,7 +249,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                 setProgress(null);
             }
         },
-        [loadFromStore, showStatus],
+        [loadFromStore, reconcileAnnotations, showStatus],
     );
 
     // Push any locally-held sessions the store is missing (verbatim raw bytes;
@@ -366,7 +418,9 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
             showStatus('Nothing to export yet — pull or import data first.', 'warning');
             return;
         }
-        const json = buildExportJson(recordsRef.current, deviceReports);
+        const json = buildExportJson(recordsRef.current, deviceReports, [
+            ...annotationsRef.current.values(),
+        ]);
         const stamp = new Date().toISOString().slice(0, 10);
         const blob = new Blob([json], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -384,8 +438,13 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         async (file: File) => {
             try {
                 const text = await file.text();
-                const { records: imported, deviceReports: importedReports } = parseImportJson(text);
+                const {
+                    records: imported,
+                    deviceReports: importedReports,
+                    annotations: importedAnnotations,
+                } = parseImportJson(text);
                 await saveSessions(imported);
+                if (importedAnnotations.length) await saveAnnotations(importedAnnotations);
                 if (importedReports) await saveMeta('deviceReports', importedReports);
                 await saveMeta('lastPull', new Date().toISOString());
                 await loadFromStore();
@@ -400,6 +459,56 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         [loadFromStore, showStatus],
     );
 
+    const saveAnnotation = useCallback(
+        async (sha256: string, patch: Partial<Omit<Annotation, 'sha256'>>) => {
+            const existing = annotationsRef.current.get(sha256);
+            const entry: Annotation = {
+                sha256,
+                bean: null,
+                roast_date: null,
+                grind_setting: null,
+                note: null,
+                tags: [],
+                ...existing,
+                ...patch,
+                updated_at: new Date().toISOString(),
+            };
+            await saveAnnotations([entry]);
+            setAnnotations((current) => new Map(current).set(sha256, entry));
+            const activeSource = sourceRef.current;
+            if (activeSource?.owned) {
+                pushAnnotations(activeSource, [entry]).catch((error: Error) =>
+                    console.log('Annotation push failed:', error.message),
+                );
+            }
+        },
+        [],
+    );
+
+    // Local removal always happens; the cloud copy only when this account owns
+    // the store, where the server also writes a tombstone so the grinder can't
+    // upload it again on the next sync.
+    const deleteSession = useCallback(
+        async (sha256: string) => {
+            const activeSource = sourceRef.current;
+            if (activeSource?.owned) {
+                try {
+                    await deleteCloudSession(activeSource, sha256);
+                } catch (error) {
+                    showStatus(
+                        `Deleted here, but the cloud copy could not be removed: ${
+                            error instanceof Error ? error.message : error
+                        }`,
+                        'warning',
+                    );
+                }
+            }
+            await removeSession(sha256);
+            await loadFromStore();
+        },
+        [loadFromStore, showStatus],
+    );
+
     const clearStoredData = useCallback(async () => {
         await clearAll();
         await loadFromStore();
@@ -409,6 +518,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const snapshot = grinder.active?.snapshot;
     const value: AnalyticsState = {
         records,
+        annotations,
         deviceReports,
         lastPull,
         status,
@@ -428,6 +538,8 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         exportJson,
         importJson,
         clearStoredData,
+        saveAnnotation,
+        deleteSession,
         syncFromCloud,
         backfillToCloud,
         refreshSources,

@@ -9,7 +9,7 @@
 //    authenticate with the view key as a bearer token, which also covers the
 //    cross-origin case (a hosted dashboard reading a self-hosted store).
 
-import type { DeviceReports, StoredRecord } from '@/lib/analytics/types';
+import type { Annotation, DeviceReports, StoredRecord } from '@/lib/analytics/types';
 import { parseSessionFile } from '@/lib/parser';
 
 const VIEWER_KEY = 'sgbwCloudViewer';
@@ -390,4 +390,35 @@ export async function pushSnapshotToCloud(
     );
     if (!response.ok) throw new Error(await errorMessage(response));
     return true;
+}
+
+// ---- annotations ----------------------------------------------------------
+
+// Annotations follow the same shape as everything else here: the browser holds
+// the truth it can see, the store holds the copy that follows an account
+// around, and the two are reconciled last-write-wins on updated_at.
+export async function fetchAnnotations(source: CloudSource): Promise<Annotation[]> {
+    const response = await apiFetch(source, `/${source.storeId}/annotations`);
+    const { annotations } = (await response.json()) as { annotations: Annotation[] };
+    return annotations;
+}
+
+export async function pushAnnotations(
+    source: CloudSource,
+    annotations: Annotation[],
+): Promise<Annotation[]> {
+    if (!annotations.length) return [];
+    const response = await ownerFetch(`/api/stores/${source.storeId}/annotations`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ annotations }),
+    });
+    const body = (await response.json()) as { annotations: Annotation[] };
+    return body.annotations;
+}
+
+// Deleting a grind for good: the server writes a tombstone so the device
+// cannot re-upload it on the next sync.
+export async function deleteCloudSession(source: CloudSource, sha256: string): Promise<void> {
+    await ownerFetch(`/api/stores/${source.storeId}/sessions/${sha256}`, { method: 'DELETE' });
 }

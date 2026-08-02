@@ -30,6 +30,7 @@ import type { ParsedGrindSession } from '@/lib/parser';
 import { MODE_MAP } from '@/lib/parser';
 
 const COLOR_PERFECT = '#58c97d'; // --success, lifted for the dark surface
+const COLOR_SETTING = '#b950b2'; // detection magenta — annotation markers
 
 // Sequential blue ramp for the compare overlay, light -> dark. On the dark
 // chart surface the lightest step is the most prominent, so the NEWEST
@@ -105,12 +106,49 @@ function trendRows(records: StoredRecord[]): TrendRow[] {
     return rows;
 }
 
+// Vertical rules where the grind setting changed, annotated with the new
+// value. This is the whole point of recording the setting: a step in flow rate
+// or latency should line up with the day the burrs moved, and until now that
+// correlation had to be held in your head.
+export interface SettingChange {
+    sessionId: number;
+    setting: string;
+}
+
+function settingChangeShapes(changes: SettingChange[]): {
+    shapes: Record<string, unknown>[];
+    annotations: Record<string, unknown>[];
+} {
+    return {
+        shapes: changes.map((change) => ({
+            type: 'line',
+            xref: 'x',
+            yref: 'paper',
+            x0: change.sessionId,
+            x1: change.sessionId,
+            y0: 0,
+            y1: 1,
+            line: { color: COLOR_SETTING, width: 1, dash: 'dot' },
+        })),
+        annotations: changes.map((change) => ({
+            x: change.sessionId,
+            y: 1,
+            xref: 'x',
+            yref: 'paper',
+            text: change.setting,
+            showarrow: false,
+            yanchor: 'bottom',
+            font: { size: 10, color: COLOR_SETTING },
+        })),
+    };
+}
+
 function trendFigure(
     rows: TrendRow[],
     valueKey: TrendValueKey,
     title: string,
     yTitle: string,
-    options: { shapes?: Record<string, unknown>[] } = {},
+    options: { shapes?: Record<string, unknown>[]; settingChanges?: SettingChange[] } = {},
 ): Figure {
     const points = rows
         .map((row) => ({ row, value: row[valueKey] }))
@@ -119,7 +157,12 @@ function trendFigure(
                 point.value !== null && point.value !== undefined,
         );
     const layout: Record<string, unknown> = { ...chartLayout(title, 'Session ID', yTitle) };
-    if (options.shapes) layout.shapes = options.shapes;
+    const marks = settingChangeShapes(options.settingChanges ?? []);
+    const shapes = [...(options.shapes ?? []), ...marks.shapes];
+    if (shapes.length) layout.shapes = shapes;
+    if (marks.annotations.length) layout.annotations = marks.annotations;
+    // Room for the setting labels sitting above the plot.
+    if (marks.annotations.length) layout.margin = { t: 56, r: 20, b: 45, l: 55 };
     return {
         traces: [
             {
@@ -165,9 +208,11 @@ function lifetimeNumber(lifetime: Record<string, unknown>, key: string): number 
 export function TrendsView({
     records,
     deviceReports,
+    settingChanges = [],
 }: {
     records: StoredRecord[];
     deviceReports: DeviceReports | null;
+    settingChanges?: SettingChange[];
 }) {
     // Wear odometer from the firmware's lifetime statistics: counts every
     // grind ever done on this device, not just the logged sessions below.
@@ -182,12 +227,17 @@ export function TrendsView({
                     hline(-TOLERANCE_G, COLOR_TARGET),
                     hline(0, COLOR_PERFECT, 'solid'),
                 ],
+                settingChanges,
             }),
-            flowRate: trendFigure(rows, 'flowRate', 'Predictive Flow Rate', 'Flow (g/s)'),
-            latencyMs: trendFigure(rows, 'latencyMs', 'Grind Latency', 'Latency (ms)'),
-            pulses: trendFigure(rows, 'pulses', 'Pulse Count', 'Pulses'),
+            flowRate: trendFigure(rows, 'flowRate', 'Predictive Flow Rate', 'Flow (g/s)', {
+                settingChanges,
+            }),
+            latencyMs: trendFigure(rows, 'latencyMs', 'Grind Latency', 'Latency (ms)', {
+                settingChanges,
+            }),
+            pulses: trendFigure(rows, 'pulses', 'Pulse Count', 'Pulses', { settingChanges }),
         };
-    }, [rows]);
+    }, [rows, settingChanges]);
 
     return (
         <>
