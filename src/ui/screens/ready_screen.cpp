@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
+#include "../../system/bean_config.h"
 #include "../../system/time_sync.h"
 #include "../ui_helpers.h"
 
@@ -58,9 +59,63 @@ void ReadyScreen::create() {
     lv_obj_add_flag(clock_label, LV_OBJ_FLAG_HIDDEN);
     clock_text[0] = '\0';
 
+    // Grind advice chip: the server's finer/coarser verdict, shown where the
+    // user stands before dialing the next shot. Sits at the bottom of this
+    // 80%-height container, clear of the floating grind button below it.
+    // Tap to dismiss until the verdict changes.
+    advice_chip = lv_obj_create(screen);
+    lv_obj_set_size(advice_chip, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_align(advice_chip, LV_ALIGN_BOTTOM_MID, 0, -2);
+    lv_obj_set_style_bg_color(advice_chip, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_bg_opa(advice_chip, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(advice_chip, THEME_CORNER_RADIUS_PX, 0);
+    lv_obj_set_style_border_width(advice_chip, 0, 0);
+    lv_obj_set_style_pad_ver(advice_chip, 12, 0);
+    lv_obj_set_style_pad_hor(advice_chip, 18, 0);
+    lv_obj_set_layout(advice_chip, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(advice_chip, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(advice_chip, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(advice_chip, 10, 0);
+    lv_obj_clear_flag(advice_chip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(advice_chip, LV_OBJ_FLAG_CLICKABLE);
+
+    lv_obj_t* advice_dot = lv_obj_create(advice_chip);
+    lv_obj_set_size(advice_dot, 10, 10);
+    lv_obj_set_style_radius(advice_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(advice_dot, lv_color_hex(THEME_COLOR_WARNING), 0);
+    lv_obj_set_style_border_width(advice_dot, 0, 0);
+
+    advice_label = lv_label_create(advice_chip);
+    lv_label_set_text(advice_label, "");
+    lv_obj_set_style_text_font(advice_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(advice_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+
+    lv_obj_add_event_cb(advice_chip, [](lv_event_t* e) {
+        if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
+        bean_config.dismiss_advice();
+        lv_obj_add_flag(static_cast<lv_obj_t*>(lv_event_get_target(e)), LV_OBJ_FLAG_HIDDEN);
+    }, LV_EVENT_CLICKED, nullptr);
+
+    lv_obj_add_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);
+
     update_profile_values(default_weights, GrindMode::WEIGHT);
 
     visible = false;
+}
+
+void ReadyScreen::update_advice_chip() {
+    if (!advice_chip || !advice_label) return;
+    bean_config.reload_if_dirty();
+    BeanConfig::Advice advice = bean_config.get_advice();
+    bool actionable = (advice == BeanConfig::Advice::FINER || advice == BeanConfig::Advice::COARSER)
+                      && !bean_config.is_advice_dismissed();
+    if (!actionable) {
+        lv_obj_add_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+    set_label_text_if_changed(advice_label,
+                              advice == BeanConfig::Advice::FINER ? "TRY FINER" : "TRY COARSER");
+    lv_obj_clear_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ReadyScreen::update_clock() {

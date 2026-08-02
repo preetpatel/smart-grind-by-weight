@@ -22,6 +22,7 @@
 #include "../system/time_sync.h"
 #include "../system/wifi_service.h"
 #include "../system/cloud_sync.h"
+#include "../system/bean_config.h"
 #include "../system/boot_guard.h"
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
@@ -72,6 +73,8 @@ BluetoothManager::BluetoothManager()
     , sysinfo_wifi_status_characteristic(nullptr)
     , sysinfo_cloud_config_characteristic(nullptr)
     , sysinfo_cloud_status_characteristic(nullptr)
+    , sysinfo_bean_config_characteristic(nullptr)
+    , sysinfo_bean_status_characteristic(nullptr)
     , device_connected(false)
     , ble_enabled(false), enable_in_progress(false), debug_stream_active(false)
     , data_export_in_progress(false)
@@ -97,7 +100,10 @@ BluetoothManager::BluetoothManager()
     , last_wifi_status_fingerprint(0xFF)
     , cloud_config_pending_len(0)
     , cloud_config_pending(false)
-    , last_cloud_status_fingerprint(0xFF) {
+    , last_cloud_status_fingerprint(0xFF)
+    , bean_config_pending_len(0)
+    , bean_config_pending(false)
+    , last_bean_status_fingerprint(0xFF) {
 }
 
 BluetoothManager::~BluetoothManager() {
@@ -351,6 +357,19 @@ void BluetoothManager::setup_gatt_services() {
     );
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
 
+    sysinfo_bean_config_characteristic = sysinfo_service->createCharacteristic(
+        BLE_SYSINFO_BEAN_CONFIG_CHAR_UUID,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    sysinfo_bean_config_characteristic->setCallbacks(this);
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
+    sysinfo_bean_status_characteristic = sysinfo_service->createCharacteristic(
+        BLE_SYSINFO_BEAN_STATUS_CHAR_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
     ota_service->start();
     delay(BLE_INIT_START_DELAY_MS);
     
@@ -497,6 +516,11 @@ void BluetoothManager::handle() {
         process_cloud_config_payload();
     }
 
+    // Apply a deferred active-bean push (see onWrite)
+    if (bean_config_pending) {
+        process_bean_config_payload();
+    }
+
     // Push WiFi status the moment its state machine moves (connecting ->
     // syncing -> idle) so the flasher's setup card sees progress live.
     if (device_connected && sysinfo_wifi_status_characteristic) {
@@ -515,6 +539,18 @@ void BluetoothManager::handle() {
         if (fingerprint != last_cloud_status_fingerprint) {
             last_cloud_status_fingerprint = fingerprint;
             update_cloud_status_info();
+        }
+    }
+
+    // Live push when the active bean or the advice verdict changes (a cloud
+    // sync window landing new config while a browser is connected).
+    if (device_connected && sysinfo_bean_status_characteristic) {
+        bean_config.reload_if_dirty();
+        uint8_t fingerprint = (bean_config.is_configured() ? 0x10 : 0)
+                            | (static_cast<uint8_t>(bean_config.get_advice()) & 0x0F);
+        if (fingerprint != last_bean_status_fingerprint) {
+            last_bean_status_fingerprint = fingerprint;
+            update_bean_status_info();
         }
     }
 
@@ -696,6 +732,86 @@ void BluetoothManager::update_cloud_status_info() {
     sysinfo_cloud_status_characteristic->setValue(buffer);
     if (device_connected) {
         sysinfo_cloud_status_characteristic->notify();
+    }
+}
+
+// Payload: [0x01][name]\0[ratio]\0[brew_time_s]\0 to set the active bean,
+// [0x02] to clear it. Runs on the bluetooth task (same deferral as WiFi).
+void BluetoothManager::process_bean_config_payload() {
+    bean_config_pending = false;
+    if (bean_config_pending_len == 0) return;
+
+    uint8_t opcode = bean_config_pending_payload[0];
+    if (opcode == 0x02) {
+        log("Bluetooth Bean: Clear command received\n");
+        bean_config.clear_config();
+    } else if (opcode == 0x01) {
+        // Extract up to three NUL-terminated strings from the remainder
+        const char* fields[3] = {"", "", ""};
+        size_t pos = 1;
+        for (int i = 0; i < 3 && pos < bean_config_pending_len; i++) {
+            fields[i] = reinterpret_cast<const char*>(&bean_config_pending_payload[pos]);
+            size_t remaining = bean_config_pending_len - pos;
+            size_t field_len = strnlen(fields[i], remaining);
+            if (field_len == remaining) {
+                // Unterminated final field - terminate it in place if room
+                if (bean_config_pending_len < sizeof(bean_config_pending_payload)) {
+                    bean_config_pending_payload[bean_config_pending_len] = '\0';
+                } else {
+                    log("Bluetooth Bean: Oversized unterminated payload rejected\n");
+                    return;
+                }
+            }
+            pos += field_len + 1;
+        }
+        float ratio = strtof(fields[1], nullptr);
+        uint16_t brew_time_s = (uint16_t)strtoul(fields[2], nullptr, 10);
+        log("Bluetooth Bean: Active bean '%s' (1:%.2f over %us)\n",
+            fields[0], ratio, (unsigned)brew_time_s);
+        bean_config.set_config(fields[0], ratio, brew_time_s);
+    } else {
+        log("Bluetooth Bean: Unknown opcode 0x%02X\n", opcode);
+        return;
+    }
+
+    bean_config.reload_if_dirty();
+    update_bean_status_info();
+}
+
+// Status JSON: what the grinder believes the active bag is, plus the current
+// advice verdict - the dashboard's honest "on the grinder" line.
+void BluetoothManager::update_bean_status_info() {
+    if (!sysinfo_bean_status_characteristic) return;
+
+    bean_config.reload_if_dirty();
+    char name[USER_BEAN_NAME_MAX_LENGTH + 1];
+    bean_config.get_name(name, sizeof(name));
+
+    // The name is user input headed into a JSON string; drop the two
+    // characters that would break it rather than carrying an escaper around.
+    for (char* c = name; *c; c++) {
+        if (*c == '"' || *c == '\\') *c = '_';
+    }
+
+    char buffer[BLE_SYSINFO_MAX_PAYLOAD_BYTES];
+    snprintf(buffer, sizeof(buffer),
+        "{"
+        "\"configured\":%s,"
+        "\"name\":\"%s\","
+        "\"ratio\":%.2f,"
+        "\"brew_time_s\":%u,"
+        "\"advice\":\"%s\""
+        "}",
+        bean_config.is_configured() ? "true" : "false",
+        name,
+        bean_config.get_ratio(),
+        (unsigned)bean_config.get_brew_time_s(),
+        bean_config.advice_name()
+    );
+
+    sysinfo_bean_status_characteristic->setValue(buffer);
+    if (device_connected) {
+        sysinfo_bean_status_characteristic->notify();
     }
 }
 
@@ -1309,6 +1425,15 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
             cloud_config_pending_len = len;
             cloud_config_pending = true;
         }
+    } else if (characteristic == sysinfo_bean_config_characteristic) {
+        // Same deferral as the other provisioning writes.
+        String value = characteristic->getValue();
+        size_t len = value.length();
+        if (len > 0 && len <= sizeof(bean_config_pending_payload)) {
+            memcpy(bean_config_pending_payload, value.c_str(), len);
+            bean_config_pending_len = len;
+            bean_config_pending = true;
+        }
     } else {
         LOG_BLE("  -> UNKNOWN characteristic!\n");
     }
@@ -1339,6 +1464,7 @@ void BluetoothManager::refresh_system_info() {
     update_hardware_info();
     update_wifi_status_info();
     update_cloud_status_info();
+    update_bean_status_info();
 }
 
 void BluetoothManager::update_system_info() {

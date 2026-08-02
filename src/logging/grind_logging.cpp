@@ -96,6 +96,8 @@ void GrindLogger::start_grind_session(const GrindSessionDescriptor& descriptor, 
     // Real epoch when the clock has been synced over BLE, uptime seconds
     // otherwise. Parsers distinguish by magnitude (epoch >> uptime).
     current_session->session_timestamp = TimeSync::is_synced() ? TimeSync::now_epoch() : millis() / 1000;
+    last_started_session_id = current_session->session_id;
+    last_started_session_timestamp = current_session->session_timestamp;
     current_session->profile_id = descriptor.profile_id;
     current_session->target_weight = descriptor.target_weight;
     current_session->tolerance = descriptor.tolerance;
@@ -256,14 +258,18 @@ void GrindLogger::end_grind_session(const char* final_result, float final_weight
 
 void GrindLogger::discard_current_session() {
     if (!current_session || !logging_active) return;
-    
+
     LOG_BLE("Discarded session %lu: target=%.1fg (not saved - cancelled)\n",
                   current_session->session_id, current_session->target_weight);
-    
+
     // Clear buffers to ensure clean state for next session
     clear_buffers();
-    
+
     logging_active = false;
+    // A discarded session never lands on flash, so nothing downstream (the
+    // brew entry prompt) may reference it.
+    last_started_session_id = 0;
+    last_started_session_timestamp = 0;
 }
 
 void GrindLogger::log_event(GrindEvent& event) {

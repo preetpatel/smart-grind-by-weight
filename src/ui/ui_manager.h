@@ -13,12 +13,14 @@
 #include "screens/calibration_screen.h"
 #include "screens/confirm_screen.h"
 #include "screens/purge_confirm_screen.h"
+#include "screens/brew_entry_screen.h"
 #include "screens/ota_screen.h"
 #include "screens/ota_update_failed_screen.h"
 #include "screens/autotune_screen.h"
 #include "event_bridge_lvgl.h"
 #include "controllers/calibration_controller.h"
 #include "controllers/autotune_controller.h"
+#include "controllers/brew_entry_controller.h"
 #include "controllers/confirm_controller.h"
 #include "controllers/edit_controller.h"
 #include "controllers/grinding_controller.h"
@@ -62,6 +64,7 @@ class UIManager {
     friend class OtaDataExportController;
     friend class ScreenTimeoutController;
     friend class JogAdjustController;
+    friend class BrewEntryController;
     
 private:
     HardwareManager* hardware_manager;
@@ -97,6 +100,7 @@ private:
     std::unique_ptr<OtaDataExportController> ota_data_export_controller_;
     std::unique_ptr<ScreenTimeoutController> screen_timeout_controller_;
     std::unique_ptr<JogAdjustController> jog_adjust_controller_;
+    std::unique_ptr<BrewEntryController> brew_entry_controller_;
     std::unique_ptr<DiagnosticsController> diagnostics_controller_;
 
 public:
@@ -110,6 +114,7 @@ public:
     CalibrationScreen calibration_screen;
     ConfirmScreen confirm_screen;
     PurgeConfirmScreen purge_confirm_screen;
+    BrewEntryScreen brew_entry_screen;
     AutoTuneScreen autotune_screen;
     OTAScreen ota_screen;
     OtaUpdateFailedScreen ota_update_failed_screen;

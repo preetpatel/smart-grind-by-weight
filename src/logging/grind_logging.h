@@ -172,7 +172,13 @@ private:
     // Session ID management
     Preferences* _preferences;
     uint32_t _next_session_id;
-    
+
+    // Identity of the most recent session that actually started (and wasn't
+    // discarded). Outlives the session itself so the brew entry prompt can
+    // reference the grind it follows; 0 until a logged grind happens.
+    uint32_t last_started_session_id = 0;
+    uint32_t last_started_session_timestamp = 0;
+
 public:
     bool init(Preferences* prefs);           // Initialize PSRAM buffer
     void cleanup();                          // Free PSRAM buffer
@@ -205,6 +211,8 @@ public:
     uint32_t get_total_flash_sessions() const;
     bool is_logging_active() const { return logging_active; }
     uint32_t get_session_storage_version() const { return session_storage_version; }
+    uint32_t get_last_started_session_id() const { return last_started_session_id; }
+    uint32_t get_last_started_session_timestamp() const { return last_started_session_timestamp; }
     
     // Debug output helpers - conditionally compiled based on debug flags (moved to public for BLE access)
 #if ENABLE_GRIND_DEBUG

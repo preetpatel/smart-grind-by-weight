@@ -94,6 +94,33 @@ agreed design; each decision was made deliberately — change them knowingly.
   as "already have it", and ingest rejects a tombstoned blob outright rather than
   trusting the manifest to have been consulted.
 
+## Beans and brew records
+
+- **A bean is one bag** (`beans`: name, brew ratio, shot time, roast date, notes,
+  archived_at), owned by the store; `stores.active_bean_id` is the bag in the hopper.
+  The server is the source of truth: the dashboard's beans page writes it first, then
+  best-effort pushes `{name, ratio, brew_time_s}` to the grinder over BLE
+  (`BLE_SYSINFO_BEAN_CONFIG_CHAR_UUID`), and the sync window's config fetch
+  (`GET /config`) converges a grinder no browser is near. Both channels carry the same
+  server state into the `bean` NVS namespace, so they cannot disagree.
+- **Attribution is stamped at ingest**: a session arriving while a bean is active gets
+  `annotations.bean_id` filled — only when blank (`coalesce`), and without touching
+  `updated_at`, so a hand-picked bean and the LWW reconcile are never overridden.
+- **Brew records ride the same identity pair as the manifest.** The grinder's
+  post-grind entry screen queues `{session_id, session_timestamp, output_g,
+  brew_time_s}` under `/brews` on LittleFS (deliberately not `/sessions`, whose
+  retention purge and manifest scan treat every file as a session). `POST /brews`
+  resolves the pair to the session's `sha256` and lands `brew_output_g`/`brew_time_s`
+  on its annotation row; `stored`/`deleted` (tombstoned) drop the queued file,
+  `unknown` keeps it for the next window. The response echoes `{bean, advice}` so a
+  logged shot refreshes the verdict in one round trip.
+- **Advice is computed server-side** (`lib/advice.ts`, mirrored client-side in
+  `lib/analytics/brew.ts`): with the shot time fixed per bean, output deviation is a
+  flow signal — median of the last 5 shots beyond ±8% means finer (ran fast) or
+  coarser (choked), minimum 3 shots, and a recorded grind-setting change resets the
+  evidence. The grinder only displays the verdict (ready-screen chip), so thresholds
+  evolve without firmware releases.
+
 ## Auth model — device is the credential
 
 - **Accounts own stores; the device stays a bearer-key client.** Browser-side cloud

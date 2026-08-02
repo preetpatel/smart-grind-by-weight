@@ -70,3 +70,15 @@
 #define USER_AUTO_GRIND_TRIGGER_WINDOW_MS 5000                                  // Time window for delta detection (milliseconds)
 #define USER_AUTO_GRIND_TRIGGER_SETTLING_MS 1000                                // Settling period after trigger detection before confirmation (milliseconds)
 #define USER_AUTO_GRIND_REARM_DELAY_MS 1500                                     // Minimum delay between auto actions (milliseconds)
+
+//------------------------------------------------------------------------------
+// ACTIVE BEAN / BREW ENTRY
+//------------------------------------------------------------------------------
+// The dashboard pushes the active bag's {name, ratio, shot time} over BLE (or
+// the grinder fetches it during a cloud sync window). While one is set, every
+// logged grind is followed by the brew entry screen: expected output pre-set
+// to dose x ratio, jog to the actual yield, Done queues a brew record.
+#define USER_BEAN_NAME_MAX_LENGTH 32                                            // Maximum characters in the active bean name
+#define USER_BREW_ENTRY_TIMEOUT_MS 900000                                       // Brew entry screen holds this long (15 min) before giving up unrecorded
+#define USER_BREW_OUTPUT_MAX_G 500.0f                                           // Upper clamp for the entered shot yield
+#define USER_BREW_ON_TARGET_BAND_PCT 3.0f                                       // Deviation within this band shows as on-target (green)

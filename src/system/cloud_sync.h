@@ -13,9 +13,14 @@
  *
  * Protocol per run: manifest handshake (one tuple per session file on flash;
  * the server replies with the session ids it lacks) -> one POST per wanted
- * session (verbatim file bytes; server dedups by content hash) -> one small
- * health snapshot POST. Zero sync state is kept on the device: a wiped
- * server just asks for everything again.
+ * session (verbatim file bytes; server dedups by content hash) -> one POST
+ * per queued brew record (the response echoes the active bean and the grind
+ * advice, so a logged shot refreshes the verdict in the same round trip) ->
+ * a config fetch when no brew did (active bean + advice; the server is the
+ * source of truth, so this is how a bean switched in the dashboard reaches a
+ * grinder with no browser nearby) -> one small health snapshot POST. Zero
+ * sync state is kept on the device: a wiped server just asks for everything
+ * again, and a wiped brew queue simply goes unrecorded.
  *
  * Cross-task contract (same as WifiService): set_config()/forget_config()/
  * set_enabled() may be called from the bluetooth task (deferred BLE writes)
@@ -80,7 +85,7 @@ public:
     const char* last_result_name() const;
 
 private:
-    enum class RunPhase : uint8_t { MANIFEST, UPLOAD, SNAPSHOT };
+    enum class RunPhase : uint8_t { MANIFEST, UPLOAD, BREW_UPLOAD, CONFIG_FETCH, SNAPSHOT };
 
     // Cached config, reloaded from NVS on the main-loop task when dirty
     char server_url[CLOUD_SYNC_MAX_URL_LEN + 1] = "";
@@ -114,6 +119,8 @@ private:
     uint16_t want_count = 0;
     uint16_t want_index = 0;
     uint16_t run_uploaded = 0;
+    uint32_t brew_cursor = 0;       // Last brew session id tried this run
+    bool config_refreshed = false;  // A brew response already carried config
 
     void reload_config();
     void update_idle_state();
@@ -123,7 +130,12 @@ private:
 
     StepResult step_manifest();
     StepResult step_upload();
+    StepResult step_brew_upload();
+    StepResult step_config_fetch();
     StepResult step_snapshot();
+
+    // Applies the {bean, advice} payload both device-facing endpoints return.
+    void apply_device_config(const char* response);
 
     // Performs one HTTP request against <server_url>/api/stores/<store_id><path>.
     // Returns the HTTP status code, or a negative value on transport error.

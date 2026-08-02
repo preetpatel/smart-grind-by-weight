@@ -10,6 +10,8 @@
 #include "system/time_sync.h"
 #include "system/wifi_service.h"
 #include "system/cloud_sync.h"
+#include "system/bean_config.h"
+#include "system/brew_log.h"
 #include "controllers/profile_controller.h"
 #include "controllers/grind_controller.h"
 #include "ui/ui_manager.h"
@@ -106,6 +108,11 @@ void setup() {
     // Cloud session sync rides inside WifiService windows; no-op until a
     // store is provisioned over BLE (docs/CLOUD_SYNC.md)
     cloud_sync.init();
+
+    // Active bean cache (BLE push / cloud fetch) and the queue of brew
+    // records awaiting upload. Both no-ops until a bean is provisioned.
+    bean_config.init();
+    brew_log.init();
 
     // Check for OTA failure to determine initial state
     String failed_ota_build = bluetooth_manager.check_ota_failure_after_boot();

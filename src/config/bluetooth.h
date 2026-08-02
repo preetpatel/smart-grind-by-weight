@@ -57,6 +57,8 @@
 #define BLE_SYSINFO_WIFI_STATUS_CHAR_UUID "556677ee-ff00-1111-2222-334455667788"   // WiFi status readback (JSON; never contains the password)
 #define BLE_SYSINFO_CLOUD_CONFIG_CHAR_UUID "66778899-ff00-1111-2222-334455667788"  // Cloud sync provisioning (write-only): [0x01][url]\0[store_id]\0[upload_key]\0[view_key]\0 to set, [0x02] to forget
 #define BLE_SYSINFO_CLOUD_STATUS_CHAR_UUID "778899aa-ff00-1111-2222-334455667788"  // Cloud sync status readback (JSON; carries store_id + view_key for browser claim, never the upload key)
+#define BLE_SYSINFO_BEAN_CONFIG_CHAR_UUID "8899aabb-ff00-1111-2222-334455667788"   // Active bean push (write-only): [0x01][name]\0[ratio]\0[brew_time_s]\0 to set, [0x02] to clear
+#define BLE_SYSINFO_BEAN_STATUS_CHAR_UUID "99aabbcc-ff00-1111-2222-334455667788"   // Active bean readback (JSON: configured, name, ratio, brew_time_s, advice)
 
 #define BLE_SYSINFO_MAX_PAYLOAD_BYTES 512                                       // Maximum payload size for system info
 

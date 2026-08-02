@@ -11,6 +11,8 @@
 #include <cstring>
 #include <cstdlib>
 #include "time_sync.h"
+#include "bean_config.h"
+#include "brew_log.h"
 #include "../logging/grind_logging.h"
 #include "../system/statistics_manager.h"
 
@@ -31,6 +33,37 @@ namespace {
             strncpy(dst, src, dst_len - 1);
             dst[dst_len - 1] = '\0';
         }
+    }
+
+    // Flat-key JSON scanning, same spirit as the manifest "want" parse - the
+    // device never carries a JSON parser. Copies up to the next unescaped
+    // quote; names containing '"' arrive truncated, which is acceptable for a
+    // display string.
+    bool json_find_string(const char* json, const char* key, char* out, size_t out_len) {
+        if (!json || !key || !out || out_len == 0) return false;
+        char needle[48];
+        snprintf(needle, sizeof(needle), "\"%s\":\"", key);
+        const char* cursor = strstr(json, needle);
+        if (!cursor) return false;
+        cursor += strlen(needle);
+        size_t i = 0;
+        while (*cursor && *cursor != '"' && i < out_len - 1) out[i++] = *cursor++;
+        out[i] = '\0';
+        return true;
+    }
+
+    bool json_find_number(const char* json, const char* key, double* out) {
+        if (!json || !key || !out) return false;
+        char needle[48];
+        snprintf(needle, sizeof(needle), "\"%s\":", key);
+        const char* cursor = strstr(json, needle);
+        if (!cursor) return false;
+        cursor += strlen(needle);
+        char* end = nullptr;
+        double value = strtod(cursor, &end);
+        if (end == cursor) return false;
+        *out = value;
+        return true;
     }
 }
 
@@ -143,7 +176,10 @@ bool CloudSync::wants_window() {
         last_seen_storage_version = version;
         storage_changed_ms = millis();
     }
-    if (version == last_synced_storage_version) return false;
+    // A queued brew record wants a window of its own: the shot was logged
+    // minutes after the grind, well past the session's settle delay, and the
+    // response brings back fresh advice for the ready screen.
+    if (version == last_synced_storage_version) return brew_log.pending_count() > 0;
     // Settle delay: skip windows while the user might still fire a top-up
     // pulse; the daily window still sweeps everything regardless.
     return (millis() - storage_changed_ms) >= CLOUD_SYNC_SETTLE_MS;
@@ -155,6 +191,8 @@ void CloudSync::begin_run() {
     want_count = 0;
     want_index = 0;
     run_uploaded = 0;
+    brew_cursor = 0;
+    config_refreshed = false;
     run_storage_version = grind_logger.get_session_storage_version();
     state = State::SYNCING;
     LOG_BLE("[CLOUD] Sync run starting\n");
@@ -187,9 +225,11 @@ CloudSync::StepResult CloudSync::step() {
     if (state != State::SYNCING) return StepResult::FAILED;
     StepResult result;
     switch (run_phase) {
-        case RunPhase::MANIFEST: result = step_manifest(); break;
-        case RunPhase::UPLOAD:   result = step_upload(); break;
-        default:                 result = step_snapshot(); break;
+        case RunPhase::MANIFEST:     result = step_manifest(); break;
+        case RunPhase::UPLOAD:       result = step_upload(); break;
+        case RunPhase::BREW_UPLOAD:  result = step_brew_upload(); break;
+        case RunPhase::CONFIG_FETCH: result = step_config_fetch(); break;
+        default:                     result = step_snapshot(); break;
     }
     if (result == StepResult::DONE) {
         end_run(run_uploaded < last_run_wanted ? LastResult::PARTIAL : LastResult::SUCCESS);
@@ -283,14 +323,14 @@ CloudSync::StepResult CloudSync::step_manifest() {
     last_run_wanted = want_count;
     LOG_BLE("[CLOUD] Server holds %u of %u sessions, wants %u\n",
             entries - want_count, entries, want_count);
-    run_phase = want_count > 0 ? RunPhase::UPLOAD : RunPhase::SNAPSHOT;
+    run_phase = want_count > 0 ? RunPhase::UPLOAD : RunPhase::BREW_UPLOAD;
     return StepResult::RUNNING;
 }
 
 // Uploads one wanted session file per step, verbatim bytes.
 CloudSync::StepResult CloudSync::step_upload() {
     if (want_index >= want_count || run_uploaded >= CLOUD_SYNC_MAX_UPLOADS_PER_RUN) {
-        run_phase = RunPhase::SNAPSHOT;
+        run_phase = RunPhase::BREW_UPLOAD;
         return StepResult::RUNNING;
     }
     uint32_t session_id = want_ids[want_index++];
@@ -333,6 +373,99 @@ CloudSync::StepResult CloudSync::step_upload() {
     }
     LOG_BLE("[CLOUD] Session %lu upload failed (HTTP %d)\n", (unsigned long)session_id, status);
     return StepResult::FAILED;
+}
+
+// Applies the {bean, advice} payload both device-facing endpoints return:
+// the active bean lands in the NVS cache (the server is the source of truth,
+// so a bean switched in the dashboard converges here without a browser) and
+// the verdict lands on the ready screen.
+void CloudSync::apply_device_config(const char* response) {
+    if (!response) return;
+    config_refreshed = true;
+
+    if (strstr(response, "\"bean\":null")) {
+        bean_config.reload_if_dirty();
+        if (bean_config.is_configured()) bean_config.clear_config();
+    } else {
+        char name[USER_BEAN_NAME_MAX_LENGTH + 1];
+        double ratio = 0.0;
+        double brew_time = 30.0;
+        if (json_find_string(response, "name", name, sizeof(name))
+            && json_find_number(response, "ratio", &ratio) && ratio > 0.0) {
+            json_find_number(response, "brew_time_s", &brew_time);
+            char current_name[USER_BEAN_NAME_MAX_LENGTH + 1];
+            bean_config.reload_if_dirty();
+            bean_config.get_name(current_name, sizeof(current_name));
+            bool changed = !bean_config.is_configured()
+                || strcmp(current_name, name) != 0
+                || fabsf(bean_config.get_ratio() - (float)ratio) > 0.001f
+                || bean_config.get_brew_time_s() != (uint16_t)brew_time;
+            if (changed) bean_config.set_config(name, (float)ratio, (uint16_t)brew_time);
+        }
+    }
+
+    char verdict[12];
+    if (json_find_string(response, "verdict", verdict, sizeof(verdict))) {
+        BeanConfig::Advice advice = BeanConfig::Advice::NONE;
+        if (strcmp(verdict, "finer") == 0) advice = BeanConfig::Advice::FINER;
+        else if (strcmp(verdict, "coarser") == 0) advice = BeanConfig::Advice::COARSER;
+        else if (strcmp(verdict, "ok") == 0) advice = BeanConfig::Advice::OK;
+        bean_config.set_advice(advice);
+    }
+}
+
+// Uploads one queued brew record per step. The response's per-record status
+// decides the file's fate: 'stored' and 'deleted' drop it, 'unknown' (the
+// session hasn't uploaded yet) keeps it for the next window. Failures are
+// logged and skipped - brews never fail a run that stored sessions.
+CloudSync::StepResult CloudSync::step_brew_upload() {
+    BrewRecord record;
+    if (!brew_log.read_next(brew_cursor, &record)) {
+        run_phase = config_refreshed ? RunPhase::SNAPSHOT : RunPhase::CONFIG_FETCH;
+        return StepResult::RUNNING;
+    }
+    brew_cursor = record.session_id;
+
+    char body[192];
+    size_t len = snprintf(body, sizeof(body),
+        "{\"brews\":[{\"session_id\":%lu,\"session_timestamp\":%lu,"
+        "\"brew_output_g\":%.1f,\"brew_time_s\":%u}]}",
+        (unsigned long)record.session_id,
+        (unsigned long)record.session_timestamp,
+        record.output_g,
+        (unsigned)record.brew_time_s);
+
+    char response[CLOUD_SYNC_RESPONSE_BUFFER_BYTES > 1024 ? 1024 : CLOUD_SYNC_RESPONSE_BUFFER_BYTES];
+    int status = http_request("POST", "/brews", "application/json",
+                              (const uint8_t*)body, len, response, sizeof(response));
+    if (status != 200) {
+        LOG_BLE("[CLOUD] Brew upload for session %lu failed (HTTP %d)\n",
+                (unsigned long)record.session_id, status);
+        // Old servers (404) or a flaky link: leave the queue alone, move on.
+        return StepResult::RUNNING;
+    }
+
+    if (strstr(response, "\"status\":\"stored\"") || strstr(response, "\"status\":\"deleted\"")) {
+        brew_log.remove(record.session_id);
+    }
+    apply_device_config(response);
+    return StepResult::RUNNING;
+}
+
+// Fetches {active bean, advice} when no brew upload already delivered it.
+// Best-effort like the snapshot: an old server without the endpoint must not
+// fail the run.
+CloudSync::StepResult CloudSync::step_config_fetch() {
+    char response[CLOUD_SYNC_RESPONSE_BUFFER_BYTES > 1024 ? 1024 : CLOUD_SYNC_RESPONSE_BUFFER_BYTES];
+    int status = http_request("GET", "/config", nullptr, nullptr, 0,
+                              response, sizeof(response));
+    if (status == 200) {
+        apply_device_config(response);
+    } else {
+        LOG_BLE("[CLOUD] Config fetch failed (HTTP %d)\n", status);
+    }
+    run_phase = RunPhase::SNAPSHOT;
+    return StepResult::RUNNING;
 }
 
 // Posts the compact health observation that turns Device Health into a

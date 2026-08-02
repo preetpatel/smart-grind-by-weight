@@ -19,6 +19,7 @@ const char* StateMachine::get_state_name(UIState state) const {
         case UIState::GRINDING: return "GRINDING";
         case UIState::GRIND_COMPLETE: return "GRIND_COMPLETE";
         case UIState::GRIND_TIMEOUT: return "GRIND_TIMEOUT";
+        case UIState::BREW_ENTRY: return "BREW_ENTRY";
         case UIState::EDIT: return "EDIT";
         case UIState::MENU: return "MENU";
         case UIState::CALIBRATION: return "CALIBRATION";

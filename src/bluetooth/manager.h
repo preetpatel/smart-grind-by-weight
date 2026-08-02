@@ -88,6 +88,8 @@ private:
     BLECharacteristic* sysinfo_wifi_status_characteristic;
     BLECharacteristic* sysinfo_cloud_config_characteristic;
     BLECharacteristic* sysinfo_cloud_status_characteristic;
+    BLECharacteristic* sysinfo_bean_config_characteristic;
+    BLECharacteristic* sysinfo_bean_status_characteristic;
 
     // Connection state
     bool device_connected;
@@ -148,6 +150,12 @@ private:
     volatile bool cloud_config_pending;
     uint8_t last_cloud_status_fingerprint;
 
+    // Active bean pushes use the same deferred-write pattern.
+    uint8_t bean_config_pending_payload[128];
+    size_t bean_config_pending_len;
+    volatile bool bean_config_pending;
+    uint8_t last_bean_status_fingerprint;
+
     // Private methods
     void setup_gatt_services();
     void configure_advertising();
@@ -164,6 +172,8 @@ private:
     void update_wifi_status_info();
     void process_cloud_config_payload();
     void update_cloud_status_info();
+    void process_bean_config_payload();
+    void update_bean_status_info();
     void send_next_data_chunk();
     bool send_transfer_payload(const uint8_t* data, size_t size);
     void send_measurement_count();

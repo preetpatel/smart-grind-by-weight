@@ -5,6 +5,7 @@ enum class UIState {
     GRINDING,
     GRIND_COMPLETE,
     GRIND_TIMEOUT,
+    BREW_ENTRY,
     EDIT,
     MENU,
     CALIBRATION,

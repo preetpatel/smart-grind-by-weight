@@ -83,6 +83,7 @@ void UIManager::create_ui() {
     calibration_screen.create();
     confirm_screen.create();
     purge_confirm_screen.create();
+    brew_entry_screen.create();
     autotune_screen.create();
     ota_screen.create();
     ota_update_failed_screen.create();
@@ -110,6 +111,7 @@ void UIManager::create_ui() {
     menu_screen.hide();
     calibration_screen.hide();
     confirm_screen.hide();
+    brew_entry_screen.hide();
     autotune_screen.hide();
     ota_screen.hide();
     ota_update_failed_screen.hide();
@@ -167,8 +169,9 @@ void UIManager::update() {
 
         case UIState::READY:
             ready_screen.update_clock();
+            ready_screen.update_advice_chip();
             break;
-            
+
         default:
             break;
     }
@@ -201,6 +204,7 @@ void UIManager::switch_to_state(UIState new_state) {
     calibration_screen.hide();
     confirm_screen.hide();
     purge_confirm_screen.hide();
+    brew_entry_screen.hide();
     autotune_screen.hide();
     ota_screen.hide();
     ota_update_failed_screen.hide();
@@ -281,6 +285,10 @@ void UIManager::switch_to_state(UIState new_state) {
             break;
         }
 
+        case UIState::BREW_ENTRY:
+            brew_entry_screen.show();
+            break;
+
         case UIState::AUTOTUNING:
             autotune_screen.show();
             break;
@@ -297,6 +305,9 @@ void UIManager::switch_to_state(UIState new_state) {
             break;
     }
 
+    if (brew_entry_controller_) {
+        brew_entry_controller_->on_state_changed(new_state);
+    }
     if (grinding_controller_) {
         grinding_controller_->on_state_changed(new_state);
         grinding_controller_->update_grind_button_icon();
@@ -326,6 +337,7 @@ void UIManager::init_controllers() {
     ota_data_export_controller_ = std::make_unique<OtaDataExportController>(this);
     screen_timeout_controller_ = std::make_unique<ScreenTimeoutController>(this);
     jog_adjust_controller_ = std::make_unique<JogAdjustController>(this);
+    brew_entry_controller_ = std::make_unique<BrewEntryController>(this);
     diagnostics_controller_ = std::make_unique<DiagnosticsController>();
 
     // Initialize diagnostics controller
@@ -346,6 +358,7 @@ void UIManager::register_controller_events() {
     if (ota_data_export_controller_) ota_data_export_controller_->register_events();
     if (screen_timeout_controller_) screen_timeout_controller_->register_events();
     if (jog_adjust_controller_) jog_adjust_controller_->register_events();
+    if (brew_entry_controller_) brew_entry_controller_->register_events();
 }
 
 void UIManager::set_background_active(bool active) {
@@ -399,7 +412,11 @@ void UIManager::update_auto_actions() {
 
     const uint32_t now = millis();
     const bool grinder_active = (grind_controller && grind_controller->is_active());
-    const bool on_ready_tab = state_machine->is_state(UIState::READY) && current_tab < 3;
+    // The brew entry prompt keeps auto-start armed underneath: a fresh cup on
+    // the scale means the next coffee outranks logging the last one.
+    const bool on_ready_tab = (state_machine->is_state(UIState::READY) ||
+                               state_machine->is_state(UIState::BREW_ENTRY)) &&
+                              current_tab < 3;
 
     if (auto_actions_.auto_start_enabled && on_ready_tab && !grinder_active && grinding_controller_) {
         auto* filter = sensor->get_raw_filter();
@@ -433,6 +450,10 @@ void UIManager::update_auto_actions() {
                                     static_cast<double>(delta_g),
                                     static_cast<unsigned long>(span_ms));
                             auto_actions_.last_auto_start_ms = now;
+                            if (state_machine->is_state(UIState::BREW_ENTRY)) {
+                                // A new grind supersedes the unanswered shot log.
+                                switch_to_state(UIState::READY);
+                            }
                             grinding_controller_->handle_grind_button();
                         }
                     }

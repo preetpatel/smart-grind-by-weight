@@ -137,6 +137,7 @@ void GrindingUIController::on_state_changed(UIState new_state) {
         case UIState::MENU:
         case UIState::CALIBRATION:
         case UIState::CONFIRM:
+        case UIState::BREW_ENTRY:
         case UIState::OTA_UPDATE:
         case UIState::OTA_UPDATE_FAILED:
             enter_menu_state();
@@ -493,6 +494,11 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
             chart_updates_enabled_ = false;
             ui_manager_->switch_to_state(UIState::GRIND_COMPLETE);
             start_grind_complete_timer();
+            // Each COMPLETED (a top-up pulse re-enters it) re-arms the shot
+            // log with the dose that's actually in the portafilter.
+            if (ui_manager_->brew_entry_controller_) {
+                ui_manager_->brew_entry_controller_->arm(final_grind_weight_);
+            }
             break;
         }
         case UIGrindEvent::TIMEOUT: {
@@ -513,7 +519,13 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
         case UIGrindEvent::STOPPED: {
             cancel_timers();
             chart_updates_enabled_ = false;
-            ui_manager_->switch_to_state(UIState::READY);
+            // Every completion-screen exit (OK, cup removal, the 60s
+            // watchdog) funnels through here; a logged grind with an active
+            // bean detours to the shot log instead of ready.
+            if (!ui_manager_->brew_entry_controller_ ||
+                !ui_manager_->brew_entry_controller_->begin_entry()) {
+                ui_manager_->switch_to_state(UIState::READY);
+            }
             break;
         }
         case UIGrindEvent::BACKGROUND_CHANGE:
@@ -606,6 +618,10 @@ void GrindingUIController::enter_edit_state() {
 }
 
 void GrindingUIController::enter_grinding_state() {
+    // A new grind supersedes any unanswered shot log from the previous one.
+    if (ui_manager_->brew_entry_controller_) {
+        ui_manager_->brew_entry_controller_->discard_pending();
+    }
     WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
     ui_manager_->grinding_screen.reset_chart_data();
     ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
