@@ -40,5 +40,3 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# generated from tools/web-flasher by scripts/prepare-static.mjs
-/public

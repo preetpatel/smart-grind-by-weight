@@ -1,6 +1,0 @@
-# Context for web-server/Dockerfile (context is tools/).
-web-server/node_modules
-web-server/.next
-web-server/public
-web-server/.env*
-**/.DS_Store

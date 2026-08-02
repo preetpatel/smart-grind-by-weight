@@ -120,8 +120,8 @@ agreed design; each decision was made deliberately — change them knowingly.
 
 - **Server:** `tools/web-server` — Next.js (app router, strict TypeScript, Biome) +
   Drizzle/Postgres. Schema `lib/schema.ts` (migrations in `drizzle/`), ingest
-  `lib/ingest.ts` (imports the shared `tools/web-flasher/analytics/parser.js`,
-  typed via `types/web-flasher-parser.d.ts`), auth `lib/auth.ts`, limits
+  `lib/ingest.ts` (validates with the shared `lib/parser.ts` — the same TS parser
+  the browser dashboard uses), auth `lib/auth.ts`, limits
   `lib/config.ts`, routes under `app/api/stores/`. Checks: `pnpm test` (vitest +
   PGlite, real route handlers), `pnpm typecheck`, `pnpm lint` (Biome). Deploy:
   Vercel (root `tools/web-server`) or `docker compose up` (app + Postgres, quota off).
@@ -130,10 +130,12 @@ agreed design; each decision was made deliberately — change them knowingly.
   `src/logging/grind_logging.cpp`, BLE characteristics in `src/config/bluetooth.h` +
   `src/bluetooth/manager.*`, settings page in `src/ui/screens/menu_screen.*` +
   `src/ui/controllers/menu_controller.*`, limits in `src/config/cloud_sync.h`.
-- **Web:** `tools/web-flasher/analytics/cloud.js` (API client, share links, cloud
-  pull/backfill), `cloud-provision.js` (WiFi & Sync tab flow), `store.js` (IndexedDB
-  v2 keyed by sha256, raw bytes retained), `grinder-session.js`/`grinder-card.js`
-  (cloud status in the snapshot + device-strip chip).
+- **Web:** all in `tools/web-server` — `lib/client/cloud.ts` (API client, share
+  links, cloud pull/backfill), `components/grinder/wifi-sync-panel.tsx` (WiFi & Sync
+  provisioning flow), `lib/analytics/store.ts` (IndexedDB v2 keyed by sha256, raw
+  bytes retained), `lib/client/ble.ts` + `components/device-strip.tsx` (cloud status
+  in the snapshot + device-strip chip), `app/analytics/page.tsx` +
+  `components/analytics/cloud-bar.tsx` (dashboard cloud source).
 
 ## Build order
 

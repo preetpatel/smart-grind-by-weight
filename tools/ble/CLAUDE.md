@@ -174,7 +174,7 @@ struct GrindMeasurement {
 3. **PURGE HISTORY** via ESP32 developer screen  
 4. **Perform test grind** to generate fresh data
 5. **Trigger BLE export** - review struct debug output
-6. **Update Python parsing** in `tools/ble/grinder-ble.py` AND the web parser in `tools/web-flasher/analytics/parser.js`
+6. **Update Python parsing** in `tools/ble/grinder-ble.py` AND the web/server parser in `tools/web-server/lib/parser.ts`
 7. **Test full export pipeline** to verify alignment
 
 ## Key Files
@@ -182,7 +182,7 @@ struct GrindMeasurement {
 - **ESP32 Structs**: `src/logging/grind_logging.h`
 - **ESP32 Debug Functions**: `src/logging/grind_logging.cpp`
 - **Python Parser**: `tools/ble/grinder-ble.py` (`_parse_single_file_data`)
-- **Web Parser**: `tools/web-flasher/analytics/parser.js` (browser analytics tab)
+- **Web/Server Parser**: `tools/web-server/lib/parser.ts` (browser dashboard + cloud ingest)
 - **SQL Schema**: Updated automatically by Python parser
 
 ## Debug Commands

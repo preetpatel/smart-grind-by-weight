@@ -1,9 +1,9 @@
 // Session ingest: validate → dedup → store blob + summary row → quota.
 //
-// The structural validator is the same parser.js the browser dashboard uses
-// (single JS parser for the grind_logging.h structs — see tools/ble/CLAUDE.md).
-// A session that fails any structural check is rejected whole; corrupt data
-// never reaches storage.
+// The structural validator is the same TypeScript parser the browser
+// dashboard uses (one JS/TS parser for the grind_logging.h structs — see
+// tools/ble/CLAUDE.md). A session that fails any structural check is
+// rejected whole; corrupt data never reaches storage.
 import { crc32 } from 'node:zlib';
 import { and, count, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
 import {
@@ -12,7 +12,7 @@ import {
     MEASUREMENT_STRUCT_SIZE,
     parseSessionFile,
     SESSION_STRUCT_SIZE,
-} from '../../web-flasher/analytics/parser.js';
+} from '@/lib/parser';
 import { config } from './config';
 import type { Db } from './db';
 import { ApiError } from './http';

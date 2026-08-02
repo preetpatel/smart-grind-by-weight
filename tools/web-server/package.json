@@ -3,9 +3,7 @@
     "version": "0.1.0",
     "private": true,
     "scripts": {
-        "predev": "node scripts/prepare-static.mjs",
         "dev": "next dev",
-        "prebuild": "node scripts/prepare-static.mjs",
         "build": "next build",
         "start": "next start",
         "lint": "biome check",
@@ -19,6 +17,7 @@
         "drizzle-orm": "^0.45.2",
         "next": "16.3.0-canary.106",
         "pg": "^8.16.0",
+        "plotly.js-dist-min": "^3.7.0",
         "react": "19.2.8",
         "react-dom": "19.2.8"
     },
@@ -27,7 +26,9 @@
         "@electric-sql/pglite": "^0.3.6",
         "@types/node": "^26.1.2",
         "@types/pg": "^8.20.3",
+        "@types/plotly.js": "^3.0.10",
         "@types/react": "19.2.18",
+        "@types/web-bluetooth": "^0.0.21",
         "drizzle-kit": "^0.31.10",
         "typescript": "^5.9.3",
         "vitest": "^3.2.4"

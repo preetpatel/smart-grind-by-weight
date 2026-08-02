@@ -1,31 +1,36 @@
-# Grinder Web Server
+# Grinder Web App
 
-One Next.js app serving three things (design: `docs/CLOUD_SYNC.md`):
+One Next.js app — strict TypeScript, Biome, pnpm — serving everything web for
+the grinder (design: `docs/CLOUD_SYNC.md`):
 
-1. **The web flasher** — the existing static site from `tools/web-flasher`,
-   copied verbatim into `public/` at build time by `scripts/prepare-static.mjs`
-   (the flasher stays canonical in its own directory; `public/` is gitignored).
-2. **The analytics dashboard** — the flasher's Analytics tab, backed by either
-   BLE (as before) or a cloud store.
+1. **The device UI** (`/`) — Get Started (USB install via esp-web-tools),
+   Update (BLE OTA), WiFi & Sync provisioning, and Diagnostics, with the
+   shared device strip above every page.
+2. **The analytics dashboard** (`/analytics`) — full grind analysis from a
+   BLE pull or the cloud store (single-session, compare, multi-session,
+   trends, device health), rendered with Plotly.
 3. **The cloud sync API** — `/api/stores/...`: store creation/claiming, the
    device manifest handshake, raw session-blob ingest with content-hash dedup,
    health snapshots, and read endpoints for the dashboard and Python tooling.
+4. **The firmware release proxy** — `/api/firmware[/tag/asset]` lists GitHub
+   releases and streams their assets same-origin, replacing the old GitHub
+   Pages deployment and its CI asset copying entirely.
 
 ## Development
 
 ```bash
 pnpm install
-pnpm dev                       # copies flasher assets, starts Next on :3000
+pnpm dev                       # Next on :3000
 DATABASE_URL=postgres://... pnpm dev   # with a database for the API routes
 pnpm test                      # vitest against in-process PGlite Postgres
 pnpm typecheck                 # strict TypeScript
 pnpm lint                      # Biome (lint + format check); lint:fix / format to write
 ```
 
-The app is strict TypeScript, linted and formatted by Biome. The one JS
-import is deliberate: `lib/ingest.ts` pulls the session parser straight from
-`tools/web-flasher/analytics/parser.js` (typed by
-`types/web-flasher-parser.d.ts`) so JS keeps a single parser source.
+`lib/parser.ts` is the single JS/TS parser for the firmware's session files,
+shared by the browser dashboard and the server's ingest validation; the
+Python parser (`tools/ble/grinder-ble.py`) is the only other consumer — keep
+both aligned with `src/logging/grind_logging.h` (see `tools/ble/CLAUDE.md`).
 
 Drizzle migrations live in `drizzle/` and are generated from `lib/schema.ts`
 with `pnpm db:generate`. They are applied automatically on first database use
