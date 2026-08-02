@@ -1,12 +1,12 @@
 import type { Metadata } from 'next';
 import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
-// The pre-shadcn stylesheet, still driving every screen until each surface is
-// migrated. Unlayered, so it wins over Tailwind's @layer base reset.
+// The pre-shadcn stylesheet, still driving the surfaces that have not been
+// migrated yet. Unlayered, so it wins over Tailwind's @layer base reset.
 import './legacy.css';
-import { AccountMenu } from '@/components/account-menu';
-import { DeviceStrip } from '@/components/device-strip';
-import { TabsNav } from '@/components/tabs-nav';
+import { AppSidebar } from '@/components/app-sidebar';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { Toaster } from '@/components/ui/sonner';
 
 // Variable names must match what the preset's `@theme inline` block reads:
 // --font-sans and --font-geist-mono. create-next-app emits --font-geist-sans,
@@ -29,24 +29,20 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
     return (
-        <html lang="en" className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+        // Dark-only for now; the preset's light block stays in globals.css so
+        // adding a toggle later is purely additive.
+        <html lang="en" className={`${geistSans.variable} ${geistMono.variable} dark antialiased`}>
             <body>
-                <div className="shell">
-                    <header className="masthead">
-                        <h1>
-                            <span className="mark" />
-                            Smart Grind <span className="dim">by Weight</span>
-                        </h1>
-                        <div className="lede">
-                            firmware · diagnostics · grind telemetry, over Web Bluetooth
-                        </div>
-                        <AccountMenu />
-                    </header>
-
-                    <DeviceStrip />
-                    <TabsNav />
-                    {children}
-                </div>
+                <SidebarProvider>
+                    <AppSidebar />
+                    <SidebarInset>
+                        <header className="flex h-12 shrink-0 items-center border-b px-4">
+                            <SidebarTrigger className="-ml-1.5" />
+                        </header>
+                        <div className="min-w-0 flex-1 px-6 py-6">{children}</div>
+                    </SidebarInset>
+                </SidebarProvider>
+                <Toaster />
             </body>
         </html>
     );

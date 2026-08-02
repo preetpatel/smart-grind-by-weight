@@ -27,6 +27,12 @@
     --color-input: var(--input);
     --color-border: var(--border);
     --color-destructive: var(--destructive);
+    --color-success: var(--success);
+    --color-success-foreground: var(--success-foreground);
+    --color-caution: var(--caution);
+    --color-caution-foreground: var(--caution-foreground);
+    --color-serious: var(--serious);
+    --color-serious-foreground: var(--serious-foreground);
     --color-accent-foreground: var(--accent-foreground);
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
@@ -81,6 +87,18 @@
     --sidebar-accent-foreground: oklch(0.216 0.006 56.043);
     --sidebar-border: oklch(0.923 0.003 48.717);
     --sidebar-ring: oklch(0.709 0.01 56.259);
+
+    /* Severity ramp. shadcn ships only --destructive, but the grinder UI grades
+       state four ways (diagnostics warnings, health badges, grind results), so
+       three more are needed; `critical` is --destructive itself. Hues stay out
+       of the 45–70 amber band that --primary owns, or a warning would read as
+       the primary action. */
+    --success: oklch(0.52 0.15 152);
+    --success-foreground: oklch(0.985 0.001 106.423);
+    --caution: oklch(0.58 0.13 92);
+    --caution-foreground: oklch(0.985 0.001 106.423);
+    --serious: oklch(0.55 0.17 32);
+    --serious-foreground: oklch(0.985 0.001 106.423);
 }
 
 .dark {
@@ -115,6 +133,15 @@
     --sidebar-accent-foreground: oklch(0.985 0.001 106.423);
     --sidebar-border: oklch(1 0 0 / 10%);
     --sidebar-ring: oklch(0.553 0.013 58.071);
+
+    /* Lifted for the warm stone surface: these read as text and dots on the
+       page, not as fills, so they need foreground-level lightness. */
+    --success: oklch(0.75 0.15 152);
+    --success-foreground: oklch(0.18 0.03 152);
+    --caution: oklch(0.85 0.14 100);
+    --caution-foreground: oklch(0.2 0.03 100);
+    --serious: oklch(0.72 0.17 32);
+    --serious-foreground: oklch(0.2 0.04 32);
 }
 
 @layer base {
