@@ -3,7 +3,7 @@
 // finer); under-delivery means it choked (too fine → try coarser). Computed
 // server-side so the thresholds can evolve without a firmware release — the
 // grinder only displays the verdict.
-import { and, desc, eq, isNotNull } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import { type BeanPayload, toBeanPayload } from './beans';
 import type { Db } from './db';
 import { annotations, type BeanRow, beans, type Store, sessions } from './schema';
@@ -91,21 +91,83 @@ export async function computeAdvice(db: Db, storeId: string, bean: BeanRow): Pro
     return { verdict, shots_considered: deviations.length, median_deviation_pct: med };
 }
 
+// How much of the bag is left, in the unit the user thinks in: shots. The
+// dose per shot is the median of the bag's recent grinds (they pull the same
+// double every time), falling back to a plausible double until data exists.
+// Purge-mode waste isn't in the session summary, so the estimate runs a
+// touch optimistic — the low threshold absorbs that.
+export interface BagStats {
+    size_g: number | null;
+    used_g: number;
+    shots_remaining: number | null;
+    low: boolean;
+}
+
+export const NO_BAG: BagStats = { size_g: null, used_g: 0, shots_remaining: null, low: false };
+
+const LOW_SHOTS_THRESHOLD = 5;
+const FALLBACK_DOSE_G = 18;
+
+export async function computeBagStats(db: Db, storeId: string, bean: BeanRow): Promise<BagStats> {
+    const doseFilter = and(
+        eq(annotations.storeId, storeId),
+        eq(annotations.beanId, bean.id),
+        isNotNull(sessions.finalWeight),
+    );
+    const joined = and(
+        eq(sessions.storeId, annotations.storeId),
+        eq(sessions.sha256, annotations.sha256),
+    );
+    const totals = await db
+        .select({ used: sql<number>`coalesce(sum(${sessions.finalWeight}), 0)` })
+        .from(annotations)
+        .innerJoin(sessions, joined)
+        .where(doseFilter);
+    const used = Math.round((totals[0]?.used ?? 0) * 10) / 10;
+    if (!bean.bagSizeG) return { ...NO_BAG, used_g: used };
+
+    const recent = await db
+        .select({ dose: sessions.finalWeight })
+        .from(annotations)
+        .innerJoin(sessions, joined)
+        .where(doseFilter)
+        .orderBy(desc(sessions.receivedAt), desc(sessions.id))
+        .limit(10);
+    const doses = recent
+        .map((row) => row.dose)
+        .filter((dose): dose is number => dose !== null && dose > 1);
+    const typicalDose = doses.length ? median(doses) : FALLBACK_DOSE_G;
+
+    const remaining = Math.max(0, bean.bagSizeG - used);
+    const shots = Math.floor(remaining / typicalDose);
+    return {
+        size_g: bean.bagSizeG,
+        used_g: used,
+        shots_remaining: shots,
+        low: shots <= LOW_SHOTS_THRESHOLD,
+    };
+}
+
 export interface DeviceConfig {
     bean: BeanPayload | null;
     advice: Advice;
+    bag: BagStats;
 }
 
 // What the grinder needs from the cloud: the active bag and the current
 // verdict. Served by GET /config and echoed by POST /brews so the device gets
 // fresh advice in the same round trip that delivered a brew record.
 export async function deviceConfig(db: Db, store: Store): Promise<DeviceConfig> {
-    if (!store.activeBeanId) return { bean: null, advice: NO_ADVICE };
+    if (!store.activeBeanId) return { bean: null, advice: NO_ADVICE, bag: NO_BAG };
     const rows = await db
         .select()
         .from(beans)
         .where(and(eq(beans.storeId, store.id), eq(beans.id, store.activeBeanId)));
     const bean = rows[0];
-    if (!bean) return { bean: null, advice: NO_ADVICE };
-    return { bean: toBeanPayload(bean), advice: await computeAdvice(db, store.id, bean) };
+    if (!bean) return { bean: null, advice: NO_ADVICE, bag: NO_BAG };
+    return {
+        bean: toBeanPayload(bean),
+        advice: await computeAdvice(db, store.id, bean),
+        bag: await computeBagStats(db, store.id, bean),
+    };
 }

@@ -39,6 +39,7 @@ import { Label } from '@/components/ui/label';
 import {
     adviceForShots,
     adviceSentence,
+    bagStats,
     beanShotCount,
     brewDeviationFigure,
     brewShots,
@@ -84,6 +85,7 @@ function BeanDialog({
     const [name, setName] = useState('');
     const [ratio, setRatio] = useState('1.5');
     const [brewTime, setBrewTime] = useState('30');
+    const [bagSize, setBagSize] = useState('');
     const [roastDate, setRoastDate] = useState('');
     const [notes, setNotes] = useState('');
 
@@ -92,12 +94,14 @@ function BeanDialog({
         setName(initial?.name ?? '');
         setRatio(String(initial?.ratio ?? 1.5));
         setBrewTime(String(initial?.brew_time_s ?? 30));
+        setBagSize(initial?.bag_size_g ? String(initial.bag_size_g) : '');
         setRoastDate(initial?.roast_date ?? '');
         setNotes(initial?.notes ?? '');
     }, [open, initial]);
 
     const parsedRatio = Number.parseFloat(ratio);
     const parsedTime = Number.parseInt(brewTime, 10);
+    const parsedBag = bagSize.trim() ? Number.parseFloat(bagSize) : null;
     const valid =
         name.trim().length > 0 &&
         Number.isFinite(parsedRatio) &&
@@ -105,7 +109,9 @@ function BeanDialog({
         parsedRatio <= 10 &&
         Number.isInteger(parsedTime) &&
         parsedTime >= 5 &&
-        parsedTime <= 600;
+        parsedTime <= 600 &&
+        (parsedBag === null ||
+            (Number.isFinite(parsedBag) && parsedBag >= 10 && parsedBag <= 10000));
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -118,6 +124,7 @@ function BeanDialog({
                             name: name.trim(),
                             ratio: parsedRatio,
                             brew_time_s: parsedTime,
+                            bag_size_g: parsedBag === null ? null : Math.round(parsedBag),
                             roast_date: roastDate.trim() || null,
                             notes: notes.trim() || null,
                         });
@@ -169,15 +176,30 @@ function BeanDialog({
                                 />
                             </div>
                         </div>
-                        <div className="grid gap-2">
-                            <Label htmlFor="bean-roast">Roast date</Label>
-                            <Input
-                                id="bean-roast"
-                                type="date"
-                                className="font-mono"
-                                value={roastDate}
-                                onChange={(event) => setRoastDate(event.target.value)}
-                            />
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="bean-bag">Bag size (g)</Label>
+                                <Input
+                                    id="bean-bag"
+                                    type="number"
+                                    min="10"
+                                    max="10000"
+                                    placeholder="250"
+                                    className="font-mono"
+                                    value={bagSize}
+                                    onChange={(event) => setBagSize(event.target.value)}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="bean-roast">Roast date</Label>
+                                <Input
+                                    id="bean-roast"
+                                    type="date"
+                                    className="font-mono"
+                                    value={roastDate}
+                                    onChange={(event) => setRoastDate(event.target.value)}
+                                />
+                            </div>
                         </div>
                         <div className="grid gap-2">
                             <Label htmlFor="bean-notes">Notes</Label>
@@ -225,6 +247,10 @@ export function BeansPanel() {
     );
     const advice = useMemo(() => adviceForShots(activeShots), [activeShots]);
     const lastShot = activeShots[activeShots.length - 1];
+    const bag = useMemo(
+        () => (active ? bagStats(records, annotations, active) : null),
+        [records, annotations, active],
+    );
 
     // The BLE push is a convenience beside the WiFi path, so its failures
     // downgrade to "it'll sync later", never to an error.
@@ -399,6 +425,9 @@ export function BeansPanel() {
                                 </div>
                                 <p className="mt-1 font-mono text-muted-foreground text-sm tabular-nums">
                                     {ratioLabel(active.ratio)} · {active.brew_time_s} s
+                                    {bag?.sizeG
+                                        ? ` · ${bag.remainingG} g left of ${bag.sizeG} g`
+                                        : ''}
                                     {active.roast_date
                                         ? ` · roasted ${shortDate(active.roast_date)}`
                                         : ''}
@@ -419,6 +448,18 @@ export function BeansPanel() {
                                             shots
                                         </div>
                                     </div>
+                                    {bag?.sizeG != null && (
+                                        <div>
+                                            <div
+                                                className={`font-mono text-xl tabular-nums ${bag.low ? 'text-caution' : ''}`}
+                                            >
+                                                {bag.shotsRemaining}
+                                            </div>
+                                            <div className="mt-0.5 text-muted-foreground text-xs">
+                                                shots left
+                                            </div>
+                                        </div>
+                                    )}
                                     <div>
                                         <div
                                             className={`font-mono text-xl tabular-nums ${

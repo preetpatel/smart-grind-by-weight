@@ -5,6 +5,7 @@ import { assertSameOrigin, authOwner, authStore } from '@/lib/auth';
 import {
     BEAN_LIMITS,
     MAX_BEANS_PER_STORE,
+    parseBagSize,
     parseBrewTime,
     parseRatio,
     toBeanPayload,
@@ -60,6 +61,7 @@ export async function POST(request: Request, { params }: Context): Promise<Respo
         if (!name) throw new ApiError(400, 'a bean needs a name');
         const ratio = parseRatio(entry.ratio);
         const brewTimeS = entry.brew_time_s === undefined ? 30 : parseBrewTime(entry.brew_time_s);
+        const bagSizeG = entry.bag_size_g === undefined ? null : parseBagSize(entry.bag_size_g);
 
         const existing = await db.select({ id: beans.id }).from(beans).where(eq(beans.storeId, id));
         if (existing.length >= MAX_BEANS_PER_STORE) {
@@ -74,6 +76,7 @@ export async function POST(request: Request, { params }: Context): Promise<Respo
                 name,
                 ratio,
                 brewTimeS,
+                bagSizeG,
                 roastDate: trimmedField(entry.roast_date, BEAN_LIMITS.roastDate),
                 notes: trimmedField(entry.notes, BEAN_LIMITS.notes),
             })

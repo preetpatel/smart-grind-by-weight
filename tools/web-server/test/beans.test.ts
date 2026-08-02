@@ -333,6 +333,53 @@ describe('device config and advice', () => {
         expect(body.advice.shots_considered).toBe(1);
     });
 
+    it('tracks bag consumption and counts remaining shots in the user dose', async () => {
+        const store = await newStore();
+        const { bean } = await createBean(store.store_id, store.cookie, { bag_size_g: 250 });
+        // Three ~18g doubles attributed at ingest → ~54g used.
+        for (const sessionId of [1, 2, 3]) {
+            await ingestBlob(store.store_id, store.upload_key, {
+                sessionId,
+                timestamp: 1754000000 + sessionId,
+            });
+        }
+
+        const body = (await (
+            await api.getConfig(store.store_id, { key: store.upload_key })
+        ).json()) as {
+            bag: { size_g: number; used_g: number; shots_remaining: number; low: boolean };
+        };
+        expect(body.bag.size_g).toBe(250);
+        expect(body.bag.used_g).toBeCloseTo(54.1, 1);
+        // ~195.9g left at a median 18.02g dose → 10 doubles.
+        expect(body.bag.shots_remaining).toBe(10);
+        expect(body.bag.low).toBe(false);
+
+        // Shrink the bag under the threshold and the warning trips.
+        const patched = await api.patchBean(store.store_id, bean.id, {
+            cookie: store.cookie,
+            body: { bag_size_g: 90 },
+        });
+        expect(patched.status).toBe(200);
+        const lowBody = (await (
+            await api.getConfig(store.store_id, { key: store.upload_key })
+        ).json()) as { bag: { shots_remaining: number; low: boolean } };
+        expect(lowBody.bag.shots_remaining).toBe(1);
+        expect(lowBody.bag.low).toBe(true);
+    });
+
+    it('reports no bag stats when the bag size is unset', async () => {
+        const store = await newStore();
+        await createBean(store.store_id, store.cookie);
+        await ingestBlob(store.store_id, store.upload_key);
+        const body = (await (
+            await api.getConfig(store.store_id, { key: store.upload_key })
+        ).json()) as { bag: { size_g: null; used_g: number; shots_remaining: null } };
+        expect(body.bag.size_g).toBeNull();
+        expect(body.bag.shots_remaining).toBeNull();
+        expect(body.bag.used_g).toBeGreaterThan(0);
+    });
+
     it('legacy annotation pushes never wipe brew data they do not know about', async () => {
         const store = await newStore();
         await createBean(store.store_id, store.cookie);

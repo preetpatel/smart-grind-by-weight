@@ -63,14 +63,24 @@ void BeanConfig::clear_config() {
     prefs.end();
 
     config_dirty = true;
-    // No bean means no evidence to advise from either.
+    // No bean means no evidence to advise from, and no bag to run out of.
     advice = Advice::NONE;
+    shots_remaining = -1;
+    bag_low = false;
     LOG_BLE("[BEAN] Active bean cleared\n");
 }
 
 void BeanConfig::set_advice(Advice new_advice) {
     if (new_advice != advice) advice_dismissed = false;
     advice = new_advice;
+}
+
+void BeanConfig::set_bag_status(int16_t new_shots_remaining, bool new_low) {
+    // A dismissed warning comes back when the count moves - the bag got
+    // emptier, which is new information.
+    if (new_shots_remaining != shots_remaining) bag_dismissed = false;
+    shots_remaining = new_shots_remaining;
+    bag_low = new_low;
 }
 
 const char* BeanConfig::advice_name() const {

@@ -132,6 +132,9 @@ export const beans = pgTable(
         // Output per gram of dose: 1.5 means a 1 : 1.5 ratio.
         ratio: real('ratio').notNull(),
         brewTimeS: integer('brew_time_s').notNull().default(30),
+        // How much coffee the bag held when opened. Optional: null disables
+        // remaining-shots tracking for this bag.
+        bagSizeG: real('bag_size_g'),
         roastDate: text('roast_date'),
         notes: text('notes'),
         archivedAt: timestamp('archived_at', { withTimezone: true }),

@@ -120,6 +120,15 @@ agreed design; each decision was made deliberately — change them knowingly.
   coarser (choked), minimum 3 shots, and a recorded grind-setting change resets the
   evidence. The grinder only displays the verdict (ready-screen chip), so thresholds
   evolve without firmware releases.
+- **Bag tracking follows the same split.** An optional `beans.bag_size_g` enables it:
+  the server sums the doses of every session attributed to the bag, estimates the
+  per-shot dose from the median of the last 10, and ships
+  `bag: {size_g, used_g, shots_remaining, low}` (low at ≤5 shots) alongside the
+  advice in `GET /config` and the `POST /brews` echo. The grinder holds it as
+  runtime-only state and shows "N SHOTS LEFT" on the shared ready-screen chip — bag
+  warnings outrank the dial-in verdict, and a dismissed warning returns when the
+  count drops. Purge-mode waste isn't in the session summary, so the estimate runs
+  slightly optimistic; the threshold absorbs it.
 
 ## Auth model — device is the credential
 

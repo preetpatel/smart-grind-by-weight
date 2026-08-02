@@ -1,7 +1,14 @@
 // Edit, archive and delete one bean. Owner-session-only; no CORS by design.
 import { and, eq } from 'drizzle-orm';
 import { assertSameOrigin, authOwner } from '@/lib/auth';
-import { BEAN_LIMITS, parseBrewTime, parseRatio, toBeanPayload, trimmedField } from '@/lib/beans';
+import {
+    BEAN_LIMITS,
+    parseBagSize,
+    parseBrewTime,
+    parseRatio,
+    toBeanPayload,
+    trimmedField,
+} from '@/lib/beans';
 import type { Db } from '@/lib/db';
 import { getDb } from '@/lib/db';
 import { ApiError, handleErrors, json } from '@/lib/http';
@@ -47,6 +54,7 @@ export async function PATCH(request: Request, { params }: Context): Promise<Resp
         }
         if ('ratio' in entry) set.ratio = parseRatio(entry.ratio);
         if ('brew_time_s' in entry) set.brewTimeS = parseBrewTime(entry.brew_time_s);
+        if ('bag_size_g' in entry) set.bagSizeG = parseBagSize(entry.bag_size_g);
         if ('roast_date' in entry)
             set.roastDate = trimmedField(entry.roast_date, BEAN_LIMITS.roastDate);
         if ('notes' in entry) set.notes = trimmedField(entry.notes, BEAN_LIMITS.notes);

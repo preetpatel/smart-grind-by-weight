@@ -48,6 +48,15 @@ public:
     bool is_advice_dismissed() const { return advice_dismissed; }
     const char* advice_name() const;
 
+    // Server-computed bag level (consumption lives in the cloud store, summed
+    // over the sessions attributed to this bag). Runtime-only like advice;
+    // -1 means unknown (no bag size set, or no sync yet this boot).
+    void set_bag_status(int16_t shots_remaining, bool low);
+    int16_t get_shots_remaining() const { return shots_remaining; }
+    bool is_bag_low() const { return bag_low; }
+    void dismiss_bag_warning() { bag_dismissed = true; }
+    bool is_bag_warning_dismissed() const { return bag_dismissed; }
+
 private:
     char name[USER_BEAN_NAME_MAX_LENGTH + 1] = "";
     volatile float ratio = 0.0f;
@@ -56,6 +65,9 @@ private:
     volatile bool config_dirty = false;
     volatile Advice advice = Advice::NONE;
     volatile bool advice_dismissed = false;
+    volatile int16_t shots_remaining = -1;
+    volatile bool bag_low = false;
+    volatile bool bag_dismissed = false;
 
     void reload_config();
 };

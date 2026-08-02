@@ -6,6 +6,12 @@
 #include "../../system/time_sync.h"
 #include "../ui_helpers.h"
 
+namespace {
+    // What the shared chip currently shows, so its tap dismisses the right
+    // message (the click callback has no per-instance context).
+    bool chip_showing_bag_warning = false;
+}
+
 void ReadyScreen::create() {
     screen = lv_obj_create(lv_scr_act());
     lv_obj_set_size(screen, LV_PCT(100), LV_PCT(80));
@@ -92,7 +98,11 @@ void ReadyScreen::create() {
 
     lv_obj_add_event_cb(advice_chip, [](lv_event_t* e) {
         if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-        bean_config.dismiss_advice();
+        if (chip_showing_bag_warning) {
+            bean_config.dismiss_bag_warning();
+        } else {
+            bean_config.dismiss_advice();
+        }
         lv_obj_add_flag(static_cast<lv_obj_t*>(lv_event_get_target(e)), LV_OBJ_FLAG_HIDDEN);
     }, LV_EVENT_CLICKED, nullptr);
 
@@ -106,6 +116,23 @@ void ReadyScreen::create() {
 void ReadyScreen::update_advice_chip() {
     if (!advice_chip || !advice_label) return;
     bean_config.reload_if_dirty();
+
+    // The bag running out outranks dial-in advice: it is about to interrupt
+    // the routine, and the advice will still be true on the next bag's shots.
+    if (bean_config.is_bag_low() && !bean_config.is_bag_warning_dismissed()) {
+        int16_t shots = bean_config.get_shots_remaining();
+        char text[24];
+        if (shots <= 0) {
+            snprintf(text, sizeof(text), "BAG EMPTY");
+        } else {
+            snprintf(text, sizeof(text), "%d SHOT%s LEFT", shots, shots == 1 ? "" : "S");
+        }
+        chip_showing_bag_warning = true;
+        set_label_text_if_changed(advice_label, text);
+        lv_obj_clear_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);
+        return;
+    }
+
     BeanConfig::Advice advice = bean_config.get_advice();
     bool actionable = (advice == BeanConfig::Advice::FINER || advice == BeanConfig::Advice::COARSER)
                       && !bean_config.is_advice_dismissed();
@@ -113,6 +140,7 @@ void ReadyScreen::update_advice_chip() {
         lv_obj_add_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);
         return;
     }
+    chip_showing_bag_warning = false;
     set_label_text_if_changed(advice_label,
                               advice == BeanConfig::Advice::FINER ? "TRY FINER" : "TRY COARSER");
     lv_obj_clear_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);

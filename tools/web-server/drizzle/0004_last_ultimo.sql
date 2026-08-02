@@ -1,0 +1,1 @@
+ALTER TABLE "beans" ADD COLUMN "bag_size_g" real;

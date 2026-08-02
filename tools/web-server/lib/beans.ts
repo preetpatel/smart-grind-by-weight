@@ -12,6 +12,7 @@ export interface BeanPayload {
     name: string;
     ratio: number;
     brew_time_s: number;
+    bag_size_g: number | null;
     roast_date: string | null;
     notes: string | null;
     archived: boolean;
@@ -25,6 +26,7 @@ export function toBeanPayload(row: BeanRow): BeanPayload {
         name: row.name,
         ratio: row.ratio,
         brew_time_s: row.brewTimeS,
+        bag_size_g: row.bagSizeG,
         roast_date: row.roastDate,
         notes: row.notes,
         archived: row.archivedAt !== null,
@@ -58,4 +60,14 @@ export function parseBrewTime(value: unknown): number {
         throw new ApiError(400, 'brew_time_s must be an integer between 5 and 600');
     }
     return seconds;
+}
+
+// null clears the size (tracking off); absent means untouched.
+export function parseBagSize(value: unknown): number | null {
+    if (value === null) return null;
+    const grams = typeof value === 'number' ? value : Number.NaN;
+    if (!Number.isFinite(grams) || grams < 10 || grams > 10000) {
+        throw new ApiError(400, 'bag_size_g must be a number between 10 and 10000, or null');
+    }
+    return Math.round(grams);
 }

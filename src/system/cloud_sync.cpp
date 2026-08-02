@@ -412,6 +412,15 @@ void CloudSync::apply_device_config(const char* response) {
         else if (strcmp(verdict, "ok") == 0) advice = BeanConfig::Advice::OK;
         bean_config.set_advice(advice);
     }
+
+    // Bag level: {"bag":{...,"shots_remaining":N,"low":bool}}. shots_remaining
+    // is null when no bag size is set (json_find_number fails) -> unknown.
+    double shots = 0.0;
+    if (json_find_number(response, "shots_remaining", &shots)) {
+        bean_config.set_bag_status((int16_t)shots, strstr(response, "\"low\":true") != nullptr);
+    } else {
+        bean_config.set_bag_status(-1, false);
+    }
 }
 
 // Uploads one queued brew record per step. The response's per-record status

@@ -91,6 +91,8 @@ export interface Bean {
     name: string;
     ratio: number;
     brew_time_s: number;
+    /** Grams in the bag when opened; null = remaining-shots tracking off. */
+    bag_size_g: number | null;
     roast_date: string | null;
     notes: string | null;
     archived: boolean;

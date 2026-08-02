@@ -492,6 +492,7 @@ export interface BeanDraft {
     name: string;
     ratio: number;
     brew_time_s?: number;
+    bag_size_g?: number | null;
     roast_date?: string | null;
     notes?: string | null;
 }

@@ -71,6 +71,49 @@ export function beanShotCount(annotations: Map<string, Annotation>, beanId: stri
     return count;
 }
 
+// Mirrors computeBagStats in lib/advice.ts on the server (which is what the
+// grinder's low warning uses) — change one, change both. Doses come from
+// every session attributed to the bag; the per-shot estimate is the median of
+// the last 10 (they pull the same double every time).
+export const BAG_LOW_SHOTS_THRESHOLD = 5;
+const BAG_FALLBACK_DOSE_G = 18;
+
+export interface BagStats {
+    sizeG: number | null;
+    usedG: number;
+    remainingG: number | null;
+    shotsRemaining: number | null;
+    low: boolean;
+}
+
+export function bagStats(
+    records: StoredRecord[],
+    annotations: Map<string, Annotation>,
+    bean: Bean,
+): BagStats {
+    const doses: number[] = [];
+    for (const record of records) {
+        const note = annotations.get(record.sha256);
+        const dose = record.session.final_weight;
+        if (note?.bean_id === bean.id && dose > 1) doses.push(dose);
+    }
+    const usedG = Math.round(doses.reduce((sum, dose) => sum + dose, 0) * 10) / 10;
+    if (!bean.bag_size_g) {
+        return { sizeG: null, usedG, remainingG: null, shotsRemaining: null, low: false };
+    }
+    const recent = doses.slice(-10);
+    const typicalDose = recent.length ? median(recent) : BAG_FALLBACK_DOSE_G;
+    const remainingG = Math.max(0, Math.round((bean.bag_size_g - usedG) * 10) / 10);
+    const shotsRemaining = Math.floor(remainingG / typicalDose);
+    return {
+        sizeG: bean.bag_size_g,
+        usedG,
+        remainingG,
+        shotsRemaining,
+        low: shotsRemaining <= BAG_LOW_SHOTS_THRESHOLD,
+    };
+}
+
 function median(values: number[]): number {
     const sorted = [...values].sort((a, b) => a - b);
     const mid = Math.floor(sorted.length / 2);
