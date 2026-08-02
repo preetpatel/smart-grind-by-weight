@@ -1,6 +1,9 @@
-// The API is bearer-key authed with no cookies, so a permissive CORS policy
-// is safe and lets the GitHub Pages flasher call the hosted API during the
-// migration period.
+// Wildcard CORS applies ONLY to the bearer-key routes (device ingest and
+// view-key share-link reads): those carry no cookies, so '*' is safe, and it
+// lets a hosted dashboard read a self-hosted store cross-origin. The
+// session-authed routes (Better Auth, store management, /api/me) are
+// same-origin by design and deliberately get no CORS headers; their CSRF
+// story is SameSite=Lax cookies + assertSameOrigin (lib/auth.ts).
 export const CORS_HEADERS: Record<string, string> = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',

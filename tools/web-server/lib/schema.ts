@@ -2,9 +2,11 @@
 //
 // The raw session blob is the source of truth (bytea; sessions are ≤64 KB).
 // The scalar columns on `sessions` are a disposable summary index parsed at
-// ingest — re-derivable from blobs at any time. Keys are stored hashed
-// (sha256 hex); the plaintext exists only on the device and in the
-// provisioning browser.
+// ingest — re-derivable from blobs at any time. upload_key is stored hashed
+// (sha256 hex) and rotated on every device provision, so its plaintext exists
+// only on the device; view_key is stored plaintext by design — it is the
+// semi-public read credential that share links and the device's BLE status
+// characteristic hand out.
 import {
     bigint,
     bigserial,
@@ -19,20 +21,28 @@ import {
     timestamp,
     uniqueIndex,
 } from 'drizzle-orm/pg-core';
+import { user } from './auth-schema';
+
+export * from './auth-schema';
 
 const bytea = customType<{ data: Buffer }>({ dataType: () => 'bytea' });
 
-export const stores = pgTable('stores', {
-    id: text('id').primaryKey(),
-    uploadKeyHash: text('upload_key_hash').notNull(),
-    viewKeyHash: text('view_key_hash').notNull(),
-    name: text('name'),
-    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-    createdIp: text('created_ip'),
-    // Null = provisional: garbage-collected if no session upload arrives
-    // within the TTL (docs/CLOUD_SYNC.md "Auth model").
-    firstUploadAt: timestamp('first_upload_at', { withTimezone: true }),
-});
+export const stores = pgTable(
+    'stores',
+    {
+        id: text('id').primaryKey(),
+        // Every store is owned by an account from birth; deleting the account
+        // cascades through stores to sessions and snapshots.
+        ownerId: text('owner_id')
+            .notNull()
+            .references(() => user.id, { onDelete: 'cascade' }),
+        uploadKeyHash: text('upload_key_hash').notNull(),
+        viewKey: text('view_key').notNull(),
+        name: text('name'),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [index('stores_owner_idx').on(table.ownerId)],
+);
 
 export const sessions = pgTable(
     'sessions',

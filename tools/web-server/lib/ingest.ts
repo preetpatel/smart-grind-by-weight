@@ -5,7 +5,7 @@
 // tools/ble/CLAUDE.md). A session that fails any structural check is
 // rejected whole; corrupt data never reaches storage.
 import { crc32 } from 'node:zlib';
-import { and, count, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { and, count, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import {
     EVENT_STRUCT_SIZE,
     HEADER_SIZE,
@@ -17,7 +17,7 @@ import { config } from './config';
 import type { Db } from './db';
 import { ApiError } from './http';
 import { sha256Hex } from './keys';
-import { type Store, sessions, stores } from './schema';
+import { type Store, sessions } from './schema';
 
 type SessionInsert = typeof sessions.$inferInsert;
 export type SessionSummary = Omit<
@@ -178,13 +178,6 @@ export async function ingestSession(
 
     if (!inserted.length) return { status: 'duplicate', sha256, rotated: 0 };
 
-    // First successful session upload makes a provisional store permanent.
-    if (!store.firstUploadAt) {
-        await db
-            .update(stores)
-            .set({ firstUploadAt: sql`now()` })
-            .where(and(eq(stores.id, store.id), isNull(stores.firstUploadAt)));
-    }
     const rotated = await enforceQuota(db, store.id);
     return { status: 'stored', sha256, rotated };
 }

@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
+import * as authRoute from '@/app/api/auth/[...all]/route';
+import * as myStoresRoute from '@/app/api/me/stores/route';
 import * as manifestRoute from '@/app/api/stores/[id]/manifest/route';
+import * as provisionRoute from '@/app/api/stores/[id]/provision/route';
 import * as rotateRoute from '@/app/api/stores/[id]/rotate-view-key/route';
 import * as storeRoute from '@/app/api/stores/[id]/route';
 import * as blobRoute from '@/app/api/stores/[id]/sessions/[sha]/route';
@@ -34,6 +37,7 @@ export async function freshDb(): Promise<Db> {
 
 export interface RequestOptions {
     key?: string;
+    cookie?: string;
     body?: ArrayBuffer | string | object;
     headers?: Record<string, string>;
 }
@@ -41,10 +45,11 @@ export interface RequestOptions {
 export function request(
     method: string,
     requestPath: string,
-    { key, body, headers = {} }: RequestOptions = {},
+    { key, cookie, body, headers = {} }: RequestOptions = {},
 ): Request {
     const requestHeaders: Record<string, string> = { ...headers };
     if (key) requestHeaders.authorization = `Bearer ${key}`;
+    if (cookie) requestHeaders.cookie = cookie;
     let payload: BodyInit | undefined;
     if (body instanceof ArrayBuffer || typeof body === 'string') {
         payload = body;
@@ -83,16 +88,54 @@ export const api = {
         snapshotsRoute.GET(request('GET', `/api/stores/${id}/snapshots`, opts), ctx({ id })),
     rotateViewKey: (id: string, opts: RequestOptions) =>
         rotateRoute.POST(request('POST', `/api/stores/${id}/rotate-view-key`, opts), ctx({ id })),
+    provision: (id: string, opts: RequestOptions) =>
+        provisionRoute.POST(request('POST', `/api/stores/${id}/provision`, opts), ctx({ id })),
+    patchStore: (id: string, opts: RequestOptions) =>
+        storeRoute.PATCH(request('PATCH', `/api/stores/${id}`, opts), ctx({ id })),
+    myStores: (opts: RequestOptions) => myStoresRoute.GET(request('GET', '/api/me/stores', opts)),
+    auth: (authPath: string, opts: RequestOptions) =>
+        authRoute.POST(request('POST', `/api/auth/${authPath}`, opts)),
 };
+
+// The session cookie(s) a Better Auth response sets, folded into a `cookie`
+// request header for subsequent calls.
+function cookieFrom(response: Response): string {
+    return response.headers
+        .getSetCookie()
+        .map((entry) => entry.split(';')[0])
+        .join('; ');
+}
+
+let userCounter = 0;
+
+// Signs up a fresh account through the real Better Auth handler and returns
+// the session cookie header value.
+export async function signUp(email?: string, password = 'grinder-test-pass'): Promise<string> {
+    const address = email ?? `user${++userCounter}@test.local`;
+    const response = await api.auth('sign-up/email', {
+        body: { email: address, password, name: address.split('@')[0] },
+    });
+    if (response.status !== 200) {
+        throw new Error(`sign-up failed: ${response.status} ${await response.text()}`);
+    }
+    const cookie = cookieFrom(response);
+    if (!cookie) throw new Error('sign-up set no session cookie');
+    return cookie;
+}
 
 export interface StoreCredentials {
     store_id: string;
     upload_key: string;
     view_key: string;
+    cookie: string;
 }
 
-export async function newStore(): Promise<StoreCredentials> {
-    const response = await api.createStore();
+// Creates a store for a signed-in account (a fresh one unless a cookie is
+// passed), mirroring the browser flow: sign in, create, provision over BLE.
+export async function newStore(cookie?: string): Promise<StoreCredentials> {
+    const owner = cookie ?? (await signUp());
+    const response = await api.createStore({ cookie: owner });
     if (response.status !== 201) throw new Error(`store create failed: ${response.status}`);
-    return (await response.json()) as StoreCredentials;
+    const created = (await response.json()) as Omit<StoreCredentials, 'cookie'>;
+    return { ...created, cookie: owner };
 }

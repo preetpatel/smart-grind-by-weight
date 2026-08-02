@@ -21,12 +21,9 @@ export const config = {
     get uploadsPerHour(): number {
         return intEnv('SYNC_UPLOADS_PER_HOUR', 200);
     },
-    get storesPerIpPerDay(): number {
-        return intEnv('SYNC_STORES_PER_IP_PER_DAY', 20);
-    },
-    // Stores with no successful upload within this window are garbage-collected.
-    get provisionalTtlHours(): number {
-        return intEnv('SYNC_PROVISIONAL_TTL_HOURS', 48);
+    // Per-account cap on stores (a store ≈ one grinder).
+    get storesPerUser(): number {
+        return intEnv('SYNC_STORES_PER_USER', 20);
     },
     get manifestMaxEntries(): number {
         return intEnv('SYNC_MANIFEST_MAX_ENTRIES', 4096);

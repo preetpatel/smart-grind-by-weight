@@ -14,6 +14,9 @@
         "db:generate": "drizzle-kit generate"
     },
     "dependencies": {
+        "@better-auth/drizzle-adapter": "^1.6.25",
+        "@better-auth/passkey": "^1.6.25",
+        "better-auth": "^1.6.25",
         "drizzle-orm": "^0.45.2",
         "next": "16.3.0-canary.106",
         "pg": "^8.16.0",

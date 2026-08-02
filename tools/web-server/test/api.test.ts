@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '@/lib/db';
-import { api, freshDb, newStore } from './helpers/api';
+import { api, freshDb, newStore, signUp } from './helpers/api';
 import { buildSessionBlob } from './helpers/blob';
 
 interface SessionSummaryWire {
@@ -29,16 +29,28 @@ afterEach(() => {
 });
 
 describe('store lifecycle', () => {
-    it('creates a store and returns keys exactly once', async () => {
+    it('creates a store for a signed-in account and returns keys exactly once', async () => {
         const store = await newStore();
         expect(store.store_id).toMatch(/^st_/);
         expect(store.upload_key).toMatch(/^uk_/);
         expect(store.view_key).toMatch(/^vk_/);
 
         const meta = await (await api.getStore(store.store_id, { key: store.view_key })).json();
-        expect(meta.provisional).toBe(true);
         expect(meta.session_count).toBe(0);
         expect(meta.role).toBe('read');
+    });
+
+    it('requires a session to create a store', async () => {
+        expect((await api.createStore()).status).toBe(401);
+    });
+
+    it('rejects cross-origin session mutations', async () => {
+        const cookie = await signUp();
+        const response = await api.createStore({
+            cookie,
+            headers: { origin: 'https://evil.example' },
+        });
+        expect(response.status).toBe(403);
     });
 
     it('rejects unknown stores and bad keys', async () => {
@@ -48,39 +60,27 @@ describe('store lifecycle', () => {
         expect((await api.getStore(store.store_id, {})).status).toBe(401);
     });
 
-    it('rate-limits store creation per IP', async () => {
-        process.env.SYNC_STORES_PER_IP_PER_DAY = '2';
-        const headers = { 'x-forwarded-for': '10.1.2.3' };
-        expect((await api.createStore({ headers })).status).toBe(201);
-        expect((await api.createStore({ headers })).status).toBe(201);
-        expect((await api.createStore({ headers })).status).toBe(429);
-        // A different IP is unaffected.
-        expect((await api.createStore({ headers: { 'x-forwarded-for': '10.9.9.9' } })).status).toBe(
-            201,
-        );
+    it('caps stores per account', async () => {
+        process.env.SYNC_STORES_PER_USER = '2';
+        const cookie = await signUp();
+        expect((await api.createStore({ cookie })).status).toBe(201);
+        expect((await api.createStore({ cookie })).status).toBe(201);
+        expect((await api.createStore({ cookie })).status).toBe(429);
+        // A different account is unaffected.
+        expect((await api.createStore({ cookie: await signUp() })).status).toBe(201);
     });
 
-    it('garbage-collects expired provisional stores but keeps confirmed ones', async () => {
-        const stale = await newStore();
-        const confirmed = await newStore();
-        await api.ingest(confirmed.store_id, {
-            key: confirmed.upload_key,
-            body: buildSessionBlob(),
-        });
-        await db.execute(sql`UPDATE stores SET created_at = now() - interval '3 days'`);
-
-        await newStore(); // creation triggers the GC sweep
-        expect((await api.getStore(stale.store_id, { key: stale.view_key })).status).toBe(404);
-        expect((await api.getStore(confirmed.store_id, { key: confirmed.view_key })).status).toBe(
-            200,
-        );
-    });
-
-    it('deletes a store with cascade, upload key only', async () => {
+    it('deletes a store with cascade, owner session only', async () => {
         const store = await newStore();
         await api.ingest(store.store_id, { key: store.upload_key, body: buildSessionBlob() });
-        expect((await api.deleteStore(store.store_id, { key: store.view_key })).status).toBe(403);
-        expect((await api.deleteStore(store.store_id, { key: store.upload_key })).status).toBe(200);
+        // Keys never grant store management.
+        expect((await api.deleteStore(store.store_id, { key: store.view_key })).status).toBe(401);
+        expect((await api.deleteStore(store.store_id, { key: store.upload_key })).status).toBe(401);
+        // Neither does someone else's session.
+        expect((await api.deleteStore(store.store_id, { cookie: await signUp() })).status).toBe(
+            403,
+        );
+        expect((await api.deleteStore(store.store_id, { cookie: store.cookie })).status).toBe(200);
         expect((await api.getStore(store.store_id, { key: store.view_key })).status).toBe(404);
         const { rows } = await db.execute(sql`SELECT count(*)::int AS n FROM sessions`);
         expect(rows[0]?.n).toBe(0);
@@ -88,14 +88,98 @@ describe('store lifecycle', () => {
 
     it('rotates the view key without touching the upload key', async () => {
         const store = await newStore();
+        expect((await api.rotateViewKey(store.store_id, { key: store.upload_key })).status).toBe(
+            401,
+        );
         const { view_key: fresh } = (await (
-            await api.rotateViewKey(store.store_id, { key: store.upload_key })
+            await api.rotateViewKey(store.store_id, { cookie: store.cookie })
         ).json()) as { view_key: string };
         expect((await api.getStore(store.store_id, { key: store.view_key })).status).toBe(403);
         expect((await api.getStore(store.store_id, { key: fresh })).status).toBe(200);
         expect((await api.getStore(store.store_id, { key: store.upload_key })).status).toBe(200);
-        // View key cannot rotate itself.
-        expect((await api.rotateViewKey(store.store_id, { key: fresh })).status).toBe(403);
+    });
+
+    it('renames a store, owner only', async () => {
+        const store = await newStore();
+        expect(
+            (
+                await api.patchStore(store.store_id, {
+                    cookie: store.cookie,
+                    body: { name: 'Kitchen grinder' },
+                })
+            ).status,
+        ).toBe(200);
+        const meta = await (await api.getStore(store.store_id, { key: store.view_key })).json();
+        expect(meta.name).toBe('Kitchen grinder');
+        expect(
+            (await api.patchStore(store.store_id, { key: store.upload_key, body: { name: 'x' } }))
+                .status,
+        ).toBe(401);
+    });
+});
+
+describe('accounts', () => {
+    it('lists the account stores with session counts', async () => {
+        const cookie = await signUp();
+        const store = await newStore(cookie);
+        await newStore(); // someone else's store — must not appear
+        await api.ingest(store.store_id, { key: store.upload_key, body: buildSessionBlob() });
+
+        const { stores } = (await (await api.myStores({ cookie })).json()) as {
+            stores: { store_id: string; view_key: string; session_count: number }[];
+        };
+        expect(stores).toHaveLength(1);
+        expect(stores[0]?.store_id).toBe(store.store_id);
+        expect(stores[0]?.view_key).toBe(store.view_key);
+        expect(stores[0]?.session_count).toBe(1);
+        expect((await api.myStores({})).status).toBe(401);
+    });
+
+    it('grants the owner session read and write on store data', async () => {
+        const store = await newStore();
+        // Browser backfill with a session cookie, no bearer key.
+        const ingest = await api.ingest(store.store_id, {
+            cookie: store.cookie,
+            body: buildSessionBlob({ sessionId: 5 }),
+            headers: { 'x-source': 'browser' },
+        });
+        expect(ingest.status).toBe(201);
+        const list = await api.listSessions(store.store_id, { cookie: store.cookie });
+        expect(list.status).toBe(200);
+        const meta = await (await api.getStore(store.store_id, { cookie: store.cookie })).json();
+        expect(meta.role).toBe('write');
+        // A stranger's session falls through to key auth and fails.
+        expect((await api.getStore(store.store_id, { cookie: await signUp() })).status).toBe(401);
+    });
+
+    it('provisioning rotates the upload key and keeps the view key', async () => {
+        const store = await newStore();
+        expect((await api.provision(store.store_id, { key: store.upload_key })).status).toBe(401);
+
+        const fresh = (await (
+            await api.provision(store.store_id, { cookie: store.cookie })
+        ).json()) as { store_id: string; upload_key: string; view_key: string };
+        expect(fresh.view_key).toBe(store.view_key);
+        expect(fresh.upload_key).not.toBe(store.upload_key);
+
+        // The old device credential is dead; the fresh one works.
+        expect(
+            (await api.ingest(store.store_id, { key: store.upload_key, body: buildSessionBlob() }))
+                .status,
+        ).toBe(403);
+        expect(
+            (await api.ingest(store.store_id, { key: fresh.upload_key, body: buildSessionBlob() }))
+                .status,
+        ).toBe(201);
+    });
+
+    it('deleting the account cascades to stores and sessions', async () => {
+        const store = await newStore();
+        await api.ingest(store.store_id, { key: store.upload_key, body: buildSessionBlob() });
+        await db.execute(sql`DELETE FROM "user"`);
+        expect((await api.getStore(store.store_id, { key: store.view_key })).status).toBe(404);
+        const { rows } = await db.execute(sql`SELECT count(*)::int AS n FROM sessions`);
+        expect(rows[0]?.n).toBe(0);
     });
 });
 
@@ -122,9 +206,6 @@ describe('session ingest', () => {
         expect(sessions[0]?.device_id).toBe('aabbccddeeff');
         expect(sessions[0]?.final_weight).toBeCloseTo(18.02, 2);
         expect(sessions[0]?.result_status).toBe('COMPLETE');
-
-        const meta = await (await api.getStore(store.store_id, { key: store.view_key })).json();
-        expect(meta.provisional).toBe(false);
     });
 
     it('keeps a reborn session id (factory reset) as a distinct session', async () => {
@@ -331,8 +412,5 @@ describe('snapshots', () => {
             (await api.postSnapshot(store.store_id, { key: store.upload_key, body: 'not json' }))
                 .status,
         ).toBe(400);
-        // Snapshots alone don't confirm a provisional store.
-        const meta = await (await api.getStore(store.store_id, { key: store.view_key })).json();
-        expect(meta.provisional).toBe(true);
     });
 });
