@@ -1,0 +1,138 @@
+// Session ingest: validate → dedup → store blob + summary row → quota.
+//
+// The structural validator is the same parser.js the browser dashboard uses
+// (single JS parser for the grind_logging.h structs — see tools/ble/CLAUDE.md).
+// A session that fails any structural check is rejected whole; corrupt data
+// never reaches storage.
+import { crc32 } from 'node:zlib';
+import { and, count, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
+import { parseSessionFile, HEADER_SIZE, SESSION_STRUCT_SIZE, EVENT_STRUCT_SIZE, MEASUREMENT_STRUCT_SIZE }
+    from '../../web-flasher/analytics/parser.js';
+import { ApiError } from './http.js';
+import { sha256Hex } from './keys.js';
+import { config } from './config.js';
+import { stores, sessions } from './schema.js';
+
+// Validates one raw session file and returns { summary, sha256 }.
+export function validateSessionBlob(buffer) {
+    if (buffer.byteLength < HEADER_SIZE + SESSION_STRUCT_SIZE) {
+        throw new ApiError(422, `session file too small (${buffer.byteLength} bytes)`);
+    }
+    const view = new DataView(buffer);
+    const headerSessionId = view.getUint32(0, true);
+    const headerTimestamp = view.getUint32(4, true);
+    const sessionSize = view.getUint32(8, true);
+    const headerChecksum = view.getUint32(12, true);
+    const eventCount = view.getUint16(16, true);
+    const measurementCount = view.getUint16(18, true);
+
+    if (buffer.byteLength !== HEADER_SIZE + sessionSize) {
+        throw new ApiError(422, `size mismatch: header says ${HEADER_SIZE + sessionSize} bytes, got ${buffer.byteLength}`);
+    }
+    const expectedSize = SESSION_STRUCT_SIZE + eventCount * EVENT_STRUCT_SIZE + measurementCount * MEASUREMENT_STRUCT_SIZE;
+    if (sessionSize !== expectedSize) {
+        throw new ApiError(422, `size mismatch: ${eventCount} events + ${measurementCount} measurements imply ${expectedSize} bytes, header says ${sessionSize}`);
+    }
+    // Legacy firmware writes checksum=0 (unimplemented); newer firmware fills
+    // in a zlib CRC-32 of the payload after the header. Verify when present.
+    if (headerChecksum !== 0) {
+        const payload = new Uint8Array(buffer, HEADER_SIZE);
+        const actual = crc32(payload) >>> 0;
+        if (actual !== headerChecksum) {
+            throw new ApiError(422, `checksum mismatch: header ${headerChecksum}, computed ${actual}`);
+        }
+    }
+
+    let parsed;
+    try {
+        parsed = parseSessionFile(buffer, headerSessionId);
+    } catch (error) {
+        throw new ApiError(422, `corrupt session file: ${error.message}`);
+    }
+
+    const s = parsed.session;
+    return {
+        sha256: sha256Hex(Buffer.from(buffer)),
+        summary: {
+            sessionId: s.session_id,
+            sessionTimestamp: headerTimestamp,
+            sessionSize,
+            headerChecksum,
+            schemaVersion: s.schema_version,
+            eventCount,
+            measurementCount,
+            grindMode: s.grind_mode,
+            profileId: s.profile_id,
+            targetWeight: s.target_weight,
+            finalWeight: s.final_weight,
+            errorGrams: s.error_grams,
+            targetTimeMs: s.target_time_ms,
+            totalTimeMs: s.total_time_ms,
+            totalMotorOnTimeMs: s.total_motor_on_time_ms,
+            timeErrorMs: s.time_error_ms,
+            pulseCount: s.pulse_count,
+            terminationReason: s.termination_reason,
+            resultStatus: s.result_status,
+        },
+    };
+}
+
+async function enforceUploadRate(db, storeId) {
+    const [{ n }] = await db.select({ n: count() }).from(sessions)
+        .where(and(
+            eq(sessions.storeId, storeId),
+            gt(sessions.receivedAt, sql`now() - interval '1 hour'`),
+        ));
+    if (n >= config.uploadsPerHour) {
+        throw new ApiError(429, 'upload rate limit reached; try again later');
+    }
+}
+
+// Keeps the newest `quota` sessions (arrival order — mirrors the device's own
+// oldest-first purge). Returns how many were rotated out.
+async function enforceQuota(db, storeId) {
+    const quota = config.sessionQuota;
+    if (quota <= 0) return 0;
+    const beyondQuota = db.select({ id: sessions.id }).from(sessions)
+        .where(eq(sessions.storeId, storeId))
+        .orderBy(desc(sessions.receivedAt), desc(sessions.id))
+        .offset(quota);
+    const rotated = await db.delete(sessions)
+        .where(and(eq(sessions.storeId, storeId), inArray(sessions.id, beyondQuota)))
+        .returning({ id: sessions.id });
+    return rotated.length;
+}
+
+// Idempotent ingest of one raw session blob.
+// Returns { status: 'stored' | 'duplicate', sha256, rotated }.
+export async function ingestSession(db, store, buffer, { deviceId = null, source = 'device' } = {}) {
+    if (buffer.byteLength > config.maxSessionBytes) {
+        throw new ApiError(413, `session file exceeds ${config.maxSessionBytes} bytes`);
+    }
+    await enforceUploadRate(db, store.id);
+
+    const { sha256, summary } = validateSessionBlob(buffer);
+
+    const inserted = await db.insert(sessions)
+        .values({
+            storeId: store.id,
+            deviceId,
+            sha256,
+            source,
+            blob: Buffer.from(buffer),
+            ...summary,
+        })
+        .onConflictDoNothing({ target: [sessions.storeId, sessions.sha256] })
+        .returning({ id: sessions.id });
+
+    if (!inserted.length) return { status: 'duplicate', sha256, rotated: 0 };
+
+    // First successful session upload makes a provisional store permanent.
+    if (!store.firstUploadAt) {
+        await db.update(stores)
+            .set({ firstUploadAt: sql`now()` })
+            .where(and(eq(stores.id, store.id), isNull(stores.firstUploadAt)));
+    }
+    const rotated = await enforceQuota(db, store.id);
+    return { status: 'stored', sha256, rotated };
+}

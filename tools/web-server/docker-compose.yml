@@ -1,0 +1,35 @@
+# Self-hosted grinder cloud: web app (flasher + analytics dashboard + sync
+# API) plus Postgres. Run from tools/web-server:  docker compose up -d
+# Then point the flasher's WiFi & Sync provisioning at http://<host>:3000.
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: web-server/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/sgbw
+      # Self-host default: no session quota (docs/CLOUD_SYNC.md "Limits").
+      SYNC_SESSION_QUOTA: "0"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sgbw
+    volumes:
+      - sgbw-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d sgbw"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  sgbw-pgdata:
