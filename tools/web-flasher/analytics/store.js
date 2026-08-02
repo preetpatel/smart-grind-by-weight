@@ -2,10 +2,16 @@
 //
 // Canonical record shape (used in the store, the export file, and the
 // tools/db-to-analytics-json.py dev dump):
-//   { session_id, session: {...}, events: [...], measurements: [...], pulledAt }
+//   { sha256, session_id, session: {...}, events: [...], measurements: [...],
+//     raw: Uint8Array | undefined, pulledAt, source }
+//
+// v2: records are keyed by sha256 of the raw session file, so a session
+// arriving twice (BLE pull and cloud sync) lands on one record, and a
+// factory-reset grinder's reborn session ids don't collide. `raw` holds the
+// verbatim device bytes for the cloud backfill (docs/CLOUD_SYNC.md).
 
 const DB_NAME = 'sgbw-analytics';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SESSIONS_STORE = 'sessions';
 const META_STORE = 'meta';
 
@@ -17,9 +23,12 @@ function openDb() {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
         request.onupgradeneeded = () => {
             const db = request.result;
-            if (!db.objectStoreNames.contains(SESSIONS_STORE)) {
-                db.createObjectStore(SESSIONS_STORE, { keyPath: 'session_id' });
+            // v1 was keyed by session_id and held no raw bytes; the data is
+            // re-pullable (device or cloud), so migrate by starting fresh.
+            if (db.objectStoreNames.contains(SESSIONS_STORE)) {
+                db.deleteObjectStore(SESSIONS_STORE);
             }
+            db.createObjectStore(SESSIONS_STORE, { keyPath: 'sha256' });
             if (!db.objectStoreNames.contains(META_STORE)) {
                 db.createObjectStore(META_STORE, { keyPath: 'key' });
             }
@@ -58,7 +67,10 @@ export async function loadSessions() {
         const tx = db.transaction(SESSIONS_STORE, 'readonly');
         const request = tx.objectStore(SESSIONS_STORE).getAll();
         await transactionDone(tx);
-        return request.result.sort((a, b) => a.session_id - b.session_id);
+        // Stable session order for the views; timestamp breaks ties between
+        // a reborn id and its pre-factory-reset namesake.
+        return request.result.sort((a, b) => a.session_id - b.session_id
+            || a.session.session_timestamp - b.session.session_timestamp);
     } finally {
         db.close();
     }
@@ -104,7 +116,9 @@ export function buildExportJson(records, deviceReports = null) {
         format: EXPORT_FORMAT,
         version: EXPORT_VERSION,
         exportedAt: new Date().toISOString(),
-        sessions: records,
+        // Raw device bytes stay out of the JSON export (it's a parsed-data
+        // interchange format; the cloud store is the raw archive).
+        sessions: records.map(({ raw, ...rest }) => rest),
     };
     if (deviceReports) {
         payload.deviceReports = deviceReports;
@@ -131,11 +145,17 @@ export function parseImportJson(text) {
             throw new Error('A session record is missing its session data');
         }
         return {
+            // Pre-v2 exports carry no hash; synthesize a stable key so the
+            // record can live in the sha256-keyed store (no raw bytes, so
+            // these records are view-only and skipped by the cloud backfill).
+            sha256: record.sha256
+                || `import:${record.session.session_id}:${record.session.session_timestamp}`,
             session_id: record.session.session_id,
             session: record.session,
             events: record.events || [],
             measurements: record.measurements || [],
             pulledAt: record.pulledAt || payload.exportedAt || null,
+            source: record.source || 'import',
         };
     });
     return { records, deviceReports: payload.deviceReports || null };

@@ -326,6 +326,9 @@ export class GrinderDataClient {
     }
 
     // Fetches, verifies and parses one session file, retrying on chunk loss.
+    // The verbatim bytes ride along as `raw`: the cloud backfill must upload
+    // exactly what the device holds so content hashes match a later upload
+    // from the device itself.
     async pullSession(sessionId, onProgress = () => {}) {
         let lastError = null;
         for (let attempt = 1; attempt <= FILE_TRANSFER_ATTEMPTS; attempt++) {
@@ -336,7 +339,7 @@ export class GrinderDataClient {
                     throw new Error(`incomplete transfer: got ${buffer.byteLength} of ${expected} bytes `
                         + `(${expected - buffer.byteLength} lost)`);
                 }
-                return parseSessionFile(buffer, sessionId);
+                return { ...parseSessionFile(buffer, sessionId), raw: buffer };
             } catch (error) {
                 lastError = error;
                 if (attempt < FILE_TRANSFER_ATTEMPTS) {
@@ -456,8 +459,13 @@ export class GrinderDataClient {
                 message: `Pulling session ${sessionId} (${i + 1}/${sessionIds.length})...`,
             });
             try {
-                const { session, events, measurements, warnings } = await this.pullSession(sessionId, onProgress);
-                records.push({ session_id: sessionId, session, events, measurements, pulledAt });
+                const { session, events, measurements, warnings, raw } = await this.pullSession(sessionId, onProgress);
+                const digest = await crypto.subtle.digest('SHA-256', raw);
+                const sha256 = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+                records.push({
+                    sha256, session_id: sessionId, session, events, measurements,
+                    raw: new Uint8Array(raw), pulledAt, source: 'ble',
+                });
                 for (const warning of warnings) {
                     onProgress({ stage: 'warning', sessionId, message: warning });
                 }

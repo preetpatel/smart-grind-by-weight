@@ -17,6 +17,10 @@ import { renderPredictiveTab, renderPulseTab, renderVibrationTab, renderControll
 import { renderMultiView } from './views-multi.js';
 import { renderDeviceHealth } from './views-health.js';
 import { renderTrendsView, renderCompareView } from './views-trends.js';
+import {
+    getCloudConfig, clearCloudConfig, createCloudStore, deleteCloudStore,
+    adoptShareFragment, buildShareLink, pullFromCloud, pushToCloud, pushSnapshotToCloud,
+} from './cloud.js';
 
 const TOLERANCE_G = 0.03; // grind accuracy tolerance, as in the Streamlit report
 const PLOTLY_CDN = 'https://cdn.plot.ly/plotly-2.35.2.min.js';
@@ -739,6 +743,17 @@ async function pullData() {
         }
 
         await refreshFromStore();
+
+        // Automatic cloud backup: idempotent push of anything the store is
+        // missing, plus a best-effort health observation.
+        const cloudConfig = getCloudConfig();
+        if (cloudConfig?.uploadKey) {
+            if (pulled.length) await backfillToCloud({ silent: true });
+            if (health) {
+                pushSnapshotToCloud(cloudConfig, health, activeDeviceId())
+                    .catch((error) => console.log('Cloud snapshot push failed:', error.message));
+            }
+        }
     } catch (error) {
         client.disconnect();
         setStatus(`Pull failed: ${error.message}`, 'error');
@@ -791,6 +806,161 @@ async function clearStoredData() {
     setStatus('Stored data cleared.', 'info');
 }
 
+// ---- cloud store (docs/CLOUD_SYNC.md) --------------------------------------
+// Cloud sync fills the same IndexedDB as the BLE pull (records keyed by
+// content hash), so every view renders identically from either source.
+
+function activeDeviceId() {
+    return window.GrinderSession?.getActive?.()?.snapshot?.system?.device_id || null;
+}
+
+async function syncFromCloud({ silent = false } = {}) {
+    const config = getCloudConfig();
+    if (!config) return;
+    try {
+        if (!silent) setStatus('Checking the cloud store...');
+        const known = new Set(records.map((r) => r.sha256));
+        const { records: fetched, errors, cloudTotal } = await pullFromCloud(config, known, (progress) => {
+            setStatus(progress.message);
+            if (progress.total) setProgressThrottled((progress.index / progress.total) * 100);
+        });
+        if (fetched.length) {
+            await saveSessions(fetched);
+            await saveMeta('lastPull', new Date().toISOString());
+            await refreshFromStore();
+        }
+        if (errors.length) {
+            setStatus(`Cloud sync: ${fetched.length} sessions added, ${errors.length} failed.`, 'warning');
+        } else if (fetched.length) {
+            setStatus(`Synced ${fetched.length} sessions from the cloud (${cloudTotal} in the store).`, 'success');
+        } else if (!silent) {
+            setStatus('Local data already matches the cloud store.', 'success');
+        }
+    } catch (error) {
+        if (!silent) setStatus(`Cloud sync failed: ${error.message}`, 'error');
+        console.error('Cloud sync error:', error);
+    } finally {
+        setProgress(null);
+    }
+}
+
+// Push any locally-held sessions the store is missing (verbatim raw bytes;
+// the server dedups by content hash, so this is always safe to re-run).
+async function backfillToCloud({ silent = false } = {}) {
+    const config = getCloudConfig();
+    if (!config?.uploadKey) return;
+    try {
+        const { stored, errors } = await pushToCloud(config, records, activeDeviceId(), (progress) => {
+            setStatus(progress.message);
+            if (progress.total) setProgressThrottled((progress.index / progress.total) * 100);
+        });
+        if (errors.length) {
+            setStatus(`Cloud backup: ${stored} sessions uploaded, ${errors.length} failed.`, 'warning');
+        } else if (stored) {
+            setStatus(`Backed up ${stored} sessions to the cloud.`, 'success');
+        } else if (!silent) {
+            setStatus('The cloud store already holds every local session.', 'success');
+        }
+    } catch (error) {
+        if (!silent) setStatus(`Cloud backup failed: ${error.message}`, 'error');
+        console.error('Cloud backfill error:', error);
+    } finally {
+        setProgress(null);
+    }
+}
+
+async function setUpCloudStore() {
+    try {
+        const grinder = window.GrinderSession?.getActive?.();
+        await createCloudStore(grinder?.label || null);
+        renderCloudBar();
+        setStatus('Cloud store created. Sessions you pull are now backed up automatically.', 'success');
+        if (records.length) await backfillToCloud({ silent: true });
+    } catch (error) {
+        setStatus(`${error.message}. Cloud backup needs the hosted flasher (or your self-hosted server).`, 'error');
+    }
+}
+
+async function disconnectCloudStore() {
+    const config = getCloudConfig();
+    if (!config) return;
+    const warning = config.uploadKey
+        ? 'Disconnect this browser from the cloud store? The store and its data stay on the server, '
+            + 'but this browser holds the only upload key — without a provisioned grinder, copy the '
+            + 'dashboard link first or the store becomes unreachable.'
+        : 'Disconnect this browser from the cloud store? You can re-link with the dashboard link.';
+    if (!window.confirm(warning)) return;
+    clearCloudConfig();
+    renderCloudBar();
+    setStatus('Disconnected from the cloud store.', 'info');
+}
+
+async function deleteCloudStoreForever() {
+    const config = getCloudConfig();
+    if (!config?.uploadKey) return;
+    if (!window.confirm('Permanently delete the cloud store and every session in it? '
+        + 'Local data in this browser is kept.')) return;
+    try {
+        await deleteCloudStore(config);
+        clearCloudConfig();
+        renderCloudBar();
+        setStatus('Cloud store deleted.', 'info');
+    } catch (error) {
+        setStatus(`Delete failed: ${error.message}`, 'error');
+    }
+}
+
+function renderCloudBar() {
+    const bar = $('analyticsCloudBar');
+    if (!bar) return;
+    bar.textContent = '';
+    const config = getCloudConfig();
+
+    if (!config) {
+        const setup = el('button', { class: 'btn-ghost', text: 'Set up cloud backup' });
+        setup.addEventListener('click', setUpCloudStore);
+        bar.appendChild(setup);
+        bar.appendChild(el('span', { class: 'store-line', text: 'Keep your full grind history beyond the grinder’s own storage.' }));
+        return;
+    }
+
+    bar.appendChild(el('span', {
+        class: 'store-line',
+        text: `cloud store ${config.storeId}${config.uploadKey ? '' : ' · read-only link'}`,
+    }));
+
+    const sync = el('button', { class: 'btn-ghost', text: 'Sync from cloud' });
+    sync.addEventListener('click', () => syncFromCloud());
+    bar.appendChild(sync);
+
+    if (config.uploadKey) {
+        const push = el('button', { class: 'btn-ghost', text: 'Back up local sessions' });
+        push.addEventListener('click', () => backfillToCloud());
+        bar.appendChild(push);
+    }
+
+    const share = el('button', { class: 'btn-ghost', text: 'Copy dashboard link' });
+    share.addEventListener('click', async () => {
+        try {
+            await navigator.clipboard.writeText(buildShareLink(config));
+            setStatus('Dashboard link copied — anyone with it can view (not modify) this store.', 'success');
+        } catch {
+            setStatus(`Dashboard link: ${buildShareLink(config)}`, 'info');
+        }
+    });
+    bar.appendChild(share);
+
+    const disconnect = el('button', { class: 'btn-ghost', text: 'Disconnect' });
+    disconnect.addEventListener('click', disconnectCloudStore);
+    bar.appendChild(disconnect);
+
+    if (config.uploadKey) {
+        const destroy = el('button', { class: 'btn-ghost danger', text: 'Delete cloud store' });
+        destroy.addEventListener('click', deleteCloudStoreForever);
+        bar.appendChild(destroy);
+    }
+}
+
 function init() {
     $('analyticsPullBtn').addEventListener('click', pullData);
     $('analyticsExportBtn').addEventListener('click', exportJson);
@@ -813,11 +983,21 @@ function init() {
         if (type === 'snapshot') renderSummary();
     });
 
+    // A shared dashboard link (#store=...) links this browser to a cloud
+    // store before anything renders.
+    const adopted = adoptShareFragment();
+    renderCloudBar();
+
     // Returning users with stored data are almost always here for the data:
     // land on Analytics. First-time visitors keep the flasher as the default.
-    refreshFromStore().then(() => {
-        if (records.length && typeof window.showTab === 'function') {
+    // A cloud-linked browser refreshes from the store in the background —
+    // no grinder needed.
+    refreshFromStore().then(async () => {
+        if ((records.length || getCloudConfig()) && typeof window.showTab === 'function') {
             window.showTab('analytics');
+        }
+        if (getCloudConfig()) {
+            await syncFromCloud({ silent: !adopted });
         }
     });
 }
