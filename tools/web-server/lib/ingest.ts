@@ -6,15 +6,41 @@
 // never reaches storage.
 import { crc32 } from 'node:zlib';
 import { and, count, desc, eq, gt, inArray, isNull, sql } from 'drizzle-orm';
-import { parseSessionFile, HEADER_SIZE, SESSION_STRUCT_SIZE, EVENT_STRUCT_SIZE, MEASUREMENT_STRUCT_SIZE }
-    from '../../web-flasher/analytics/parser.js';
-import { ApiError } from './http.js';
-import { sha256Hex } from './keys.js';
-import { config } from './config.js';
-import { stores, sessions } from './schema.js';
+import {
+    EVENT_STRUCT_SIZE,
+    HEADER_SIZE,
+    MEASUREMENT_STRUCT_SIZE,
+    parseSessionFile,
+    SESSION_STRUCT_SIZE,
+} from '../../web-flasher/analytics/parser.js';
+import { config } from './config';
+import type { Db } from './db';
+import { ApiError } from './http';
+import { sha256Hex } from './keys';
+import { type Store, sessions, stores } from './schema';
 
-// Validates one raw session file and returns { summary, sha256 }.
-export function validateSessionBlob(buffer) {
+type SessionInsert = typeof sessions.$inferInsert;
+export type SessionSummary = Omit<
+    SessionInsert,
+    'id' | 'storeId' | 'deviceId' | 'sha256' | 'source' | 'receivedAt' | 'blob'
+>;
+
+export interface IngestOptions {
+    deviceId?: string | null;
+    source?: 'device' | 'browser';
+}
+
+export interface IngestResult {
+    status: 'stored' | 'duplicate';
+    sha256: string;
+    rotated: number;
+}
+
+// Validates one raw session file and returns its summary and content hash.
+export function validateSessionBlob(buffer: ArrayBuffer): {
+    sha256: string;
+    summary: SessionSummary;
+} {
     if (buffer.byteLength < HEADER_SIZE + SESSION_STRUCT_SIZE) {
         throw new ApiError(422, `session file too small (${buffer.byteLength} bytes)`);
     }
@@ -27,11 +53,20 @@ export function validateSessionBlob(buffer) {
     const measurementCount = view.getUint16(18, true);
 
     if (buffer.byteLength !== HEADER_SIZE + sessionSize) {
-        throw new ApiError(422, `size mismatch: header says ${HEADER_SIZE + sessionSize} bytes, got ${buffer.byteLength}`);
+        throw new ApiError(
+            422,
+            `size mismatch: header says ${HEADER_SIZE + sessionSize} bytes, got ${buffer.byteLength}`,
+        );
     }
-    const expectedSize = SESSION_STRUCT_SIZE + eventCount * EVENT_STRUCT_SIZE + measurementCount * MEASUREMENT_STRUCT_SIZE;
+    const expectedSize =
+        SESSION_STRUCT_SIZE +
+        eventCount * EVENT_STRUCT_SIZE +
+        measurementCount * MEASUREMENT_STRUCT_SIZE;
     if (sessionSize !== expectedSize) {
-        throw new ApiError(422, `size mismatch: ${eventCount} events + ${measurementCount} measurements imply ${expectedSize} bytes, header says ${sessionSize}`);
+        throw new ApiError(
+            422,
+            `size mismatch: ${eventCount} events + ${measurementCount} measurements imply ${expectedSize} bytes, header says ${sessionSize}`,
+        );
     }
     // Legacy firmware writes checksum=0 (unimplemented); newer firmware fills
     // in a zlib CRC-32 of the payload after the header. Verify when present.
@@ -39,15 +74,19 @@ export function validateSessionBlob(buffer) {
         const payload = new Uint8Array(buffer, HEADER_SIZE);
         const actual = crc32(payload) >>> 0;
         if (actual !== headerChecksum) {
-            throw new ApiError(422, `checksum mismatch: header ${headerChecksum}, computed ${actual}`);
+            throw new ApiError(
+                422,
+                `checksum mismatch: header ${headerChecksum}, computed ${actual}`,
+            );
         }
     }
 
-    let parsed;
+    let parsed: ReturnType<typeof parseSessionFile>;
     try {
         parsed = parseSessionFile(buffer, headerSessionId);
     } catch (error) {
-        throw new ApiError(422, `corrupt session file: ${error.message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        throw new ApiError(422, `corrupt session file: ${message}`);
     }
 
     const s = parsed.session;
@@ -77,35 +116,46 @@ export function validateSessionBlob(buffer) {
     };
 }
 
-async function enforceUploadRate(db, storeId) {
-    const [{ n }] = await db.select({ n: count() }).from(sessions)
-        .where(and(
-            eq(sessions.storeId, storeId),
-            gt(sessions.receivedAt, sql`now() - interval '1 hour'`),
-        ));
-    if (n >= config.uploadsPerHour) {
+async function enforceUploadRate(db: Db, storeId: string): Promise<void> {
+    const rows = await db
+        .select({ n: count() })
+        .from(sessions)
+        .where(
+            and(
+                eq(sessions.storeId, storeId),
+                gt(sessions.receivedAt, sql`now() - interval '1 hour'`),
+            ),
+        );
+    if ((rows[0]?.n ?? 0) >= config.uploadsPerHour) {
         throw new ApiError(429, 'upload rate limit reached; try again later');
     }
 }
 
 // Keeps the newest `quota` sessions (arrival order — mirrors the device's own
 // oldest-first purge). Returns how many were rotated out.
-async function enforceQuota(db, storeId) {
+async function enforceQuota(db: Db, storeId: string): Promise<number> {
     const quota = config.sessionQuota;
     if (quota <= 0) return 0;
-    const beyondQuota = db.select({ id: sessions.id }).from(sessions)
+    const beyondQuota = db
+        .select({ id: sessions.id })
+        .from(sessions)
         .where(eq(sessions.storeId, storeId))
         .orderBy(desc(sessions.receivedAt), desc(sessions.id))
         .offset(quota);
-    const rotated = await db.delete(sessions)
+    const rotated = await db
+        .delete(sessions)
         .where(and(eq(sessions.storeId, storeId), inArray(sessions.id, beyondQuota)))
         .returning({ id: sessions.id });
     return rotated.length;
 }
 
 // Idempotent ingest of one raw session blob.
-// Returns { status: 'stored' | 'duplicate', sha256, rotated }.
-export async function ingestSession(db, store, buffer, { deviceId = null, source = 'device' } = {}) {
+export async function ingestSession(
+    db: Db,
+    store: Store,
+    buffer: ArrayBuffer,
+    { deviceId = null, source = 'device' }: IngestOptions = {},
+): Promise<IngestResult> {
     if (buffer.byteLength > config.maxSessionBytes) {
         throw new ApiError(413, `session file exceeds ${config.maxSessionBytes} bytes`);
     }
@@ -113,7 +163,8 @@ export async function ingestSession(db, store, buffer, { deviceId = null, source
 
     const { sha256, summary } = validateSessionBlob(buffer);
 
-    const inserted = await db.insert(sessions)
+    const inserted = await db
+        .insert(sessions)
         .values({
             storeId: store.id,
             deviceId,
@@ -129,7 +180,8 @@ export async function ingestSession(db, store, buffer, { deviceId = null, source
 
     // First successful session upload makes a provisional store permanent.
     if (!store.firstUploadAt) {
-        await db.update(stores)
+        await db
+            .update(stores)
             .set({ firstUploadAt: sql`now()` })
             .where(and(eq(stores.id, store.id), isNull(stores.firstUploadAt)));
     }

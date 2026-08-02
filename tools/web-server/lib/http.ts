@@ -1,19 +1,21 @@
 // Small helpers shared by the API route handlers.
 
-export function json(body, status = 200) {
+export function json(body: unknown, status = 200): Response {
     return Response.json(body, { status });
 }
 
 // Thrown by helpers to short-circuit a handler with an error response;
 // handleErrors turns it into JSON.
 export class ApiError extends Error {
-    constructor(status, message) {
+    readonly status: number;
+
+    constructor(status: number, message: string) {
         super(message);
         this.status = status;
     }
 }
 
-export async function handleErrors(fn) {
+export async function handleErrors(fn: () => Promise<Response>): Promise<Response> {
     try {
         return await fn();
     } catch (error) {
@@ -25,14 +27,14 @@ export async function handleErrors(fn) {
     }
 }
 
-export function clientIp(request) {
+export function clientIp(request: Request): string {
     const forwarded = request.headers.get('x-forwarded-for');
-    if (forwarded) return forwarded.split(',')[0].trim();
-    return request.headers.get('x-real-ip') || 'unknown';
+    if (forwarded) return forwarded.split(',')[0]?.trim() ?? 'unknown';
+    return request.headers.get('x-real-ip') ?? 'unknown';
 }
 
-export function bearerKey(request) {
-    const header = request.headers.get('authorization') || '';
+export function bearerKey(request: Request): string | null {
+    const header = request.headers.get('authorization') ?? '';
     const match = header.match(/^Bearer\s+(\S+)$/i);
-    return match ? match[1] : null;
+    return match?.[1] ?? null;
 }

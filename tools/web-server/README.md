@@ -18,10 +18,16 @@ pnpm install
 pnpm dev                       # copies flasher assets, starts Next on :3000
 DATABASE_URL=postgres://... pnpm dev   # with a database for the API routes
 pnpm test                      # vitest against in-process PGlite Postgres
-pnpm lint
+pnpm typecheck                 # strict TypeScript
+pnpm lint                      # Biome (lint + format check); lint:fix / format to write
 ```
 
-Drizzle migrations live in `drizzle/` and are generated from `lib/schema.js`
+The app is strict TypeScript, linted and formatted by Biome. The one JS
+import is deliberate: `lib/ingest.ts` pulls the session parser straight from
+`tools/web-flasher/analytics/parser.js` (typed by
+`types/web-flasher-parser.d.ts`) so JS keeps a single parser source.
+
+Drizzle migrations live in `drizzle/` and are generated from `lib/schema.ts`
 with `pnpm db:generate`. They are applied automatically on first database use
 per process (serverless-friendly), both in production and in tests.
 

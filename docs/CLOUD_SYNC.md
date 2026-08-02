@@ -118,12 +118,13 @@ agreed design; each decision was made deliberately — change them knowingly.
 
 ## Implementation map
 
-- **Server:** `tools/web-server` — Next.js (app router, JS) + Drizzle/Postgres.
-  Schema `lib/schema.js` (migrations in `drizzle/`), ingest `lib/ingest.js` (imports
-  the shared `tools/web-flasher/analytics/parser.js`), auth `lib/auth.js`, limits
-  `lib/config.js`, routes under `app/api/stores/`. Tests: `pnpm test` (vitest +
-  PGlite, real route handlers). Deploy: Vercel (root `tools/web-server`) or
-  `docker compose up` (app + Postgres, quota off).
+- **Server:** `tools/web-server` — Next.js (app router, strict TypeScript, Biome) +
+  Drizzle/Postgres. Schema `lib/schema.ts` (migrations in `drizzle/`), ingest
+  `lib/ingest.ts` (imports the shared `tools/web-flasher/analytics/parser.js`,
+  typed via `types/web-flasher-parser.d.ts`), auth `lib/auth.ts`, limits
+  `lib/config.ts`, routes under `app/api/stores/`. Checks: `pnpm test` (vitest +
+  PGlite, real route handlers), `pnpm typecheck`, `pnpm lint` (Biome). Deploy:
+  Vercel (root `tools/web-server`) or `docker compose up` (app + Postgres, quota off).
 - **Firmware:** `src/system/cloud_sync.{h,cpp}` (uploader; NVS `cloudsync`),
   `WifiService::State::UPLOADING` (`src/system/wifi_service.*`), CRC-32 in
   `src/logging/grind_logging.cpp`, BLE characteristics in `src/config/bluetooth.h` +
