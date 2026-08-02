@@ -75,6 +75,24 @@ agreed design; each decision was made deliberately — change them knowingly.
   Let's Encrypt/Vercel certs out of the box — no pinning, no cert provisioning. TLS RAM
   (~40 KB) is paid only inside windows, which never overlap grinds.
 
+## Annotations and deletion
+
+- **Annotations are local-first.** Bean, roast date, grind setting, note and tags are
+  keyed by the session's `sha256`, not a foreign key — an annotation written before the
+  session finishes uploading still lands on it, and survives re-ingest. The browser
+  writes to IndexedDB immediately and works with no account; the `annotations` table is
+  the copy that follows an account across browsers. Reconciliation is per row,
+  last-write-wins on `updated_at`, so two browsers editing different grinds never
+  collide and a stale tab flushing late is dropped rather than applied.
+- **Deletion needs a tombstone.** The manifest handshake is stateless by design — it
+  asks the server what it lacks — so deleting a row alone invites the grinder to upload
+  it again on the next window. `DELETE /api/stores/[id]/sessions/[sha]` (owner session
+  only) records `deleted_sessions` with both the content hash and the
+  `(session_id, session_timestamp)` pair the device identifies files by, since the
+  device cannot know the hash of a file it has not sent. The manifest treats a tombstone
+  as "already have it", and ingest rejects a tombstoned blob outright rather than
+  trusting the manifest to have been consulted.
+
 ## Auth model — device is the credential
 
 - **Accounts own stores; the device stays a bearer-key client.** Browser-side cloud
