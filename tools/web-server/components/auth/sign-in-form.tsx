@@ -4,6 +4,7 @@
 // email/password, and passkey one-tap for accounts that registered one.
 // There is deliberately no password reset — the stack has no mail service —
 // so the copy pushes GitHub/passkeys as the recovery story.
+import { KeyRound } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { type StatusMessage, StatusRegion } from '@/components/status-region';
@@ -106,20 +107,34 @@ export function SignInForm({ github }: { github: boolean }) {
         finish();
     };
 
-    return (
-        <div className="mx-auto max-w-sm">
-            <h1 className="font-semibold text-2xl tracking-tight">
-                {mode === 'signup' ? 'Create your account' : 'Sign in'}
-            </h1>
+    const signingUp = mode === 'signup';
 
-            <div className="grid gap-2">
+    return (
+        <div>
+            <h1 className="font-semibold text-2xl tracking-tight">
+                {signingUp ? 'Create your account' : 'Sign in'}
+            </h1>
+            <p className="mt-1.5 text-muted-foreground text-sm">
+                {signingUp
+                    ? 'An account keeps your grinds backed up and readable from anywhere.'
+                    : 'Back to your grinds and your grinder’s backups.'}
+            </p>
+
+            {/* Above the controls, not under the submit button: a failed
+                sign-in has to be visible from where the eye already is. */}
+            <div className="mt-6 empty:hidden">
+                <StatusRegion status={status} />
+            </div>
+
+            <div className="mt-6 grid gap-2">
                 {github && (
                     <Button variant="outline" disabled={busy} onClick={signInGithub}>
                         Continue with GitHub
                     </Button>
                 )}
                 <Button variant="outline" disabled={busy} onClick={signInPasskey}>
-                    Sign in with a passkey
+                    <KeyRound />
+                    Continue with a passkey
                 </Button>
             </div>
 
@@ -145,7 +160,7 @@ export function SignInForm({ github }: { github: boolean }) {
                         autoCapitalize="none"
                         spellCheck={false}
                         required
-                        autoComplete={mode === 'signup' ? 'username' : 'username webauthn'}
+                        autoComplete={signingUp ? 'username' : 'username webauthn'}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                     />
@@ -156,32 +171,31 @@ export function SignInForm({ github }: { github: boolean }) {
                         id={`${mode}Password`}
                         name="password"
                         type="password"
-                        autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
+                        autoComplete={signingUp ? 'new-password' : 'current-password'}
                         minLength={8}
                         required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                     />
                 </div>
-                <Button type="submit" disabled={busy}>
-                    {mode === 'signup' ? 'Create account' : 'Sign in'}
+                <Button type="submit" className="mt-1" disabled={busy}>
+                    {signingUp ? 'Create account' : 'Sign in'}
                 </Button>
             </form>
 
-            <div className="mt-4">
-                <StatusRegion status={status} />
-            </div>
-
-            <button
-                type="button"
-                className="mt-2 text-muted-foreground text-sm underline-offset-4 hover:text-foreground hover:underline"
-                onClick={() => {
-                    setMode(mode === 'signup' ? 'signin' : 'signup');
-                    setStatus(null);
-                }}
-            >
-                {mode === 'signup' ? 'I already have an account' : 'Create a new account instead'}
-            </button>
+            <p className="mt-6 text-muted-foreground text-sm">
+                {signingUp ? 'Already have an account?' : 'New here?'}{' '}
+                <button
+                    type="button"
+                    className="text-foreground underline underline-offset-4 hover:text-primary"
+                    onClick={() => {
+                        setMode(signingUp ? 'signin' : 'signup');
+                        setStatus(null);
+                    }}
+                >
+                    {signingUp ? 'Sign in' : 'Create one'}
+                </button>
+            </p>
 
             <p className="mt-8 border-t pt-6 text-muted-foreground text-xs">
                 There is no password recovery — add a passkey or link GitHub after signing up.

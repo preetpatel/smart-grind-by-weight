@@ -177,6 +177,16 @@ agreed design; each decision was made deliberately — change them knowingly.
   passkeys, the account's stores (each showing its grinder, or an *Archive* badge when
   unbound — rename / share link / release / delete) and account deletion (typed
   confirmation, cascades stores).
+- **Auth has its own frame.** The app shell lives in the `app/(app)` route group; `/signin`
+  sits in `app/(auth)`, which renders one centred column and a link home instead of a
+  sidebar full of grinder routes a signed-out visitor can't use. URLs are unchanged —
+  route groups don't appear in the path.
+- **`/account` is a list of facts, each with its action attached.** Sign-in methods are one
+  row per method (password / GitHub / each passkey); backups are one row per store, with
+  *Copy link* inline and rename / release / delete behind a `⋯` menu. Nothing that is used
+  once a year sits expanded: change-password and account deletion are dialogs
+  (`components/auth/{change-password,delete-account}-dialog.tsx`), so the page stays
+  scannable and an irreversible form is never one stray click from submitting.
 - **Web app:** the WiFi page is **WiFi & Backup** — one flow provisions both (the coupling is
   real: sync needs WiFi). Requires sign-in. It reads the grinder *live* over BLE first —
   never the cached snapshot, which is how a browser with cold `localStorage` used to mint
