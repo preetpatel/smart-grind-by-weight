@@ -203,7 +203,7 @@ ESP32-S3 GND       →    Pin 4 (Ground)
 ## 🚀 Firmware Installation
 
 ### 🌐 Web Flasher (Recommended)
-**[🔗 Open Web Flasher Tool](https://preetpatel.github.io/smart-grind-by-weight)**
+**[🔗 Open Web Flasher Tool](https://coffeegrinder.preetpatel.com)**
 
 **Browser Compatibility:**
 - ✅ **Chrome** (Desktop & Android) - Full support
@@ -490,7 +490,7 @@ Generate a comprehensive diagnostic report from your device for troubleshooting 
 ### Access Methods
 
 **Web Flasher (Recommended):**
-1. Visit the [Web Flasher Tool](https://preetpatel.github.io/smart-grind-by-weight)
+1. Visit the [Web Flasher Tool](https://coffeegrinder.preetpatel.com)
 2. Navigate to the **Diagnostics** tab
 3. Click "Connect & Get Diagnostics"
 4. Copy to clipboard or download the report as a text file
@@ -519,7 +519,7 @@ Grind session logging is **on by default** (toggle under **Menu → Logs & Data*
 
 ### Analyze in the Browser (No Local Tools)
 
-The [Web Flasher Tool](https://preetpatel.github.io/smart-grind-by-weight)'s **Analytics** tab pulls grind sessions, system info, and the diagnostics report straight from the grinder over Web Bluetooth (Chrome/Edge) and renders the full analysis dashboard in the browser — single-session phase charts, vibration/FFT analysis, session-overlay comparison, multi-session statistics, long-term trends with a burr-wear odometer, and the Device Health view. Data is cached in the browser between visits and can be exported/imported as JSON for sharing.
+The [Web Flasher Tool](https://coffeegrinder.preetpatel.com)'s **Analytics** tab pulls grind sessions, system info, and the diagnostics report straight from the grinder over Web Bluetooth (Chrome/Edge) and renders the full analysis dashboard in the browser — single-session phase charts, vibration/FFT analysis, session-overlay comparison, multi-session statistics, long-term trends with a burr-wear odometer, and the Device Health view. Data is cached in the browser between visits and can be exported/imported as JSON for sharing.
 
 [<img src="../media/analytics.png" alt="Analytics — single-session analysis" width="49%">](../media/analytics.png) [<img src="../media/analytics-health.png" alt="Analytics — device health snapshot" width="49%">](../media/analytics-health.png)
 [<img src="../media/analytics-compare.png" alt="Analytics — aligned session comparison" width="49%">](../media/analytics-compare.png) [<img src="../media/analytics-trends.png" alt="Analytics — long-term trends and burr-wear odometer" width="49%">](../media/analytics-trends.png)

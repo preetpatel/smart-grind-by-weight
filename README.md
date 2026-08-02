@@ -107,7 +107,7 @@ Full history is in the [commit log](https://github.com/preetpatel/smart-grind-by
 
 1. **Get the parts** - ESP32-S3 AMOLED display + HX711 + load cell (~€35 total) → See [Parts List](docs/DOC.md#-parts-list)
 2. **3D print the mounting parts** - All STL files included, no supports needed → See [3D Printed Parts](docs/DOC.md#3d-printed-parts) | [Community Designs](docs/3D_PRINTS.md)
-3. **Flash firmware & calibrate** - [Web Flasher](https://preetpatel.github.io/smart-grind-by-weight) (Chrome/Edge desktop + Android only) or command line
+3. **Flash firmware & calibrate** - [Web Flasher](https://coffeegrinder.preetpatel.com) (Chrome/Edge desktop + Android only) or command line
 4. **Follow the assembly video** - [Complete Eureka build process](https://youtu.be/-kfKjiwJsGM) (by Jaap, for the original build)
 
 **Ready to build?** → See **[DOC.md](docs/DOC.md)** for complete build instructions, parts list, and usage guide.
@@ -128,7 +128,7 @@ If you want to modify the code or contribute, see **[DEVELOPMENT.md](docs/DEVELO
 
 [<img src="media/analytics-compare.png" alt="Aligned session comparison" width="32%">](media/analytics-compare.png) [<img src="media/analytics-trends.png" alt="Long-term trends with burr-wear odometer" width="32%">](media/analytics-trends.png) [<img src="media/analytics-health.png" alt="Device health snapshot" width="32%">](media/analytics-health.png)
 
-Pull everything from the grinder over one BLE connection — grind data, system info, and the diagnostics report — and analyze it right in your browser: the [Web Flasher](https://preetpatel.github.io/smart-grind-by-weight)'s **Analytics** tab connects over Web Bluetooth (Chrome/Edge), no local tools needed. Single-session phase charts, vibration/FFT analysis, session-overlay comparison, multi-session statistics, long-term trends with a burr-wear odometer, and a Device Health view, with JSON export/import for sharing datasets.
+Pull everything from the grinder over one BLE connection — grind data, system info, and the diagnostics report — and analyze it right in your browser: the [Web Flasher](https://coffeegrinder.preetpatel.com)'s **Analytics** tab connects over Web Bluetooth (Chrome/Edge), no local tools needed. Single-session phase charts, vibration/FFT analysis, session-overlay comparison, multi-session statistics, long-term trends with a burr-wear odometer, and a Device Health view, with JSON export/import for sharing datasets.
 
 Prefer working locally? The same pull and dashboard are available via the Streamlit tooling:
 
