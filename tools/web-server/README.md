@@ -25,8 +25,8 @@ the grinder (design: `docs/CLOUD_SYNC.md`):
 
 ```bash
 pnpm install
+cp .env.example .env.local     # then fill in (BETTER_AUTH_SECRET=$(openssl rand -hex 32))
 pnpm dev                       # Next on :3000
-DATABASE_URL=postgres://... pnpm dev   # with a database for the API routes
 pnpm test                      # vitest against in-process PGlite Postgres
 pnpm typecheck                 # strict TypeScript
 pnpm lint                      # Biome (lint + format check); lint:fix / format to write
