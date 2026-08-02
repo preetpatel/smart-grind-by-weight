@@ -62,6 +62,13 @@ export interface Annotation {
     grind_setting: string | null;
     note: string | null;
     tags: string[];
+    /** Which bag was in the hopper — soft reference to a cloud bean (bn_…).
+     *  Optional: rows written before beans existed simply lack the fields. */
+    bean_id?: string | null;
+    /** Shot yield in grams over brew_time_s seconds, logged on the grinder's
+     *  post-shot screen or edited here. */
+    brew_output_g?: number | null;
+    brew_time_s?: number | null;
     /** ISO 8601; the field conflicts are resolved on, last write wins. */
     updated_at: string;
 }
@@ -72,4 +79,29 @@ export const EMPTY_ANNOTATION: Omit<Annotation, 'sha256' | 'updated_at'> = {
     grind_setting: null,
     note: null,
     tags: [],
+    bean_id: null,
+    brew_output_g: null,
+    brew_time_s: null,
 };
+
+// A bean is one bag of coffee, owned by the cloud store (the server is the
+// source of truth; the browser holds a read cache for offline rendering).
+export interface Bean {
+    id: string;
+    name: string;
+    ratio: number;
+    brew_time_s: number;
+    roast_date: string | null;
+    notes: string | null;
+    archived: boolean;
+    created_at: string;
+    updated_at: string;
+}
+
+export type AdviceVerdict = 'finer' | 'coarser' | 'ok' | 'none';
+
+export interface BeanAdvice {
+    verdict: AdviceVerdict;
+    shots_considered: number;
+    median_deviation_pct: number | null;
+}

@@ -9,13 +9,17 @@
 // v3 adds annotations — what the grinder can't know, keyed by the same sha256.
 // They are written locally first and work with no account at all; syncing to a
 // cloud store is an extra, not a requirement.
-import type { Annotation, DeviceReports, StoredRecord } from './types';
+//
+// v4 adds a read cache of the store's beans (server-authoritative) so the
+// beans page and the annotation picker render offline.
+import type { Annotation, Bean, DeviceReports, StoredRecord } from './types';
 
 const DB_NAME = 'sgbw-analytics';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const SESSIONS_STORE = 'sessions';
 const META_STORE = 'meta';
 const ANNOTATIONS_STORE = 'annotations';
+const BEANS_STORE = 'beans';
 
 export const EXPORT_FORMAT = 'sgbw-analytics';
 export const EXPORT_VERSION = 1;
@@ -23,14 +27,18 @@ export const EXPORT_VERSION = 1;
 function openDb(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
-        request.onupgradeneeded = () => {
+        request.onupgradeneeded = (event) => {
             const db = request.result;
             // v1 was keyed by session_id and held no raw bytes; the data is
-            // re-pullable (device or cloud), so migrate by starting fresh.
-            if (db.objectStoreNames.contains(SESSIONS_STORE)) {
+            // re-pullable (device or cloud), so that one migration started
+            // fresh. Later upgrades must keep sessions — a BLE-only browser
+            // has nowhere to re-pull months of history from.
+            if (event.oldVersion < 2 && db.objectStoreNames.contains(SESSIONS_STORE)) {
                 db.deleteObjectStore(SESSIONS_STORE);
             }
-            db.createObjectStore(SESSIONS_STORE, { keyPath: 'sha256' });
+            if (!db.objectStoreNames.contains(SESSIONS_STORE)) {
+                db.createObjectStore(SESSIONS_STORE, { keyPath: 'sha256' });
+            }
             if (!db.objectStoreNames.contains(META_STORE)) {
                 db.createObjectStore(META_STORE, { keyPath: 'key' });
             }
@@ -38,6 +46,9 @@ function openDb(): Promise<IDBDatabase> {
             // else, so unlike sessions this store is created, never dropped.
             if (!db.objectStoreNames.contains(ANNOTATIONS_STORE)) {
                 db.createObjectStore(ANNOTATIONS_STORE, { keyPath: 'sha256' });
+            }
+            if (!db.objectStoreNames.contains(BEANS_STORE)) {
+                db.createObjectStore(BEANS_STORE, { keyPath: 'id' });
             }
         };
         request.onsuccess = () => resolve(request.result);
@@ -103,10 +114,14 @@ export async function removeSession(sha256: string): Promise<void> {
 export async function clearAll(): Promise<void> {
     const db = await openDb();
     try {
-        const tx = db.transaction([SESSIONS_STORE, META_STORE, ANNOTATIONS_STORE], 'readwrite');
+        const tx = db.transaction(
+            [SESSIONS_STORE, META_STORE, ANNOTATIONS_STORE, BEANS_STORE],
+            'readwrite',
+        );
         tx.objectStore(SESSIONS_STORE).clear();
         tx.objectStore(META_STORE).clear();
         tx.objectStore(ANNOTATIONS_STORE).clear();
+        tx.objectStore(BEANS_STORE).clear();
         await transactionDone(tx);
     } finally {
         db.close();
@@ -173,8 +188,45 @@ export function isBlankAnnotation(entry: Annotation): boolean {
         !entry.roast_date &&
         !entry.grind_setting &&
         !entry.note &&
-        entry.tags.length === 0
+        entry.tags.length === 0 &&
+        !entry.bean_id &&
+        entry.brew_output_g == null &&
+        entry.brew_time_s == null
     );
+}
+
+// ---- beans (read cache; the cloud store is the source of truth) -----------
+
+export async function saveBeansCache(beans: Bean[], activeBeanId: string | null): Promise<void> {
+    const db = await openDb();
+    try {
+        const tx = db.transaction([BEANS_STORE, META_STORE], 'readwrite');
+        const store = tx.objectStore(BEANS_STORE);
+        // Replace-all: deletions on the server must not linger here.
+        store.clear();
+        for (const bean of beans) store.put(bean);
+        tx.objectStore(META_STORE).put({ key: 'activeBeanId', value: activeBeanId });
+        await transactionDone(tx);
+    } finally {
+        db.close();
+    }
+}
+
+export async function loadBeansCache(): Promise<{ beans: Bean[]; activeBeanId: string | null }> {
+    const db = await openDb();
+    try {
+        const tx = db.transaction([BEANS_STORE, META_STORE], 'readonly');
+        const beansRequest = tx.objectStore(BEANS_STORE).getAll();
+        const activeRequest = tx.objectStore(META_STORE).get('activeBeanId');
+        await transactionDone(tx);
+        const active = activeRequest.result as { key: string; value: string | null } | undefined;
+        return {
+            beans: beansRequest.result as Bean[],
+            activeBeanId: active ? active.value : null,
+        };
+    } finally {
+        db.close();
+    }
 }
 
 export function buildExportJson(

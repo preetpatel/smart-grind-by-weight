@@ -42,7 +42,8 @@ const SMOOTHING_OPTIONS: Array<[string, number]> = [
 export default function SessionPage() {
     const params = useParams<{ sha: string }>();
     const router = useRouter();
-    const { records, loaded, annotations, saveAnnotation, deleteSession, source } = useAnalytics();
+    const { records, loaded, annotations, beans, saveAnnotation, deleteSession, source } =
+        useAnalytics();
     const [includeTaring, setIncludeTaring] = useState(false);
     const [smoothingMs, setSmoothingMs] = useState(500);
     const [confirmDelete, setConfirmDelete] = useState(false);
@@ -177,6 +178,7 @@ export default function SessionPage() {
 
             <AnnotationEditor
                 annotation={annotations.get(record.sha256)}
+                beans={beans}
                 beanSuggestions={suggestions.beans}
                 settingSuggestions={suggestions.settings}
                 onSave={(patch) => saveAnnotation(record.sha256, patch)}

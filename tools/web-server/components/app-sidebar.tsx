@@ -7,6 +7,7 @@
 // lives on the page that can act on it.
 import {
     Activity,
+    Bean,
     ChevronsUpDown,
     GitCompare,
     House,
@@ -67,6 +68,7 @@ const GRINDER_NAV = [
 const ANALYTICS_NAV = [
     { href: '/analytics', label: 'Overview', icon: Activity },
     { href: '/analytics/sessions', label: 'Grinds', icon: ListFilter },
+    { href: '/analytics/beans', label: 'Beans', icon: Bean },
     { href: '/analytics/compare', label: 'Compare', icon: GitCompare },
     { href: '/analytics/multi', label: 'Aggregate', icon: Layers },
     { href: '/analytics/trends', label: 'Trends', icon: TrendingUp },

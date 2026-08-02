@@ -19,15 +19,17 @@ import {
     clearAll,
     isBlankAnnotation,
     loadAnnotations,
+    loadBeansCache,
     loadMeta,
     loadSessions,
     parseImportJson,
     removeSession,
     saveAnnotations,
+    saveBeansCache,
     saveMeta,
     saveSessions,
 } from '@/lib/analytics/store';
-import type { Annotation, DeviceReports, StoredRecord } from '@/lib/analytics/types';
+import type { Annotation, Bean, DeviceReports, StoredRecord } from '@/lib/analytics/types';
 import { authClient } from '@/lib/client/auth';
 import * as ble from '@/lib/client/ble';
 import {
@@ -35,6 +37,7 @@ import {
     type CloudSource,
     deleteCloudSession,
     fetchAnnotations,
+    fetchBeans,
     getActiveStoreId,
     getViewerSource,
     listMyStores,
@@ -52,6 +55,8 @@ import { useGrinder } from '@/lib/client/use-grinder';
 interface AnalyticsState {
     records: StoredRecord[];
     annotations: Map<string, Annotation>;
+    beans: Bean[];
+    activeBeanId: string | null;
     deviceReports: DeviceReports | null;
     lastPull: string | null;
     status: StatusMessage | null;
@@ -77,6 +82,7 @@ interface AnalyticsState {
     syncFromCloud: (options?: { silent?: boolean }) => Promise<void>;
     backfillToCloud: (options?: { silent?: boolean }) => Promise<void>;
     refreshSources: () => Promise<void>;
+    refreshBeans: () => Promise<void>;
 }
 
 const AnalyticsContext = createContext<AnalyticsState | null>(null);
@@ -91,6 +97,8 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const grinder = useGrinder();
     const [records, setRecords] = useState<StoredRecord[]>([]);
     const [annotations, setAnnotations] = useState<Map<string, Annotation>>(() => new Map());
+    const [beans, setBeans] = useState<Bean[]>([]);
+    const [activeBeanId, setActiveBeanId] = useState<string | null>(null);
     const [deviceReports, setDeviceReports] = useState<DeviceReports | null>(null);
     const [lastPull, setLastPull] = useState<string | null>(null);
     const [status, setStatus] = useState<StatusMessage | null>(null);
@@ -211,11 +219,33 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         const stored = await loadSessions();
         setRecords(stored);
         setAnnotations(new Map((await loadAnnotations()).map((entry) => [entry.sha256, entry])));
+        const cachedBeans = await loadBeansCache();
+        setBeans(cachedBeans.beans);
+        setActiveBeanId(cachedBeans.activeBeanId);
         setDeviceReports(await loadMeta<DeviceReports>('deviceReports'));
         setLastPull(await loadMeta<string>('lastPull'));
         setLoaded(true);
         return stored;
     }, []);
+
+    // Beans are server-authoritative; this refreshes the local read cache.
+    // Best-effort like the annotation sync — an offline browser keeps its
+    // cached copy and the page still renders.
+    const syncBeans = useCallback(async (source: CloudSource) => {
+        try {
+            const list = await fetchBeans(source);
+            await saveBeansCache(list.beans, list.active_bean_id);
+            setBeans(list.beans);
+            setActiveBeanId(list.active_bean_id);
+        } catch (error) {
+            console.log('Bean sync skipped:', (error as Error).message);
+        }
+    }, []);
+
+    const refreshBeans = useCallback(async () => {
+        const activeSource = sourceRef.current;
+        if (activeSource) await syncBeans(activeSource);
+    }, [syncBeans]);
 
     const syncFromCloud = useCallback(
         async ({ silent = false } = {}) => {
@@ -237,6 +267,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                     await saveMeta('lastPull', new Date().toISOString());
                 }
                 await reconcileAnnotations(activeSource);
+                await syncBeans(activeSource);
                 if (fetched.length) await loadFromStore();
                 if (errors.length) {
                     showStatus(
@@ -263,7 +294,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                 setProgress(null);
             }
         },
-        [loadFromStore, reconcileAnnotations, showStatus],
+        [loadFromStore, reconcileAnnotations, showStatus, syncBeans],
     );
 
     // Push any locally-held sessions the store is missing (verbatim raw bytes;
@@ -527,6 +558,8 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const value: AnalyticsState = {
         records,
         annotations,
+        beans,
+        activeBeanId,
         deviceReports,
         lastPull,
         status,
@@ -552,6 +585,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         syncFromCloud,
         backfillToCloud,
         refreshSources,
+        refreshBeans,
     };
 
     return <AnalyticsContext value={value}>{children}</AnalyticsContext>;

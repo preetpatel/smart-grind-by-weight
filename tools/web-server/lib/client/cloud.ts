@@ -9,7 +9,13 @@
 //    authenticate with the view key as a bearer token, which also covers the
 //    cross-origin case (a hosted dashboard reading a self-hosted store).
 
-import type { Annotation, DeviceReports, StoredRecord } from '@/lib/analytics/types';
+import type {
+    Annotation,
+    Bean,
+    BeanAdvice,
+    DeviceReports,
+    StoredRecord,
+} from '@/lib/analytics/types';
 import { parseSessionFile } from '@/lib/parser';
 
 const VIEWER_KEY = 'sgbwCloudViewer';
@@ -465,4 +471,68 @@ export async function pushAnnotations(
 // cannot re-upload it on the next sync.
 export async function deleteCloudSession(source: CloudSource, sha256: string): Promise<void> {
     await ownerFetch(`/api/stores/${source.storeId}/sessions/${sha256}`, { method: 'DELETE' });
+}
+
+// ---- beans ----------------------------------------------------------------
+// Beans live on the server (the grinder fetches the active one during its
+// sync window), so unlike annotations there is no local-first merge: reads
+// work with the view key, every mutation is an owner call.
+
+export interface BeanList {
+    beans: Bean[];
+    active_bean_id: string | null;
+}
+
+export async function fetchBeans(source: CloudSource): Promise<BeanList> {
+    const response = await apiFetch(source, `/${source.storeId}/beans`);
+    return (await response.json()) as BeanList;
+}
+
+export interface BeanDraft {
+    name: string;
+    ratio: number;
+    brew_time_s?: number;
+    roast_date?: string | null;
+    notes?: string | null;
+}
+
+export async function createBean(source: CloudSource, draft: BeanDraft): Promise<Bean> {
+    const response = await ownerFetch(`/api/stores/${source.storeId}/beans`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(draft),
+    });
+    const { bean } = (await response.json()) as { bean: Bean };
+    return bean;
+}
+
+export async function updateBean(
+    source: CloudSource,
+    beanId: string,
+    patch: Partial<BeanDraft> & { archived?: boolean },
+): Promise<Bean> {
+    const response = await ownerFetch(`/api/stores/${source.storeId}/beans/${beanId}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+    });
+    const { bean } = (await response.json()) as { bean: Bean };
+    return bean;
+}
+
+export async function deleteBean(source: CloudSource, beanId: string): Promise<void> {
+    await ownerFetch(`/api/stores/${source.storeId}/beans/${beanId}`, { method: 'DELETE' });
+}
+
+export async function activateBean(source: CloudSource, beanId: string): Promise<void> {
+    await ownerFetch(`/api/stores/${source.storeId}/beans/${beanId}/activate`, { method: 'POST' });
+}
+
+// The same payload the grinder fetches during its sync window: active bean
+// plus the server-computed verdict.
+export async function fetchDeviceConfig(
+    source: CloudSource,
+): Promise<{ bean: Bean | null; advice: BeanAdvice }> {
+    const response = await apiFetch(source, `/${source.storeId}/config`);
+    return (await response.json()) as { bean: Bean | null; advice: BeanAdvice };
 }
