@@ -2,7 +2,7 @@ import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Db } from '@/lib/db';
 import * as schema from '@/lib/schema';
-import { api, freshDb, newStore, signUp } from './helpers/api';
+import { api, freshDb, newDeviceId, newStore, signUp } from './helpers/api';
 import { buildSessionBlob } from './helpers/blob';
 
 interface SessionSummaryWire {
@@ -64,11 +64,13 @@ describe('store lifecycle', () => {
     it('caps stores per account', async () => {
         process.env.SYNC_STORES_PER_USER = '2';
         const cookie = await signUp();
-        expect((await api.createStore({ cookie })).status).toBe(201);
-        expect((await api.createStore({ cookie })).status).toBe(201);
-        expect((await api.createStore({ cookie })).status).toBe(429);
+        const create = (owner: string) =>
+            api.createStore({ cookie: owner, body: { device_id: newDeviceId() } });
+        expect((await create(cookie)).status).toBe(201);
+        expect((await create(cookie)).status).toBe(201);
+        expect((await create(cookie)).status).toBe(429);
         // A different account is unaffected.
-        expect((await api.createStore({ cookie: await signUp() })).status).toBe(201);
+        expect((await create(await signUp())).status).toBe(201);
     });
 
     it('deletes a store with cascade, owner session only', async () => {
@@ -116,6 +118,201 @@ describe('store lifecycle', () => {
             (await api.patchStore(store.store_id, { key: store.upload_key, body: { name: 'x' } }))
                 .status,
         ).toBe(401);
+    });
+});
+
+describe('grinder binding', () => {
+    it('hands the same grinder back its own store instead of a second one', async () => {
+        const store = await newStore();
+        await api.ingest(store.store_id, {
+            key: store.upload_key,
+            body: buildSessionBlob(),
+            headers: { 'x-device-id': store.device_id },
+        });
+
+        // A second browser knows nothing but the grinder id: no cached
+        // snapshot, and the device itself may have been Forget-Sync'd.
+        const again = await api.createStore({
+            cookie: store.cookie,
+            body: { device_id: store.device_id },
+        });
+        expect(again.status).toBe(200);
+        const reused = (await again.json()) as {
+            store_id: string;
+            upload_key: string;
+            view_key: string;
+            status: string;
+        };
+        expect(reused.status).toBe('reused');
+        expect(reused.store_id).toBe(store.store_id);
+        expect(reused.view_key).toBe(store.view_key);
+        // Reuse is a provision, so the device credential is fresh.
+        expect(reused.upload_key).not.toBe(store.upload_key);
+
+        const { stores } = (await (await api.myStores({ cookie: store.cookie })).json()) as {
+            stores: { device_id: string | null; session_count: number }[];
+        };
+        expect(stores).toHaveLength(1);
+        expect(stores[0]?.device_id).toBe(store.device_id);
+        expect(stores[0]?.session_count).toBe(1);
+    });
+
+    it('will not create a store without a grinder', async () => {
+        const cookie = await signUp();
+        expect((await api.createStore({ cookie, body: {} })).status).toBe(400);
+        expect((await api.createStore({ cookie, body: { device_id: 'kitchen' } })).status).toBe(
+            400,
+        );
+    });
+
+    it('refuses to claim a grinder registered to another account', async () => {
+        const store = await newStore();
+        const other = await signUp();
+
+        const bare = await api.createStore({ cookie: other, body: { device_id: store.device_id } });
+        expect(bare.status).toBe(409);
+        expect(((await bare.json()) as { code: string }).code).toBe('device_bound_elsewhere');
+
+        // Knowing the grinder id is not possession; the keys come off the
+        // device itself.
+        const forged = await api.createStore({
+            cookie: other,
+            body: {
+                device_id: store.device_id,
+                proof: { store_id: store.store_id, view_key: 'vk_wrong' },
+            },
+        });
+        expect(forged.status).toBe(409);
+    });
+
+    it('claims a grinder held in hand, leaving the history with its old owner', async () => {
+        const store = await newStore();
+        await api.ingest(store.store_id, { key: store.upload_key, body: buildSessionBlob() });
+
+        const claim = await api.createStore({
+            cookie: await signUp(),
+            body: {
+                device_id: store.device_id,
+                proof: { store_id: store.store_id, view_key: store.view_key },
+            },
+        });
+        expect(claim.status).toBe(201);
+        const claimed = (await claim.json()) as {
+            store_id: string;
+            view_key: string;
+            status: string;
+        };
+        expect(claimed.status).toBe('claimed');
+        expect(claimed.store_id).not.toBe(store.store_id);
+        // The new owner starts empty — no grind data crosses accounts.
+        expect(await listedSessions(claimed.store_id, claimed.view_key)).toHaveLength(0);
+
+        const { stores } = (await (await api.myStores({ cookie: store.cookie })).json()) as {
+            stores: { device_id: string | null; session_count: number }[];
+        };
+        expect(stores[0]?.session_count).toBe(1);
+        expect(stores[0]?.device_id).toBeNull();
+    });
+
+    it('releases a grinder so the next account can claim it outright', async () => {
+        const store = await newStore();
+        expect((await api.releaseStore(store.store_id, { key: store.upload_key })).status).toBe(
+            401,
+        );
+        expect((await api.releaseStore(store.store_id, { cookie: await signUp() })).status).toBe(
+            403,
+        );
+        expect((await api.releaseStore(store.store_id, { cookie: store.cookie })).status).toBe(200);
+
+        const claim = await api.createStore({
+            cookie: await signUp(),
+            body: { device_id: store.device_id },
+        });
+        expect(claim.status).toBe(201);
+        expect(((await claim.json()) as { status: string }).status).toBe('created');
+    });
+
+    it('binds an unbound store when provisioning names a grinder', async () => {
+        const store = await newStore();
+        await api.releaseStore(store.store_id, { cookie: store.cookie });
+
+        const rebind = await api.provision(store.store_id, {
+            cookie: store.cookie,
+            body: { device_id: store.device_id },
+        });
+        expect(((await rebind.json()) as { device_id: string }).device_id).toBe(store.device_id);
+
+        // A second grinder cannot be pointed at a store that already has one.
+        const wrong = await api.provision(store.store_id, {
+            cookie: store.cookie,
+            body: { device_id: newDeviceId() },
+        });
+        expect(wrong.status).toBe(409);
+        expect(((await wrong.json()) as { code: string }).code).toBe('store_bound_other_device');
+    });
+
+    it('refuses to bind a grinder that already has a store', async () => {
+        const taken = await newStore();
+        const spare = await newStore(taken.cookie);
+        await api.releaseStore(spare.store_id, { cookie: taken.cookie });
+
+        const response = await api.provision(spare.store_id, {
+            cookie: taken.cookie,
+            body: { device_id: taken.device_id },
+        });
+        expect(response.status).toBe(409);
+        expect(((await response.json()) as { code: string }).code).toBe('device_bound_elsewhere');
+    });
+
+    it('rejects device uploads from a grinder the store does not belong to', async () => {
+        const store = await newStore();
+        const stranger = newDeviceId();
+        expect(
+            (
+                await api.ingest(store.store_id, {
+                    key: store.upload_key,
+                    body: buildSessionBlob({ sessionId: 1 }),
+                    headers: { 'x-device-id': store.device_id },
+                })
+            ).status,
+        ).toBe(201);
+
+        const mismatched = await api.ingest(store.store_id, {
+            key: store.upload_key,
+            body: buildSessionBlob({ sessionId: 2 }),
+            headers: { 'x-device-id': stranger },
+        });
+        expect(mismatched.status).toBe(403);
+        expect(((await mismatched.json()) as { code: string }).code).toBe('device_mismatch');
+
+        // The whole device surface, not just ingest.
+        expect(
+            (
+                await api.postManifest(store.store_id, {
+                    key: store.upload_key,
+                    body: { sessions: [] },
+                    headers: { 'x-device-id': stranger },
+                })
+            ).status,
+        ).toBe(403);
+        expect(
+            (
+                await api.postSnapshot(store.store_id, {
+                    key: store.upload_key,
+                    body: { firmware_version: '1.6.0' },
+                    headers: { 'x-device-id': stranger },
+                })
+            ).status,
+        ).toBe(403);
+
+        // A browser backfill rides the owner's cookie, and its local records
+        // carry no per-record device id — it is not a second grinder.
+        const backfill = await api.ingest(store.store_id, {
+            cookie: store.cookie,
+            body: buildSessionBlob({ sessionId: 3 }),
+            headers: { 'x-device-id': stranger, 'x-source': 'browser' },
+        });
+        expect(backfill.status).toBe(201);
     });
 });
 
@@ -192,7 +389,7 @@ describe('session ingest', () => {
         const first = await api.ingest(store.store_id, {
             key: store.upload_key,
             body: blob,
-            headers: { 'x-device-id': 'aabbccddeeff' },
+            headers: { 'x-device-id': store.device_id },
         });
         expect(first.status).toBe(201);
         expect((await first.json()).status).toBe('stored');
@@ -204,7 +401,7 @@ describe('session ingest', () => {
         const sessions = await listedSessions(store.store_id, store.view_key);
         expect(sessions).toHaveLength(1);
         expect(sessions[0]?.session_id).toBe(42);
-        expect(sessions[0]?.device_id).toBe('aabbccddeeff');
+        expect(sessions[0]?.device_id).toBe(store.device_id);
         expect(sessions[0]?.final_weight).toBeCloseTo(18.02, 2);
         expect(sessions[0]?.result_status).toBe('COMPLETE');
     });
@@ -385,7 +582,7 @@ describe('snapshots', () => {
             const response = await api.postSnapshot(store.store_id, {
                 key: store.upload_key,
                 body: { firmware_version: version, lifetime_grinds: 123 },
-                headers: { 'x-device-id': 'aabbccddeeff' },
+                headers: { 'x-device-id': store.device_id },
             });
             expect(response.status).toBe(201);
         }
@@ -396,7 +593,7 @@ describe('snapshots', () => {
         };
         expect(snapshots).toHaveLength(2);
         expect(snapshots[0]?.data.firmware_version).toBe('1.6.0');
-        expect(snapshots[0]?.device_id).toBe('aabbccddeeff');
+        expect(snapshots[0]?.device_id).toBe(store.device_id);
     });
 
     it('rejects oversized and non-JSON snapshots', async () => {

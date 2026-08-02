@@ -15,6 +15,13 @@
       "when": 1785651709818,
       "tag": "0001_thankful_whiplash",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785654314748,
+      "tag": "0002_needy_triton",
+      "breakpoints": true
     }
   ]
 }

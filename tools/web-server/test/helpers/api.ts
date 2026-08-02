@@ -12,6 +12,7 @@ import * as myStoresRoute from '@/app/api/me/stores/route';
 import * as annotationsRoute from '@/app/api/stores/[id]/annotations/route';
 import * as manifestRoute from '@/app/api/stores/[id]/manifest/route';
 import * as provisionRoute from '@/app/api/stores/[id]/provision/route';
+import * as releaseRoute from '@/app/api/stores/[id]/release/route';
 import * as rotateRoute from '@/app/api/stores/[id]/rotate-view-key/route';
 import * as storeRoute from '@/app/api/stores/[id]/route';
 import * as blobRoute from '@/app/api/stores/[id]/sessions/[sha]/route';
@@ -100,6 +101,8 @@ export const api = {
         rotateRoute.POST(request('POST', `/api/stores/${id}/rotate-view-key`, opts), ctx({ id })),
     provision: (id: string, opts: RequestOptions) =>
         provisionRoute.POST(request('POST', `/api/stores/${id}/provision`, opts), ctx({ id })),
+    releaseStore: (id: string, opts: RequestOptions) =>
+        releaseRoute.POST(request('POST', `/api/stores/${id}/release`, opts), ctx({ id })),
     patchStore: (id: string, opts: RequestOptions) =>
         storeRoute.PATCH(request('PATCH', `/api/stores/${id}`, opts), ctx({ id })),
     myStores: (opts: RequestOptions) => myStoresRoute.GET(request('GET', '/api/me/stores', opts)),
@@ -137,15 +140,25 @@ export interface StoreCredentials {
     store_id: string;
     upload_key: string;
     view_key: string;
+    device_id: string;
     cookie: string;
 }
 
+let deviceCounter = 0;
+
+// A distinct grinder per call, in the firmware's format (12 hex digits).
+export function newDeviceId(): string {
+    return (++deviceCounter).toString(16).padStart(12, '0');
+}
+
 // Creates a store for a signed-in account (a fresh one unless a cookie is
-// passed), mirroring the browser flow: sign in, create, provision over BLE.
-export async function newStore(cookie?: string): Promise<StoreCredentials> {
+// passed), mirroring the browser flow: sign in, read the grinder's id over
+// BLE, create, provision over BLE.
+export async function newStore(cookie?: string, deviceId?: string): Promise<StoreCredentials> {
     const owner = cookie ?? (await signUp());
-    const response = await api.createStore({ cookie: owner });
+    const device = deviceId ?? newDeviceId();
+    const response = await api.createStore({ cookie: owner, body: { device_id: device } });
     if (response.status !== 201) throw new Error(`store create failed: ${response.status}`);
-    const created = (await response.json()) as Omit<StoreCredentials, 'cookie'>;
-    return { ...created, cookie: owner };
+    const created = (await response.json()) as Omit<StoreCredentials, 'cookie' | 'device_id'>;
+    return { ...created, device_id: device, cookie: owner };
 }

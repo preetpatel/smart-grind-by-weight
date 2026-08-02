@@ -1,19 +1,25 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { eq } from 'drizzle-orm';
 import { getSessionUser, type SessionUser } from './auth-server';
 import type { Db } from './db';
+import { deviceIdHeader } from './device-id';
 import { ApiError, bearerKey } from './http';
-import { hashKey } from './keys';
+import { hashKey, keysEqual } from './keys';
 import { type Store, stores } from './schema';
 
 export type Role = 'read' | 'write';
 
-function digestsEqual(a: string, b: string): boolean {
-    // Both inputs are re-hashed so the comparison is constant-time regardless
-    // of attacker-controlled input length.
-    const bufA = createHash('sha256').update(a, 'utf8').digest();
-    const bufB = createHash('sha256').update(b, 'utf8').digest();
-    return timingSafeEqual(bufA, bufB);
+// One store, one grinder. A device holding the right upload key but wearing a
+// different identity is a mis-provisioned second grinder, so its uploads are
+// refused rather than silently mixed into someone else's history. Only
+// key-authed requests are checked: a browser backfill rides the owner's
+// cookie and its local records carry no per-record device id. Firmware that
+// predates the header passes.
+function assertDeviceMatches(request: Request, store: Store): void {
+    if (!store.deviceId) return;
+    const claimed = deviceIdHeader(request);
+    if (claimed && claimed !== store.deviceId) {
+        throw new ApiError(403, 'this store belongs to another grinder', 'device_mismatch');
+    }
 }
 
 // Loads the store and authorizes the request against it, session first:
@@ -35,13 +41,14 @@ export async function authStore(
     const key = bearerKey(request);
     if (!key) throw new ApiError(401, 'sign in or present a bearer key');
 
-    const isUpload = digestsEqual(hashKey(key), store.uploadKeyHash);
-    const isView = !isUpload && digestsEqual(key, store.viewKey);
+    const isUpload = keysEqual(hashKey(key), store.uploadKeyHash);
+    const isView = !isUpload && keysEqual(key, store.viewKey);
 
     if (!isUpload && !isView) throw new ApiError(403, 'invalid key');
     if (role === 'write' && !isUpload) {
         throw new ApiError(403, 'write access requires the upload key');
     }
+    if (isUpload) assertDeviceMatches(request, store);
     return { store, role: isUpload ? 'write' : 'read' };
 }
 

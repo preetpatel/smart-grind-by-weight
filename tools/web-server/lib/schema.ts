@@ -7,6 +7,7 @@
 // only on the device; view_key is stored plaintext by design — it is the
 // semi-public read credential that share links and the device's BLE status
 // characteristic hand out.
+import { sql } from 'drizzle-orm';
 import {
     bigint,
     bigserial,
@@ -39,9 +40,21 @@ export const stores = pgTable(
         uploadKeyHash: text('upload_key_hash').notNull(),
         viewKey: text('view_key').notNull(),
         name: text('name'),
+        // The grinder this store belongs to (its factory MAC, which the
+        // firmware already sends as x-device-id on every request). One
+        // grinder, one store — enforced here rather than by UI etiquette, so
+        // no browser without the right localStorage can mint a second one.
+        // NULL means unbound: an archive whose grinder was released or
+        // claimed by another account, still readable by its owner.
+        deviceId: text('device_id'),
         createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     },
-    (table) => [index('stores_owner_idx').on(table.ownerId)],
+    (table) => [
+        index('stores_owner_idx').on(table.ownerId),
+        uniqueIndex('stores_device_uq')
+            .on(table.deviceId)
+            .where(sql`${table.deviceId} is not null`),
+    ],
 );
 
 export const sessions = pgTable(
