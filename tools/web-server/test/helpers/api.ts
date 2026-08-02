@@ -10,6 +10,11 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import * as authRoute from '@/app/api/auth/[...all]/route';
 import * as myStoresRoute from '@/app/api/me/stores/route';
 import * as annotationsRoute from '@/app/api/stores/[id]/annotations/route';
+import * as beanActivateRoute from '@/app/api/stores/[id]/beans/[beanId]/activate/route';
+import * as beanRoute from '@/app/api/stores/[id]/beans/[beanId]/route';
+import * as beansRoute from '@/app/api/stores/[id]/beans/route';
+import * as brewsRoute from '@/app/api/stores/[id]/brews/route';
+import * as configRoute from '@/app/api/stores/[id]/config/route';
 import * as manifestRoute from '@/app/api/stores/[id]/manifest/route';
 import * as provisionRoute from '@/app/api/stores/[id]/provision/route';
 import * as releaseRoute from '@/app/api/stores/[id]/release/route';
@@ -108,6 +113,29 @@ export const api = {
     myStores: (opts: RequestOptions) => myStoresRoute.GET(request('GET', '/api/me/stores', opts)),
     auth: (authPath: string, opts: RequestOptions) =>
         authRoute.POST(request('POST', `/api/auth/${authPath}`, opts)),
+    listBeans: (id: string, opts: RequestOptions) =>
+        beansRoute.GET(request('GET', `/api/stores/${id}/beans`, opts), ctx({ id })),
+    createBean: (id: string, opts: RequestOptions) =>
+        beansRoute.POST(request('POST', `/api/stores/${id}/beans`, opts), ctx({ id })),
+    patchBean: (id: string, beanId: string, opts: RequestOptions) =>
+        beanRoute.PATCH(
+            request('PATCH', `/api/stores/${id}/beans/${beanId}`, opts),
+            ctx({ id, beanId }),
+        ),
+    deleteBean: (id: string, beanId: string, opts: RequestOptions) =>
+        beanRoute.DELETE(
+            request('DELETE', `/api/stores/${id}/beans/${beanId}`, opts),
+            ctx({ id, beanId }),
+        ),
+    activateBean: (id: string, beanId: string, opts: RequestOptions) =>
+        beanActivateRoute.POST(
+            request('POST', `/api/stores/${id}/beans/${beanId}/activate`, opts),
+            ctx({ id, beanId }),
+        ),
+    getConfig: (id: string, opts: RequestOptions) =>
+        configRoute.GET(request('GET', `/api/stores/${id}/config`, opts), ctx({ id })),
+    postBrews: (id: string, opts: RequestOptions) =>
+        brewsRoute.POST(request('POST', `/api/stores/${id}/brews`, opts), ctx({ id })),
 };
 
 // The session cookie(s) a Better Auth response sets, folded into a `cookie`

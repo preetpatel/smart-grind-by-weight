@@ -47,6 +47,10 @@ export const stores = pgTable(
         // NULL means unbound: an archive whose grinder was released or
         // claimed by another account, still readable by its owner.
         deviceId: text('device_id'),
+        // The bag currently in the hopper. Soft reference to beans.id — beans
+        // already FK back to stores, and a cycle of constraints buys nothing
+        // the activate/delete routes don't enforce.
+        activeBeanId: text('active_bean_id'),
         createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
@@ -114,6 +118,29 @@ export const snapshots = pgTable(
     ],
 );
 
+// A bean is one bag of coffee: the brew ratio and shot time the grinder should
+// expect while it's active, plus the roast date trends group by. Rows are kept
+// after the bag is finished (archived_at) so per-bag history survives.
+export const beans = pgTable(
+    'beans',
+    {
+        id: text('id').primaryKey(),
+        storeId: text('store_id')
+            .notNull()
+            .references(() => stores.id, { onDelete: 'cascade' }),
+        name: text('name').notNull(),
+        // Output per gram of dose: 1.5 means a 1 : 1.5 ratio.
+        ratio: real('ratio').notNull(),
+        brewTimeS: integer('brew_time_s').notNull().default(30),
+        roastDate: text('roast_date'),
+        notes: text('notes'),
+        archivedAt: timestamp('archived_at', { withTimezone: true }),
+        createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+        updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+    },
+    (table) => [index('beans_store_idx').on(table.storeId)],
+);
+
 // What the grinder can't know: which beans went in and what the burrs were set
 // to. Keyed by the session's content hash rather than a foreign key, so an
 // annotation written before a session finishes uploading still lands on it, and
@@ -133,11 +160,19 @@ export const annotations = pgTable(
         grindSetting: text('grind_setting'),
         note: text('note'),
         tags: jsonb('tags').$type<string[]>().notNull().default([]),
+        // Which bag was in the hopper (soft reference to beans.id — a deleted
+        // bean or a viewer import must not invalidate the row), and what the
+        // shot yielded: grams out over brew_time_s seconds. Not re-derivable
+        // from session blobs, which is why it lives here and not on sessions.
+        beanId: text('bean_id'),
+        brewOutputG: real('brew_output_g'),
+        brewTimeS: integer('brew_time_s'),
         updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
     },
     (table) => [
         uniqueIndex('annotations_store_sha_uq').on(table.storeId, table.sha256),
         index('annotations_store_updated_idx').on(table.storeId, table.updatedAt),
+        index('annotations_store_bean_idx').on(table.storeId, table.beanId),
     ],
 );
 
@@ -174,3 +209,4 @@ export type SessionRow = typeof sessions.$inferSelect;
 export type SnapshotRow = typeof snapshots.$inferSelect;
 export type AnnotationRow = typeof annotations.$inferSelect;
 export type DeletedSessionRow = typeof deletedSessions.$inferSelect;
+export type BeanRow = typeof beans.$inferSelect;

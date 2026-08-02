@@ -17,7 +17,7 @@ import { config } from './config';
 import type { Db } from './db';
 import { ApiError } from './http';
 import { sha256Hex } from './keys';
-import { deletedSessions, type Store, sessions } from './schema';
+import { annotations, deletedSessions, type Store, sessions } from './schema';
 
 type SessionInsert = typeof sessions.$inferInsert;
 export type SessionSummary = Omit<
@@ -186,6 +186,20 @@ export async function ingestSession(
         .returning({ id: sessions.id });
 
     if (!inserted.length) return { status: 'duplicate', sha256, rotated: 0 };
+
+    // The bag in the hopper when a grind arrives is the store's active bean.
+    // coalesce keeps any bean the owner already picked by hand, and updated_at
+    // is left alone on conflict so the stamp never outraces a browser edit in
+    // the LWW reconcile.
+    if (store.activeBeanId) {
+        await db
+            .insert(annotations)
+            .values({ storeId: store.id, sha256, beanId: store.activeBeanId })
+            .onConflictDoUpdate({
+                target: [annotations.storeId, annotations.sha256],
+                set: { beanId: sql`coalesce(${annotations.beanId}, excluded.bean_id)` },
+            });
+    }
 
     const rotated = await enforceQuota(db, store.id);
     return { status: 'stored', sha256, rotated };

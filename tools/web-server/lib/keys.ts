@@ -10,6 +10,9 @@ export function newUploadKey(): string {
 export function newViewKey(): string {
     return `vk_${randomBytes(16).toString('hex')}`;
 }
+export function newBeanId(): string {
+    return `bn_${randomBytes(8).toString('hex')}`;
+}
 
 export function hashKey(key: string): string {
     return createHash('sha256').update(key, 'utf8').digest('hex');
