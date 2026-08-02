@@ -40,7 +40,8 @@ agreed design; each decision was made deliberately — change them knowingly.
   backfills from firmware that predates the device-id characteristic stay consistent
   with later device uploads — byte-identical 20 KB blobs from *different* grinders
   don't occur in practice. `device_id` (the ESP's factory MAC, `ESP.getEfuseMac()`,
-  also exposed in the BLE system-info JSON) is stored as metadata on every row. The
+  also exposed in the BLE system-info JSON) is stored as metadata on every row, and is
+  the key the store itself is bound to — see "One grinder, one store". The
   header checksum — a real zlib CRC-32 since this feature landed; 0 in legacy files —
   is verified at ingest when nonzero, for corruption rejection only, not identity.
 - **Health snapshots ride along.** After each successful sync the device POSTs the same
@@ -124,17 +125,38 @@ agreed design; each decision was made deliberately — change them knowingly.
 - **Claim by possession is read-only.** Any browser reading a provisioned grinder over
   BLE gets `store_id + view_key` and becomes a *viewer* (exactly a share link). Owners
   get full access by signing in — which is also what syncs dashboards across browsers.
-- **Store creation is owner-authed.** `POST /api/stores` requires a session; the
-  per-account cap (`SYNC_STORES_PER_USER`) replaces the old per-IP limit, and the
-  provisional-store 48 h GC is gone — stores are born owned, and deleting the account
-  cascades through stores to sessions and snapshots.
+- **One grinder, one store.** `stores.device_id` holds the grinder's factory MAC under a
+  partial unique index (NULL = unbound), so the 1:1 rule is a database constraint rather
+  than UI etiquette in one component. `POST /api/stores` is idempotent per device and
+  requires one: the caller's own grinder gets its existing store back with a freshly
+  rotated upload key (creating *is* provisioning), an unknown grinder gets a new store,
+  and the per-account cap (`SYNC_STORES_PER_USER`) is only a backstop. That is what makes
+  a second browser, a Forget Sync or a factory reset land back on the same history instead
+  of orphaning it in a store nothing points at any more. `POST /api/stores/[id]/provision`
+  optionally carries a `device_id`, binding a store that has none (migrated, or released)
+  and refusing one that already belongs to a different grinder. Ingest checks
+  `x-device-id` against the binding on key-authed requests (403 `device_mismatch`), which
+  closes the two-grinders-one-store direction; browser backfill rides the owner's cookie
+  and is exempt, since local records carry no per-record device id. Existing stores
+  adopted the grinder that had most recently uploaded to them (migration `0002`).
+- **Takeover is possession-gated and moves no data.** Claiming a grinder registered to
+  another account requires the `store_id + view_key` pair the device itself hands out over
+  BLE. It unbinds the previous store — which keeps every grind as a readable archive for
+  its owner — and creates an *empty* store for the claimant, so a resold grinder never
+  carries its history to the new owner. `POST /api/stores/[id]/release` is the deliberate
+  version of the same thing, and the one that works without the grinder in hand. Known
+  limit: a `#store=` share link carries that same view key, so a link recipient could
+  claim the grinder; the blast radius is "uploads fail until re-provisioned", never data
+  disclosure, and closing it properly needs a device-attested nonce (a firmware protocol
+  change). Forget Sync deliberately does *not* release — the grinder keeps its home so
+  setting sync up again returns to the same history.
 - **CSRF/CORS split.** Wildcard CORS survives only on the key-authed routes (device
   ingest + cross-origin share-link reads carry no cookies). Session-authed routes are
   same-origin: Better Auth checks origins on its own endpoints; custom session
   mutations go through `assertSameOrigin` on top of SameSite=Lax cookies.
-- **Lifecycle.** Store delete (cascade: blobs, summaries, snapshots, store) and
-  `view_key` rotation are owner-session actions (Account page, WiFi & Sync, and
-  Revoke shared links in the analytics cloud bar). After a
+- **Lifecycle.** Store delete (cascade: blobs, summaries, snapshots, store), grinder
+  release and `view_key` rotation are owner-session actions (Account page, WiFi & Sync,
+  and Revoke shared links in the analytics cloud bar). After a
   view-key rotation, re-provision the device so future BLE claims hand out the fresh
   key. `upload_key` leak recovery = just provision again (rotation is the mechanism).
 
@@ -152,15 +174,19 @@ agreed design; each decision was made deliberately — change them knowingly.
 
 - **Masthead:** account slot (sign in / email → `/account`). `/signin` offers GitHub
   (env-gated), email/password and passkey one-tap; `/account` manages sign-in methods,
-  passkeys, the account's stores (rename / share link / delete) and account deletion
-  (typed confirmation, cascades stores).
+  passkeys, the account's stores (each showing its grinder, or an *Archive* badge when
+  unbound — rename / share link / release / delete) and account deletion (typed
+  confirmation, cascades stores).
 - **Web app:** the WiFi page is **WiFi & Sync** — one flow provisions both (the coupling is
-  real: sync needs WiFi). Requires sign-in; it reuses the device's store when the
-  account owns it (rotating the upload key) or creates a fresh one, then writes the
-  credentials over BLE in the same session. Forget Sync offers server-side deletion
-  only to the owner.
-- **Analytics: sources resolve owned-first.** Signed-in accounts get their stores (a
-  picker when they own several, preference in `sgbwActiveStore` localStorage);
+  real: sync needs WiFi). Requires sign-in. It reads the grinder *live* over BLE first —
+  never the cached snapshot, which is how a browser with cold `localStorage` used to mint
+  a duplicate store — then lets the server pick the store from the device id and writes
+  the credentials back over BLE in the same session. Setting up cloud backup is only
+  offered here, with a grinder present; the analytics bar links to it rather than
+  creating a storeless backup. Forget Sync offers server-side deletion only to the owner.
+- **Analytics: sources resolve owned-first.** Signed-in accounts get their stores (an
+  explicit pick in `sgbwActiveStore` localStorage wins, then the store bound to the
+  connected grinder, then the newest; a picker appears when they own several);
   otherwise a viewer link (`#store=` fragment or BLE claim, `sgbwCloudViewer`
   localStorage — no secrets beyond the semi-public view key). The cloud store is a
   superset of any BLE pull whenever reachable, so no merging. A BLE pull auto-backfills
@@ -175,8 +201,9 @@ agreed design; each decision was made deliberately — change them knowingly.
   `drizzle/`), ingest `lib/ingest.ts` (validates with the shared `lib/parser.ts` —
   the same TS parser the browser dashboard uses), request auth `lib/auth.ts`,
   Better Auth instance `lib/auth-server.ts` (lazy over `getDb()`; mounted at
-  `app/api/auth/[...all]`), limits `lib/config.ts`, routes under `app/api/stores/`
-  and `app/api/me/`. Checks: `pnpm test` (vitest + PGlite, real route handlers —
+  `app/api/auth/[...all]`), limits `lib/config.ts`, grinder identity
+  `lib/device-id.ts`, routes under `app/api/stores/` (including `[id]/provision`
+  and `[id]/release`) and `app/api/me/`. Checks: `pnpm test` (vitest + PGlite, real route handlers —
   including real Better Auth sign-ups), `pnpm typecheck`, `pnpm lint` (Biome).
   Deploy: Vercel (root `tools/web-server`) or `docker compose up` (app + Postgres,
   quota off; needs `BETTER_AUTH_SECRET`).
