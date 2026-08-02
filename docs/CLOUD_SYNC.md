@@ -33,12 +33,16 @@ agreed design; each decision was made deliberately — change them knowingly.
   and are parsed in the browser on demand by the existing `parser.js`. Schema evolution =
   version-aware parser over immutable blobs, never a time-series migration. The summary
   table is disposable: re-derivable from blobs.
-- **Identity & dedup: `(device_id, sha256(blob))`.** `device_id` is the ESP's factory MAC
-  (`ESP.getEfuseMac()`), sent with every upload; survives factory reset, multi-grinder
-  safe. The server computes SHA-256 at ingest; identical `(device_id, sha256)` → silently
-  dropped. Same `session_id`, different hash → stored (NVS counter reset after factory
-  reset, not a duplicate). The header's additive checksum is validated at ingest for
-  corruption rejection only — it is not identity.
+- **Identity & dedup: `(store_id, sha256(blob))`.** The server computes SHA-256 at
+  ingest; an identical blob re-uploaded to the same store is silently dropped. Same
+  `session_id`, different hash → stored (NVS counter reset after factory reset, not a
+  duplicate). Uniqueness is scoped to the store rather than the device so browser
+  backfills from firmware that predates the device-id characteristic stay consistent
+  with later device uploads — byte-identical 20 KB blobs from *different* grinders
+  don't occur in practice. `device_id` (the ESP's factory MAC, `ESP.getEfuseMac()`,
+  also exposed in the BLE system-info JSON) is stored as metadata on every row. The
+  header checksum — a real zlib CRC-32 since this feature landed; 0 in legacy files —
+  is verified at ingest when nonzero, for corruption rejection only, not identity.
 - **Health snapshots ride along.** After each successful sync the device POSTs the same
   compact snapshot it serves over BLE (lifetime stats, diagnostics state, firmware
   version, OTA outcome; < 1 KB). Keyed `(device_id, received_at)`, kept as timestamped
@@ -111,6 +115,24 @@ agreed design; each decision was made deliberately — change them knowingly.
   store"** — browser-side backfill through the same idempotent ingest endpoint.
 - **Device:** Menu → Settings → Cloud Sync (WiFi page pattern): enable toggle, status
   rows, Forget Sync.
+
+## Implementation map
+
+- **Server:** `tools/web-server` — Next.js (app router, JS) + Drizzle/Postgres.
+  Schema `lib/schema.js` (migrations in `drizzle/`), ingest `lib/ingest.js` (imports
+  the shared `tools/web-flasher/analytics/parser.js`), auth `lib/auth.js`, limits
+  `lib/config.js`, routes under `app/api/stores/`. Tests: `pnpm test` (vitest +
+  PGlite, real route handlers). Deploy: Vercel (root `tools/web-server`) or
+  `docker compose up` (app + Postgres, quota off).
+- **Firmware:** `src/system/cloud_sync.{h,cpp}` (uploader; NVS `cloudsync`),
+  `WifiService::State::UPLOADING` (`src/system/wifi_service.*`), CRC-32 in
+  `src/logging/grind_logging.cpp`, BLE characteristics in `src/config/bluetooth.h` +
+  `src/bluetooth/manager.*`, settings page in `src/ui/screens/menu_screen.*` +
+  `src/ui/controllers/menu_controller.*`, limits in `src/config/cloud_sync.h`.
+- **Web:** `tools/web-flasher/analytics/cloud.js` (API client, share links, cloud
+  pull/backfill), `cloud-provision.js` (WiFi & Sync tab flow), `store.js` (IndexedDB
+  v2 keyed by sha256, raw bytes retained), `grinder-session.js`/`grinder-card.js`
+  (cloud status in the snapshot + device-strip chip).
 
 ## Build order
 
