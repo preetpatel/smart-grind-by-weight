@@ -87,6 +87,15 @@ agreed design; each decision was made deliberately — change them knowingly.
   firmware knows nothing about accounts: it uploads with its `upload_key` exactly as
   before. No mail service exists, so there is **no password reset** — the sign-in UI
   says so and pushes GitHub-linking or a passkey as the backup way in.
+- **Credential UX is password-manager-first.** The auth forms carry the markup managers
+  (1Password, Keychain, Chrome) match on: `name` attributes, `autocomplete="username"` on
+  the email field, `new-password`/`current-password` on the right side of the sign-in ↔
+  sign-up toggle, and a `key={mode}` remount so the form re-reads as a *registration*
+  form and offers to save. Change-password on `/account` includes the read-only username
+  field managers need to know which login to update. The sign-in email field also carries
+  the `webauthn` token and arms passkey conditional UI, so saved passkeys appear in the
+  same autofill dropdown. The grinder's WiFi/PSK fields are marked `data-1p-ignore` —
+  they are the appliance's credentials, not a login for this site.
 - **Two keys per store, one job each.** `upload_key` is the device's HTTP credential:
   stored **hashed**, and **rotated on every provision** — any signed-in browser can
   provision a device (`POST /api/stores/[id]/provision` mints a fresh key for the BLE

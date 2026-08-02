@@ -5,7 +5,7 @@
 // There is deliberately no password reset — the stack has no mail service —
 // so the copy pushes GitHub/passkeys as the recovery story.
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { StatusBox, type StatusMessage } from '@/components/ui';
 import { authClient } from '@/lib/client/auth';
 
@@ -23,10 +23,31 @@ export function SignInForm({ github }: { github: boolean }) {
         if (!isPending && session?.user) router.replace('/');
     }, [isPending, session, router]);
 
-    const finish = () => {
+    const finish = useCallback(() => {
         router.push('/');
         router.refresh();
-    };
+    }, [router]);
+
+    // Passkey conditional UI: browsers that support it offer this account's
+    // passkeys straight from the email field's autofill dropdown (alongside
+    // the password manager's saved logins). Needs the `webauthn` autocomplete
+    // token in the DOM, so the ceremony starts after mount and is only armed
+    // in sign-in mode.
+    useEffect(() => {
+        if (mode !== 'signin') return;
+        let cancelled = false;
+        (async () => {
+            const supported = await window.PublicKeyCredential?.isConditionalMediationAvailable?.();
+            if (!supported || cancelled) return;
+            const result = await authClient.signIn.passkey({ autoFill: true });
+            // Errors here are almost always "another ceremony took over" or a
+            // dismissed prompt — never worth a visible message.
+            if (!cancelled && result && !result.error) finish();
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [mode, finish]);
 
     const submit = async (event: React.FormEvent) => {
         event.preventDefault();
@@ -108,24 +129,36 @@ export function SignInForm({ github }: { github: boolean }) {
 
             <div className="auth-divider">or use email</div>
 
-            <form onSubmit={submit}>
+            {/* Password managers key off the form's identity: `key={mode}`
+                remounts the fields when switching sign-in ↔ sign-up so they
+                re-read it as a login vs a registration form (and so offer to
+                save a new password), and `name` attributes are what their
+                heuristics match on — id alone is not enough. */}
+            <form key={mode} name={mode} onSubmit={submit}>
                 <div className="form-group">
-                    <label htmlFor="authEmail">Email</label>
+                    <label htmlFor={`${mode}Email`}>Email</label>
                     <input
-                        id="authEmail"
+                        id={`${mode}Email`}
+                        name="email"
                         type="email"
-                        autoComplete="email"
+                        inputMode="email"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        required
+                        autoComplete={mode === 'signup' ? 'username' : 'username webauthn'}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                     />
                 </div>
                 <div className="form-group">
-                    <label htmlFor="authPassword">Password</label>
+                    <label htmlFor={`${mode}Password`}>Password</label>
                     <input
-                        id="authPassword"
+                        id={`${mode}Password`}
+                        name="password"
                         type="password"
                         autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
                         minLength={8}
+                        required
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                     />

@@ -477,11 +477,17 @@ export function WifiSyncPanel() {
 
             <div className="form-group">
                 <label htmlFor="wifiSsid">Network name (SSID)</label>
+                {/* These are the grinder's WiFi credentials, not a login for
+                    this site — tell password managers to keep out so they
+                    don't offer to save the PSK as an account password. */}
                 <input
                     id="wifiSsid"
+                    name="wifiSsid"
                     type="text"
                     maxLength={32}
                     autoComplete="off"
+                    data-1p-ignore
+                    data-lpignore="true"
                     placeholder="MyHomeWiFi"
                     value={ssid}
                     onChange={(e) => setSsid(e.target.value)}
@@ -492,9 +498,12 @@ export function WifiSyncPanel() {
                 <label htmlFor="wifiPassword">Password</label>
                 <input
                     id="wifiPassword"
+                    name="wifiPassword"
                     type="password"
                     maxLength={64}
                     autoComplete="off"
+                    data-1p-ignore
+                    data-lpignore="true"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                 />

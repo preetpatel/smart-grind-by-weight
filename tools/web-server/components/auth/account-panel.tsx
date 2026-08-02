@@ -245,14 +245,31 @@ export function AccountPanel({ github }: { github: boolean }) {
             )}
 
             {hasPassword && (
-                <form onSubmit={changePassword}>
+                <form name="changePassword" onSubmit={changePassword}>
                     <h3>Change password</h3>
+                    {/* A change-password form needs a username field for
+                        password managers to know *which* saved login to
+                        update; read-only, and it doubles as a reminder of
+                        whose password is being changed. */}
+                    <div className="form-group">
+                        <label htmlFor="changePasswordAccount">Account</label>
+                        <input
+                            id="changePasswordAccount"
+                            name="username"
+                            type="text"
+                            autoComplete="username"
+                            readOnly
+                            value={session.user.email}
+                        />
+                    </div>
                     <div className="form-group">
                         <label htmlFor="currentPassword">Current password</label>
                         <input
                             id="currentPassword"
+                            name="current-password"
                             type="password"
                             autoComplete="current-password"
+                            required
                             value={currentPassword}
                             onChange={(e) => setCurrentPassword(e.target.value)}
                         />
@@ -261,9 +278,11 @@ export function AccountPanel({ github }: { github: boolean }) {
                         <label htmlFor="newPassword">New password</label>
                         <input
                             id="newPassword"
+                            name="new-password"
                             type="password"
                             autoComplete="new-password"
                             minLength={8}
+                            required
                             value={newPassword}
                             onChange={(e) => setNewPassword(e.target.value)}
                         />
@@ -344,8 +363,11 @@ export function AccountPanel({ github }: { github: boolean }) {
                         <label htmlFor="deleteConfirm">Type &quot;delete&quot; to confirm</label>
                         <input
                             id="deleteConfirm"
+                            name="deleteConfirm"
                             type="text"
                             autoComplete="off"
+                            data-1p-ignore
+                            data-lpignore="true"
                             value={deleteConfirm}
                             onChange={(e) => setDeleteConfirm(e.target.value)}
                         />
@@ -355,6 +377,7 @@ export function AccountPanel({ github }: { github: boolean }) {
                             <label htmlFor="deletePassword">Your password</label>
                             <input
                                 id="deletePassword"
+                                name="password"
                                 type="password"
                                 autoComplete="current-password"
                                 value={deletePassword}

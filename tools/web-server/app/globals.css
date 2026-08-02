@@ -160,6 +160,8 @@ label {
 }
 
 input[type="text"],
+input[type="email"],
+input[type="password"],
 select {
     width: 100%;
     padding: 10px 12px;
@@ -171,7 +173,8 @@ select {
     color: var(--ink);
 }
 
-input[type="text"]:read-only {
+input[type="text"]:read-only,
+input[type="email"]:read-only {
     color: var(--ink-2);
 }
 
