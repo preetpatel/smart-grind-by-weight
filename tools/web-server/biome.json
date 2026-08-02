@@ -6,6 +6,7 @@
         "useIgnoreFile": true
     },
     "files": {
+        "ignoreUnknown": true,
         "includes": ["**", "!public", "!drizzle", "!.next", "!next-env.d.ts"]
     },
     "formatter": {
@@ -19,6 +20,11 @@
             "quoteStyle": "single"
         }
     },
+    "css": {
+        "parser": {
+            "tailwindDirectives": true
+        }
+    },
     "linter": {
         "enabled": true,
         "rules": {
@@ -27,6 +33,13 @@
         "domains": {
             "next": "recommended",
             "react": "recommended"
+        }
+    },
+    "assist": {
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
         }
     }
 }
