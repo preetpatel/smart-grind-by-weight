@@ -31,7 +31,6 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
-    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -173,9 +172,6 @@ function GrinderSwitcher() {
                 <DropdownMenuContent align="start" className="w-60">
                     {grinders.length > 1 && (
                         <>
-                            <DropdownMenuLabel className="text-muted-foreground text-xs">
-                                Your grinders
-                            </DropdownMenuLabel>
                             {grinders.map((grinder) => (
                                 <DropdownMenuItem
                                     key={grinder.id}

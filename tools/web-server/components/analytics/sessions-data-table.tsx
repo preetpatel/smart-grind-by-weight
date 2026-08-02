@@ -30,7 +30,6 @@ import {
     DropdownMenu,
     DropdownMenuCheckboxItem,
     DropdownMenuContent,
-    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
@@ -115,9 +114,6 @@ function FacetFilter({
                 }
             />
             <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel className="text-muted-foreground text-xs">
-                    {label}
-                </DropdownMenuLabel>
                 {options.map((option) => (
                     <DropdownMenuCheckboxItem
                         key={option}
