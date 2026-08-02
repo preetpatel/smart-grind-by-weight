@@ -34,7 +34,8 @@ public:
         DISABLED_BY_USER, // Credentials stored but service toggled off
         IDLE,             // Radio off, waiting for the next sync window
         CONNECTING,       // WiFi association in progress
-        SYNCING           // Associated, waiting for the NTP response
+        SYNCING,          // Associated, waiting for the NTP response
+        UPLOADING         // Associated, cloud sync run in progress (second consumer)
     };
 
     enum class LastResult : uint8_t {
@@ -89,10 +90,14 @@ private:
     uint32_t next_attempt_ms = 0;   // millis() timestamp of the next window
     uint32_t attempt_started_ms = 0;
     uint32_t backoff_ms = WIFI_RETRY_BACKOFF_START_MS;
+    // The window's time-sync outcome, held while the cloud sync run (the
+    // second window consumer) finishes; finish_attempt() reports it.
+    LastResult pending_time_result = LastResult::NONE;
 
     void reload_config();
     bool window_allowed() const;  // Grind/OTA/export gating
     void start_attempt();
+    void begin_upload_or_finish(LastResult time_result);
     void finish_attempt(LastResult result);
     void radio_off();
     void update_idle_state();  // Map configured/enabled onto the idle states

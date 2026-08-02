@@ -21,6 +21,7 @@
 #include "../controllers/grind_controller.h"
 #include "../system/time_sync.h"
 #include "../system/wifi_service.h"
+#include "../system/cloud_sync.h"
 #include "../system/boot_guard.h"
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
@@ -69,6 +70,8 @@ BluetoothManager::BluetoothManager()
     , sysinfo_timesync_characteristic(nullptr)
     , sysinfo_wifi_config_characteristic(nullptr)
     , sysinfo_wifi_status_characteristic(nullptr)
+    , sysinfo_cloud_config_characteristic(nullptr)
+    , sysinfo_cloud_status_characteristic(nullptr)
     , device_connected(false)
     , ble_enabled(false), enable_in_progress(false), debug_stream_active(false)
     , data_export_in_progress(false)
@@ -91,7 +94,10 @@ BluetoothManager::BluetoothManager()
     , ota_finalize_pending(false)
     , wifi_config_pending_len(0)
     , wifi_config_pending(false)
-    , last_wifi_status_fingerprint(0xFF) {
+    , last_wifi_status_fingerprint(0xFF)
+    , cloud_config_pending_len(0)
+    , cloud_config_pending(false)
+    , last_cloud_status_fingerprint(0xFF) {
 }
 
 BluetoothManager::~BluetoothManager() {
@@ -331,6 +337,20 @@ void BluetoothManager::setup_gatt_services() {
     );
     delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
 
+    // Write-only by design: the upload key must never be readable back
+    sysinfo_cloud_config_characteristic = sysinfo_service->createCharacteristic(
+        BLE_SYSINFO_CLOUD_CONFIG_CHAR_UUID,
+        BLECharacteristic::PROPERTY_WRITE
+    );
+    sysinfo_cloud_config_characteristic->setCallbacks(this);
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
+    sysinfo_cloud_status_characteristic = sysinfo_service->createCharacteristic(
+        BLE_SYSINFO_CLOUD_STATUS_CHAR_UUID,
+        BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY
+    );
+    delay(BLE_INIT_CHARACTERISTIC_DELAY_MS);
+
     ota_service->start();
     delay(BLE_INIT_START_DELAY_MS);
     
@@ -472,6 +492,11 @@ void BluetoothManager::handle() {
         process_wifi_config_payload();
     }
 
+    // Apply a deferred cloud sync provisioning write (see onWrite)
+    if (cloud_config_pending) {
+        process_cloud_config_payload();
+    }
+
     // Push WiFi status the moment its state machine moves (connecting ->
     // syncing -> idle) so the flasher's setup card sees progress live.
     if (device_connected && sysinfo_wifi_status_characteristic) {
@@ -480,6 +505,16 @@ void BluetoothManager::handle() {
         if (fingerprint != last_wifi_status_fingerprint) {
             last_wifi_status_fingerprint = fingerprint;
             update_wifi_status_info();
+        }
+    }
+
+    // Same live push for cloud sync state (idle -> syncing -> idle).
+    if (device_connected && sysinfo_cloud_status_characteristic) {
+        uint8_t fingerprint = (static_cast<uint8_t>(cloud_sync.get_state()) << 4)
+                            | (static_cast<uint8_t>(cloud_sync.get_last_result()) & 0x0F);
+        if (fingerprint != last_cloud_status_fingerprint) {
+            last_cloud_status_fingerprint = fingerprint;
+            update_cloud_status_info();
         }
     }
 
@@ -571,6 +606,96 @@ void BluetoothManager::update_wifi_status_info() {
     sysinfo_wifi_status_characteristic->setValue(buffer);
     if (device_connected) {
         sysinfo_wifi_status_characteristic->notify();
+    }
+}
+
+// Payload: [0x01][url]\0[store_id]\0[upload_key]\0[view_key]\0 to provision,
+// [0x02] to forget. Runs on the bluetooth task (same deferral as WiFi).
+void BluetoothManager::process_cloud_config_payload() {
+    cloud_config_pending = false;
+    if (cloud_config_pending_len == 0) return;
+
+    uint8_t opcode = cloud_config_pending_payload[0];
+    if (opcode == 0x02) {
+        log("Bluetooth Cloud: Forget command received\n");
+        cloud_sync.forget_config();
+    } else if (opcode == 0x01) {
+        // Extract up to four NUL-terminated strings from the remainder
+        const char* fields[4] = {"", "", "", ""};
+        size_t pos = 1;
+        for (int i = 0; i < 4 && pos < cloud_config_pending_len; i++) {
+            fields[i] = reinterpret_cast<const char*>(&cloud_config_pending_payload[pos]);
+            size_t remaining = cloud_config_pending_len - pos;
+            size_t field_len = strnlen(fields[i], remaining);
+            if (field_len == remaining) {
+                // Unterminated final field - terminate it in place if room
+                if (cloud_config_pending_len < sizeof(cloud_config_pending_payload)) {
+                    cloud_config_pending_payload[cloud_config_pending_len] = '\0';
+                } else {
+                    log("Bluetooth Cloud: Oversized unterminated payload rejected\n");
+                    return;
+                }
+            }
+            pos += field_len + 1;
+        }
+        log("Bluetooth Cloud: Provisioning store '%s'\n", fields[1]);
+        cloud_sync.set_config(fields[0], fields[1], fields[2], fields[3]);
+    } else {
+        log("Bluetooth Cloud: Unknown opcode 0x%02X\n", opcode);
+        return;
+    }
+
+    update_cloud_status_info();
+}
+
+// Status JSON. Deliberately carries store_id + the read-only view key so a
+// browser can claim dashboard access by holding the grinder
+// (docs/CLOUD_SYNC.md "Auth model"); the upload key never leaves the device.
+void BluetoothManager::update_cloud_status_info() {
+    if (!sysinfo_cloud_status_characteristic) return;
+
+    char url[CLOUD_SYNC_MAX_URL_LEN + 1];
+    char store_id[CLOUD_SYNC_MAX_STORE_ID_LEN + 1];
+    char view_key[CLOUD_SYNC_MAX_KEY_LEN + 1];
+    cloud_sync.get_server_url(url, sizeof(url));
+    cloud_sync.get_store_id(store_id, sizeof(store_id));
+    cloud_sync.get_view_key(view_key, sizeof(view_key));
+
+    // The URL is user input headed into a JSON string; drop the two
+    // characters that would break it rather than carrying an escaper around.
+    for (char* c = url; *c; c++) {
+        if (*c == '"' || *c == '\\') *c = '_';
+    }
+
+    char buffer[BLE_SYSINFO_MAX_PAYLOAD_BYTES];
+    snprintf(buffer, sizeof(buffer),
+        "{"
+        "\"configured\":%s,"
+        "\"enabled\":%s,"
+        "\"state\":\"%s\","
+        "\"last_result\":\"%s\","
+        "\"server_url\":\"%s\","
+        "\"store_id\":\"%s\","
+        "\"view_key\":\"%s\","
+        "\"last_success_epoch\":%lu,"
+        "\"last_run_uploaded\":%u,"
+        "\"unsynced\":%s"
+        "}",
+        cloud_sync.is_configured() ? "true" : "false",
+        cloud_sync.is_enabled() ? "true" : "false",
+        cloud_sync.state_name(),
+        cloud_sync.last_result_name(),
+        url,
+        store_id,
+        view_key,
+        (unsigned long)cloud_sync.get_last_success_epoch(),
+        (unsigned)cloud_sync.get_last_run_uploaded(),
+        cloud_sync.has_unsynced_sessions() ? "true" : "false"
+    );
+
+    sysinfo_cloud_status_characteristic->setValue(buffer);
+    if (device_connected) {
+        sysinfo_cloud_status_characteristic->notify();
     }
 }
 
@@ -1175,6 +1300,15 @@ void BluetoothManager::onWrite(BLECharacteristic* characteristic) {
             wifi_config_pending_len = len;
             wifi_config_pending = true;
         }
+    } else if (characteristic == sysinfo_cloud_config_characteristic) {
+        // Same deferral as the WiFi provisioning write above.
+        String value = characteristic->getValue();
+        size_t len = value.length();
+        if (len > 0 && len <= sizeof(cloud_config_pending_payload)) {
+            memcpy(cloud_config_pending_payload, value.c_str(), len);
+            cloud_config_pending_len = len;
+            cloud_config_pending = true;
+        }
     } else {
         LOG_BLE("  -> UNKNOWN characteristic!\n");
     }
@@ -1204,6 +1338,7 @@ void BluetoothManager::refresh_system_info() {
     update_performance_info();
     update_hardware_info();
     update_wifi_status_info();
+    update_cloud_status_info();
 }
 
 void BluetoothManager::update_system_info() {
@@ -1223,10 +1358,16 @@ void BluetoothManager::update_system_info() {
     uint32_t flash_size = ESP.getFlashChipSize();
     float heap_usage_percent = (float(heap_used) / float(heap_total)) * 100.0f;
     
+    // The efuse MAC is the device's stable identity for cloud sync uploads
+    // and the browser backfill (docs/CLOUD_SYNC.md "Identity & dedup").
+    char device_id[13];
+    snprintf(device_id, sizeof(device_id), "%012llx", (unsigned long long)ESP.getEfuseMac());
+
     snprintf(buffer, sizeof(buffer),
         "{"
         "\"version\":\"%s\","
         "\"build\":%d,"
+        "\"device_id\":\"%s\","
         "\"uptime_h\":%lu,"
         "\"uptime_m\":%lu,"
         "\"uptime_s\":%lu,"
@@ -1242,6 +1383,7 @@ void BluetoothManager::update_system_info() {
         "}",
         BUILD_FIRMWARE_VERSION,
         BUILD_NUMBER,
+        device_id,
         uptime_hours,
         uptime_minutes % 60,
         uptime_seconds % 60,

@@ -12,6 +12,7 @@
 //==============================================================================
 #include "bluetooth.h"
 #include "wifi.h"
+#include "cloud_sync.h"
 #include "hardware.h"
 #include "theme.h"
 #include "debug.h"

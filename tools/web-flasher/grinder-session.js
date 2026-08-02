@@ -29,6 +29,7 @@
         SYSINFO_SESSIONS: '11223344-eeff-1122-3344-556677889900',
         SYSINFO_TIMESYNC: '33445566-ff00-1111-2222-334455667788',
         SYSINFO_WIFI_STATUS: '556677ee-ff00-1111-2222-334455667788',
+        SYSINFO_CLOUD_STATUS: '778899aa-ff00-1111-2222-334455667788',
     };
 
     // Requested once at pairing time so the permission grant covers every
@@ -320,6 +321,7 @@
         try { snapshot.system = await readJson(UUIDS.SYSINFO_SERVICE, UUIDS.SYSINFO_SYSTEM); } catch { /* keep going */ }
         try { snapshot.sessions = await readJson(UUIDS.SYSINFO_SERVICE, UUIDS.SYSINFO_SESSIONS); } catch { /* keep going */ }
         try { snapshot.wifi = await readJson(UUIDS.SYSINFO_SERVICE, UUIDS.SYSINFO_WIFI_STATUS); } catch { /* keep going */ }
+        try { snapshot.cloud = await readJson(UUIDS.SYSINFO_SERVICE, UUIDS.SYSINFO_CLOUD_STATUS); } catch { /* older firmware */ }
         return snapshot;
     }
 

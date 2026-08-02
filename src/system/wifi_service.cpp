@@ -5,6 +5,7 @@
 #include <esp_sntp.h>
 #include <cstring>
 #include "time_sync.h"
+#include "cloud_sync.h"
 #include "../bluetooth/manager.h"
 #include "../controllers/grind_controller.h"
 
@@ -69,7 +70,8 @@ void WifiService::handle() {
     if (!initialized) return;
     uint32_t now = millis();
 
-    if (config_dirty && state != State::CONNECTING && state != State::SYNCING) {
+    if (config_dirty && state != State::CONNECTING && state != State::SYNCING
+        && state != State::UPLOADING) {
         reload_config();
         update_idle_state();
     }
@@ -80,7 +82,10 @@ void WifiService::handle() {
             return;
 
         case State::IDLE: {
-            bool due = sync_requested || (int32_t)(now - next_attempt_ms) >= 0;
+            // Cloud sync is the second window consumer: freshly-flushed grind
+            // sessions bring the next window forward (docs/CLOUD_SYNC.md).
+            bool due = sync_requested || (int32_t)(now - next_attempt_ms) >= 0
+                       || cloud_sync.wants_window();
             if (due && window_allowed()) {
                 start_attempt();
             }
@@ -124,12 +129,41 @@ void WifiService::handle() {
                 TimeSync::format_local_time(formatted, sizeof(formatted), "%Y-%m-%d %H:%M:%S");
                 LOG_BLE("[WIFI] Clock synced via SNTP: %s (epoch %lu)\n",
                         formatted, (unsigned long)TimeSync::now_epoch());
-                finish_attempt(LastResult::SUCCESS);
+                begin_upload_or_finish(LastResult::SUCCESS);
             } else if (now - attempt_started_ms > WIFI_SNTP_TIMEOUT_MS) {
                 LOG_BLE("[WIFI] SNTP timed out\n");
-                finish_attempt(LastResult::SNTP_FAILED);
+                // The association is up even though NTP never answered -
+                // still worth spending it on the cloud sync run.
+                begin_upload_or_finish(LastResult::SNTP_FAILED);
             }
             break;
+
+        case State::UPLOADING:
+            if (!window_allowed()) {
+                cloud_sync.abort_run();
+                finish_attempt(pending_time_result);
+            } else {
+                // One blocking HTTP operation per pass; gating is re-checked
+                // between operations so a starting grind tears the window down.
+                CloudSync::StepResult step = cloud_sync.step();
+                if (step != CloudSync::StepResult::RUNNING) {
+                    finish_attempt(pending_time_result);
+                }
+            }
+            break;
+    }
+}
+
+// SNTP is settled; hand the still-open window to the cloud uploader if it
+// has anything to do, otherwise close out as before.
+void WifiService::begin_upload_or_finish(LastResult time_result) {
+    esp_sntp_stop();
+    if (cloud_sync.should_run()) {
+        pending_time_result = time_result;
+        cloud_sync.begin_run();
+        state = State::UPLOADING;
+    } else {
+        finish_attempt(time_result);
     }
 }
 
@@ -256,6 +290,7 @@ const char* WifiService::state_name() const {
         case State::IDLE: return "idle";
         case State::CONNECTING: return "connecting";
         case State::SYNCING: return "syncing";
+        case State::UPLOADING: return "uploading";
     }
     return "unknown";
 }

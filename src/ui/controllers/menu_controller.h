@@ -29,6 +29,8 @@ public:
     void handle_ble_startup_toggle();
     void handle_wifi_toggle();
     void handle_wifi_forget();
+    void handle_cloud_sync_toggle();
+    void handle_cloud_sync_forget();
     void handle_logging_toggle();
     void handle_grind_mode_swipe_toggle();
     void handle_grind_mode_radio_button();

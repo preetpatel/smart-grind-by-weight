@@ -30,6 +30,7 @@ private:
     lv_obj_t* info_page;
     lv_obj_t* bluetooth_page;
     lv_obj_t* wifi_page;
+    lv_obj_t* cloud_sync_page;
     lv_obj_t* display_page;
     lv_obj_t* grind_mode_page;
     lv_obj_t* data_page;
@@ -72,6 +73,13 @@ private:
     lv_obj_t* wifi_tz_label;
     lv_obj_t* wifi_setup_hint_label;
     lv_obj_t* wifi_forget_button;
+    lv_obj_t* cloud_toggle;
+    lv_obj_t* cloud_server_label;
+    lv_obj_t* cloud_status_label;
+    lv_obj_t* cloud_synced_label;
+    lv_obj_t* cloud_uploaded_label;
+    lv_obj_t* cloud_setup_hint_label;
+    lv_obj_t* cloud_forget_button;
     lv_obj_t* logging_toggle;
     lv_obj_t* brightness_normal_slider;
     lv_obj_t* brightness_screensaver_slider;
@@ -140,6 +148,7 @@ public:
     void update_noise_capture(const NoiseCaptureView& view);
     void update_ble_status();
     void update_wifi_status();
+    void update_cloud_sync_status();
     void refresh_statistics(bool show_overlay = true);
     void update_brightness_labels(int normal_percent = -1, int screensaver_percent = -1); // Use negative value to leave unchanged
     void update_brightness_sliders();
@@ -166,9 +175,12 @@ public:
     bool is_diagnostics_page_active() const { return active_page == diagnostics_page; }
     bool is_bluetooth_page_active() const { return active_page == bluetooth_page; }
     bool is_wifi_page_active() const { return active_page == wifi_page; }
+    bool is_cloud_sync_page_active() const { return active_page == cloud_sync_page; }
     lv_obj_t* get_ble_toggle() const { return ble_toggle; }
     lv_obj_t* get_wifi_toggle() const { return wifi_toggle; }
     lv_obj_t* get_wifi_forget_button() const { return wifi_forget_button; }
+    lv_obj_t* get_cloud_toggle() const { return cloud_toggle; }
+    lv_obj_t* get_cloud_forget_button() const { return cloud_forget_button; }
     lv_obj_t* get_ble_startup_toggle() const { return ble_startup_toggle; }
     lv_obj_t* get_logging_toggle() const { return logging_toggle; }
     lv_obj_t* get_clock_24h_toggle() const { return clock_24h_toggle; }
@@ -190,6 +202,7 @@ private:
     void create_info_page(lv_obj_t* parent);
     void create_bluetooth_page(lv_obj_t* parent);
     void create_wifi_page(lv_obj_t* parent);
+    void create_cloud_sync_page(lv_obj_t* parent);
     void create_display_page(lv_obj_t* parent);
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);

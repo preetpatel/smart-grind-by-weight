@@ -756,7 +756,7 @@
             <div class="sub-tabs device-nav">
                 <button class="sub-tab active" onclick="showGrinderTab('initial')">Get Started</button>
                 <button class="sub-tab" onclick="showGrinderTab('ota')">Update</button>
-                <button class="sub-tab" onclick="showGrinderTab('wifi')">WiFi</button>
+                <button class="sub-tab" onclick="showGrinderTab('wifi')">WiFi &amp; Sync</button>
                 <button class="sub-tab" onclick="showGrinderTab('diagnostics')">Diagnostics</button>
             </div>
 
@@ -821,11 +821,11 @@
             </div>
         </div>
 
-        <!-- WiFi panel -->
+        <!-- WiFi & Sync panel -->
         <div id="wifiPanel" class="sub-panel">
             <div class="form-stack">
                 <h2>WiFi time sync</h2>
-                <p class="lede-line">Your WiFi is used only to sync the grinder's clock — a few seconds a day, radio off otherwise. Daylight-saving rules come from this browser and run on the grinder itself.</p>
+                <p class="lede-line">Your WiFi keeps the grinder's clock synced — a few seconds a day, radio off otherwise — and powers the optional cloud backup below. Daylight-saving rules come from this browser and run on the grinder itself.</p>
 
                 <div id="wifiKnownStatus" class="status info" style="display: none;"></div>
 
@@ -851,6 +851,17 @@
                 </div>
 
                 <div id="wifiStatus" class="status info" style="display: none;"></div>
+
+                <h2 style="margin-top: 36px;">Cloud backup</h2>
+                <p class="lede-line">After every grind, the grinder uploads the session to your cloud store over WiFi — your full history, beyond the device's own storage, viewable in Analytics from any device.</p>
+
+                <div class="btn-row">
+                    <button class="btn btn-accent" id="cloudSetupBtn">Set Up Cloud Backup</button>
+                    <button class="btn-ghost" id="cloudCheckBtn">Check Status</button>
+                    <button class="btn-ghost danger" id="cloudForgetBtn">Forget Sync</button>
+                </div>
+
+                <div id="cloudSyncStatus" class="status info" style="display: none;"></div>
             </div>
         </div>
 
@@ -906,6 +917,7 @@
     <script src="tz-posix.js"></script>
     <script src="flasher.js"></script>
     <script src="grinder-card.js"></script>
+    <script type="module" src="cloud-provision.js"></script>
     <script type="module" src="analytics/app.js"></script>
 </body>
 </html>

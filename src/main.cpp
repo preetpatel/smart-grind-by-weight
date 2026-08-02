@@ -9,6 +9,7 @@
 #include "system/statistics_manager.h"
 #include "system/time_sync.h"
 #include "system/wifi_service.h"
+#include "system/cloud_sync.h"
 #include "controllers/profile_controller.h"
 #include "controllers/grind_controller.h"
 #include "ui/ui_manager.h"
@@ -101,6 +102,10 @@ void setup() {
     // Loads stored WiFi credentials + TZ rule and schedules the boot-time
     // SNTP sync (runs from loop(); no-op until credentials are provisioned)
     wifi_service.init(&grind_controller, &bluetooth_manager);
+
+    // Cloud session sync rides inside WifiService windows; no-op until a
+    // store is provisioned over BLE (docs/CLOUD_SYNC.md)
+    cloud_sync.init();
 
     // Check for OTA failure to determine initial state
     String failed_ota_build = bluetooth_manager.check_ota_failure_after_boot();

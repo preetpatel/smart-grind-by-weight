@@ -86,7 +86,9 @@ private:
     BLECharacteristic* sysinfo_timesync_characteristic;
     BLECharacteristic* sysinfo_wifi_config_characteristic;
     BLECharacteristic* sysinfo_wifi_status_characteristic;
-    
+    BLECharacteristic* sysinfo_cloud_config_characteristic;
+    BLECharacteristic* sysinfo_cloud_status_characteristic;
+
     // Connection state
     bool device_connected;
     bool ble_enabled;
@@ -140,6 +142,12 @@ private:
     volatile bool wifi_config_pending;
     uint8_t last_wifi_status_fingerprint;
 
+    // Cloud sync provisioning uses the same deferred-write pattern.
+    uint8_t cloud_config_pending_payload[512];
+    size_t cloud_config_pending_len;
+    volatile bool cloud_config_pending;
+    uint8_t last_cloud_status_fingerprint;
+
     // Private methods
     void setup_gatt_services();
     void configure_advertising();
@@ -154,6 +162,8 @@ private:
     void handle_time_sync(BLECharacteristic* characteristic);
     void process_wifi_config_payload();
     void update_wifi_status_info();
+    void process_cloud_config_payload();
+    void update_cloud_status_info();
     void send_next_data_chunk();
     bool send_transfer_payload(const uint8_t* data, size_t size);
     void send_measurement_count();

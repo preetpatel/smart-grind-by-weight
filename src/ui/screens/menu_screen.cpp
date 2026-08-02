@@ -7,6 +7,7 @@
 #include "../../system/statistics_manager.h"
 #include "../../system/time_sync.h"
 #include "../../system/wifi_service.h"
+#include "../../system/cloud_sync.h"
 #include "../../hardware/hardware_manager.h"
 #include "grinding_screen.h"
 #include "../event_bridge_lvgl.h"
@@ -133,6 +134,9 @@ void MenuScreen::create_menu_ui() {
     wifi_page = lv_menu_page_create(menu, "WiFi");
     create_wifi_page(wifi_page);
 
+    cloud_sync_page = lv_menu_page_create(menu, "Cloud Sync");
+    create_cloud_sync_page(cloud_sync_page);
+
     display_page = lv_menu_page_create(menu, "Display");
     create_display_page(display_page);
     
@@ -185,6 +189,9 @@ void MenuScreen::create_menu_ui() {
 
     lv_obj_t* wifi_item = create_menu_item(main_page, "WiFi");
     lv_menu_set_load_page_event(menu, wifi_item, wifi_page);
+
+    lv_obj_t* cloud_sync_item = create_menu_item(main_page, "Cloud Sync");
+    lv_menu_set_load_page_event(menu, cloud_sync_item, cloud_sync_page);
 
     lv_obj_t* display_item = create_menu_item(main_page, "Display");
     lv_menu_set_load_page_event(menu, display_item, display_page);
@@ -247,6 +254,8 @@ void MenuScreen::create_menu_ui() {
                 self->update_ble_status();
             } else if (cur == self->wifi_page) {
                 self->update_wifi_status();
+            } else if (cur == self->cloud_sync_page) {
+                self->update_cloud_sync_status();
             }
         }
     };
@@ -353,6 +362,42 @@ void MenuScreen::create_wifi_page(lv_obj_t* parent) {
     if (wifi_forget_button) {
         lv_obj_add_event_cb(wifi_forget_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::WIFI_FORGET)));
+    }
+}
+
+void MenuScreen::create_cloud_sync_page(lv_obj_t* parent) {
+    lv_obj_set_layout(parent, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(parent, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(parent, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_set_scroll_dir(parent, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(parent, LV_SCROLLBAR_MODE_AUTO);
+
+    create_description_label(parent, "Backs up grind sessions to your cloud store over WiFi, keeping history beyond the grinder's own storage.");
+
+    create_toggle_row(parent, "Enabled", &cloud_toggle);
+
+    // Shown instead of the status rows until a store is provisioned
+    cloud_setup_hint_label = create_description_label(parent,
+        "Set up cloud backup from the web flasher's WiFi & Sync tab.");
+
+    create_separator(parent, "Status");
+    create_data_label(parent, "Server:", &cloud_server_label, true);
+    create_data_label(parent, "Status:", &cloud_status_label);
+    create_data_label(parent, "Synced:", &cloud_synced_label);
+    create_data_label(parent, "Uploaded:", &cloud_uploaded_label);
+
+    cloud_forget_button = create_button(parent, "Forget Sync", lv_color_hex(THEME_COLOR_WARNING));
+    lv_obj_set_style_margin_top(cloud_forget_button, 10, 0);
+
+    using ET = EventBridgeLVGL::EventType;
+    if (cloud_toggle) {
+        lv_obj_add_event_cb(cloud_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::CLOUD_SYNC_TOGGLE)));
+    }
+    if (cloud_forget_button) {
+        lv_obj_add_event_cb(cloud_forget_button, EventBridgeLVGL::dispatch_event, LV_EVENT_CLICKED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::CLOUD_SYNC_FORGET)));
     }
 }
 
@@ -708,6 +753,7 @@ void MenuScreen::show() {
     visible = true;
     update_ble_status();
     update_wifi_status();
+    update_cloud_sync_status();
     update_brightness_sliders();
     update_bluetooth_startup_toggle();
     update_logging_toggle();
@@ -1063,6 +1109,101 @@ void MenuScreen::update_wifi_status() {
     char tz_name[WIFI_MAX_TZ_NAME_LEN + 1];
     wifi_service.get_tz_name(tz_name, sizeof(tz_name));
     set_label_text_if_changed(wifi_tz_label, tz_name[0] ? tz_name : "--");
+}
+
+void MenuScreen::update_cloud_sync_status() {
+    if (!visible || !cloud_toggle) return;
+
+    if (cloud_sync.is_enabled()) {
+        lv_obj_add_state(cloud_toggle, LV_STATE_CHECKED);
+    } else {
+        lv_obj_clear_state(cloud_toggle, LV_STATE_CHECKED);
+    }
+
+    bool configured = cloud_sync.is_configured();
+
+    // The hint replaces the status block until a store is provisioned; hide
+    // its container (not just the label) so the reserved margins collapse too.
+    if (cloud_setup_hint_label) {
+        lv_obj_t* hint_container = lv_obj_get_parent(cloud_setup_hint_label);
+        if (configured) {
+            lv_obj_add_flag(hint_container, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(hint_container, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (cloud_forget_button) {
+        if (configured) {
+            lv_obj_clear_flag(cloud_forget_button, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(cloud_forget_button, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+
+    // Server host without the scheme; the row is narrow
+    char url[CLOUD_SYNC_MAX_URL_LEN + 1];
+    cloud_sync.get_server_url(url, sizeof(url));
+    const char* host = url;
+    if (strncmp(host, "https://", 8) == 0) host += 8;
+    else if (strncmp(host, "http://", 7) == 0) host += 7;
+    set_label_text_if_changed(cloud_server_label, configured ? host : "--");
+
+    const char* status_text = "--";
+    lv_color_t status_color = lv_color_hex(THEME_COLOR_TEXT_SECONDARY);
+    switch (cloud_sync.get_state()) {
+        case CloudSync::State::NOT_CONFIGURED: status_text = "not set up"; break;
+        case CloudSync::State::DISABLED_BY_USER: status_text = "off"; break;
+        case CloudSync::State::SYNCING:
+            status_text = "syncing...";
+            status_color = lv_color_hex(THEME_COLOR_ACCENT);
+            break;
+        case CloudSync::State::IDLE:
+            switch (cloud_sync.get_last_result()) {
+                case CloudSync::LastResult::SUCCESS:
+                    status_text = "up to date";
+                    status_color = lv_color_hex(THEME_COLOR_SUCCESS);
+                    break;
+                case CloudSync::LastResult::PARTIAL:
+                    status_text = "partial sync";
+                    status_color = lv_color_hex(THEME_COLOR_WARNING);
+                    break;
+                case CloudSync::LastResult::FAILED:
+                    status_text = "server unreachable";
+                    status_color = lv_color_hex(THEME_COLOR_WARNING);
+                    break;
+                case CloudSync::LastResult::ABORTED:
+                    status_text = "interrupted";
+                    break;
+                default:
+                    status_text = cloud_sync.has_unsynced_sessions() ? "waiting for WiFi" : "idle";
+                    break;
+            }
+            break;
+    }
+    set_label_text_if_changed(cloud_status_label, status_text);
+    set_label_text_color_if_changed(cloud_status_label, status_color);
+
+    // Relative last-success age (same idiom as the WiFi page)
+    uint32_t success_epoch = cloud_sync.get_last_success_epoch();
+    if (TimeSync::is_synced() && success_epoch > 0) {
+        uint32_t age_sec = TimeSync::now_epoch() - success_epoch;
+        char sync_text[32];
+        if (age_sec < 60) {
+            snprintf(sync_text, sizeof(sync_text), "just now");
+        } else if (age_sec < 3600) {
+            snprintf(sync_text, sizeof(sync_text), "%lum ago", (unsigned long)(age_sec / 60));
+        } else {
+            snprintf(sync_text, sizeof(sync_text), "%luh ago", (unsigned long)(age_sec / 3600));
+        }
+        set_label_text_if_changed(cloud_synced_label, sync_text);
+    } else {
+        set_label_text_if_changed(cloud_synced_label, "never");
+    }
+
+    char uploaded_text[32];
+    snprintf(uploaded_text, sizeof(uploaded_text), "%u last sync",
+             (unsigned)cloud_sync.get_last_run_uploaded());
+    set_label_text_if_changed(cloud_uploaded_label, uploaded_text);
 }
 
 void MenuScreen::refresh_statistics(bool show_overlay) {

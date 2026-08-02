@@ -1,0 +1,466 @@
+#include "cloud_sync.h"
+#include <Arduino.h>
+#include <LittleFS.h>
+#include <Preferences.h>
+#include <esp_heap_caps.h>
+#include <esp_http_client.h>
+#if __has_include(<esp_crt_bundle.h>)
+#include <esp_crt_bundle.h>
+#define CLOUD_SYNC_HAS_CRT_BUNDLE 1
+#endif
+#include <cstring>
+#include <cstdlib>
+#include "time_sync.h"
+#include "../logging/grind_logging.h"
+#include "../system/statistics_manager.h"
+
+CloudSync cloud_sync;
+
+namespace {
+    constexpr const char* kNvsNamespace = "cloudsync";
+    constexpr const char* kKeyUrl = "url";
+    constexpr const char* kKeyStore = "store";
+    constexpr const char* kKeyUploadKey = "upkey";
+    constexpr const char* kKeyViewKey = "viewkey";
+    constexpr const char* kKeyEnabled = "enabled";
+
+    void copy_bounded(char* dst, size_t dst_len, const char* src) {
+        if (!dst || dst_len == 0) return;
+        dst[0] = '\0';
+        if (src) {
+            strncpy(dst, src, dst_len - 1);
+            dst[dst_len - 1] = '\0';
+        }
+    }
+}
+
+void CloudSync::init() {
+    reload_config();
+    update_idle_state();
+    // Sessions ground while the server was unreachable are swept by the
+    // opportunistic run inside the guaranteed boot window (should_run());
+    // wants_window() only tracks sessions flushed since this boot.
+    last_seen_storage_version = grind_logger.get_session_storage_version();
+    last_synced_storage_version = last_seen_storage_version;
+    if (configured) {
+        LOG_BLE("[CLOUD] Store %s on %s (%s)\n", store_id, server_url,
+                enabled ? "enabled" : "disabled");
+    }
+    initialized = true;
+}
+
+void CloudSync::reload_config() {
+    Preferences prefs;
+    prefs.begin(kNvsNamespace, true);
+    String url = prefs.getString(kKeyUrl, "");
+    String store = prefs.getString(kKeyStore, "");
+    String up = prefs.getString(kKeyUploadKey, "");
+    String view = prefs.getString(kKeyViewKey, "");
+    enabled = prefs.getBool(kKeyEnabled, false);
+    prefs.end();
+
+    copy_bounded(server_url, sizeof(server_url), url.c_str());
+    copy_bounded(store_id, sizeof(store_id), store.c_str());
+    copy_bounded(upload_key, sizeof(upload_key), up.c_str());
+    copy_bounded(view_key, sizeof(view_key), view.c_str());
+
+    // Trailing slash would double up when paths are appended
+    size_t url_len = strlen(server_url);
+    if (url_len > 0 && server_url[url_len - 1] == '/') server_url[url_len - 1] = '\0';
+
+    configured = server_url[0] != '\0' && store_id[0] != '\0' && upload_key[0] != '\0';
+    config_dirty = false;
+}
+
+void CloudSync::update_idle_state() {
+    if (state == State::SYNCING) return;  // Run outcome decides the next state
+    if (!configured) {
+        state = State::NOT_CONFIGURED;
+    } else if (!enabled) {
+        state = State::DISABLED_BY_USER;
+    } else {
+        state = State::IDLE;
+    }
+}
+
+void CloudSync::set_config(const char* url, const char* new_store_id,
+                           const char* new_upload_key, const char* new_view_key) {
+    if (!url || !url[0] || !new_store_id || !new_store_id[0]
+        || !new_upload_key || !new_upload_key[0]) {
+        return;
+    }
+    Preferences prefs;
+    prefs.begin(kNvsNamespace, false);
+    prefs.putString(kKeyUrl, url);
+    prefs.putString(kKeyStore, new_store_id);
+    prefs.putString(kKeyUploadKey, new_upload_key);
+    prefs.putString(kKeyViewKey, new_view_key ? new_view_key : "");
+    prefs.putBool(kKeyEnabled, true);  // Provisioning implies the user wants it on
+    prefs.end();
+
+    config_dirty = true;
+    LOG_BLE("[CLOUD] Store provisioned: %s\n", new_store_id);
+}
+
+void CloudSync::forget_config() {
+    Preferences prefs;
+    prefs.begin(kNvsNamespace, false);
+    prefs.clear();
+    prefs.end();
+
+    config_dirty = true;
+    LOG_BLE("[CLOUD] Store configuration forgotten\n");
+}
+
+void CloudSync::set_enabled(bool on) {
+    Preferences prefs;
+    prefs.begin(kNvsNamespace, false);
+    prefs.putBool(kKeyEnabled, on);
+    prefs.end();
+
+    config_dirty = true;
+    LOG_BLE("[CLOUD] %s by user\n", on ? "Enabled" : "Disabled");
+}
+
+bool CloudSync::has_unsynced_sessions() const {
+    return grind_logger.get_session_storage_version() != last_synced_storage_version;
+}
+
+bool CloudSync::should_run() const {
+    return initialized && configured && enabled;
+}
+
+bool CloudSync::wants_window() {
+    if (!initialized) return false;
+    if (config_dirty && state != State::SYNCING) {
+        reload_config();
+        update_idle_state();
+    }
+    if (!configured || !enabled) return false;
+
+    uint32_t version = grind_logger.get_session_storage_version();
+    if (version != last_seen_storage_version) {
+        last_seen_storage_version = version;
+        storage_changed_ms = millis();
+    }
+    if (version == last_synced_storage_version) return false;
+    // Settle delay: skip windows while the user might still fire a top-up
+    // pulse; the daily window still sweeps everything regardless.
+    return (millis() - storage_changed_ms) >= CLOUD_SYNC_SETTLE_MS;
+}
+
+void CloudSync::begin_run() {
+    run_phase = RunPhase::MANIFEST;
+    want_ids = nullptr;
+    want_count = 0;
+    want_index = 0;
+    run_uploaded = 0;
+    run_storage_version = grind_logger.get_session_storage_version();
+    state = State::SYNCING;
+    LOG_BLE("[CLOUD] Sync run starting\n");
+}
+
+void CloudSync::end_run(LastResult result) {
+    if (want_ids) {
+        free(want_ids);
+        want_ids = nullptr;
+    }
+    last_result = result;
+    last_run_uploaded = run_uploaded;
+    if (result == LastResult::SUCCESS) {
+        // A session flushed mid-run bumps the live version past the snapshot
+        // we synced, so wants_window() stays true and the next window mops up.
+        last_synced_storage_version = run_storage_version;
+        if (TimeSync::is_synced()) last_success_epoch = TimeSync::now_epoch();
+    }
+    state = State::IDLE;
+    update_idle_state();
+    LOG_BLE("[CLOUD] Sync run finished: %s (%u/%u sessions uploaded)\n",
+            last_result_name(), run_uploaded, last_run_wanted);
+}
+
+void CloudSync::abort_run() {
+    if (state == State::SYNCING) end_run(LastResult::ABORTED);
+}
+
+CloudSync::StepResult CloudSync::step() {
+    if (state != State::SYNCING) return StepResult::FAILED;
+    StepResult result;
+    switch (run_phase) {
+        case RunPhase::MANIFEST: result = step_manifest(); break;
+        case RunPhase::UPLOAD:   result = step_upload(); break;
+        default:                 result = step_snapshot(); break;
+    }
+    if (result == StepResult::DONE) {
+        end_run(run_uploaded < last_run_wanted ? LastResult::PARTIAL : LastResult::SUCCESS);
+    } else if (result == StepResult::FAILED) {
+        end_run(run_uploaded > 0 ? LastResult::PARTIAL : LastResult::FAILED);
+    }
+    return result;
+}
+
+const char* CloudSync::device_id() {
+    if (!device_id_hex[0]) {
+        uint64_t mac = ESP.getEfuseMac();
+        snprintf(device_id_hex, sizeof(device_id_hex), "%012llx", (unsigned long long)mac);
+    }
+    return device_id_hex;
+}
+
+// ---- run phases ------------------------------------------------------------
+
+// Builds the manifest from the 24-byte headers already on flash and asks the
+// server which sessions it lacks.
+CloudSync::StepResult CloudSync::step_manifest() {
+    const size_t body_cap = 32 + (size_t)CLOUD_SYNC_MAX_MANIFEST_ENTRIES * CLOUD_SYNC_MANIFEST_ENTRY_BYTES;
+    char* body = (char*)heap_caps_malloc(body_cap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    char* response = (char*)heap_caps_malloc(CLOUD_SYNC_RESPONSE_BUFFER_BYTES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!body || !response) {
+        if (body) free(body);
+        if (response) free(response);
+        LOG_BLE("[CLOUD] Manifest buffer allocation failed\n");
+        return StepResult::FAILED;
+    }
+
+    size_t pos = 0;
+    pos += snprintf(body + pos, body_cap - pos, "{\"sessions\":[");
+    uint16_t entries = 0;
+
+    File dir = LittleFS.open(GRIND_SESSIONS_DIR);
+    if (dir && dir.isDirectory()) {
+        File file = dir.openNextFile();
+        while (file && entries < CLOUD_SYNC_MAX_MANIFEST_ENTRIES) {
+            TimeSeriesSessionHeader header;
+            if (!file.isDirectory()
+                && file.read((uint8_t*)&header, sizeof(header)) == sizeof(header)
+                && header.session_size > 0) {
+                pos += snprintf(body + pos, body_cap - pos,
+                    "%s{\"session_id\":%lu,\"session_timestamp\":%lu,"
+                    "\"session_size\":%lu,\"checksum\":%lu}",
+                    entries ? "," : "",
+                    (unsigned long)header.session_id,
+                    (unsigned long)header.session_timestamp,
+                    (unsigned long)header.session_size,
+                    (unsigned long)header.checksum);
+                entries++;
+            }
+            file.close();
+            file = dir.openNextFile();
+        }
+        dir.close();
+    }
+    pos += snprintf(body + pos, body_cap - pos, "]}");
+
+    int status = http_request("POST", "/manifest", "application/json",
+                              (const uint8_t*)body, pos,
+                              response, CLOUD_SYNC_RESPONSE_BUFFER_BYTES);
+    free(body);
+
+    if (status != 200) {
+        LOG_BLE("[CLOUD] Manifest request failed (HTTP %d)\n", status);
+        free(response);
+        return StepResult::FAILED;
+    }
+
+    // Parse {"want":[1,2,3]} - the only JSON this device ever reads.
+    want_ids = (uint32_t*)heap_caps_malloc(
+        sizeof(uint32_t) * CLOUD_SYNC_MAX_MANIFEST_ENTRIES, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    want_count = 0;
+    const char* cursor = strstr(response, "\"want\"");
+    if (want_ids && cursor && (cursor = strchr(cursor, '['))) {
+        cursor++;
+        while (*cursor && *cursor != ']' && want_count < CLOUD_SYNC_MAX_MANIFEST_ENTRIES) {
+            if (*cursor >= '0' && *cursor <= '9') {
+                want_ids[want_count++] = strtoul(cursor, (char**)&cursor, 10);
+            } else {
+                cursor++;
+            }
+        }
+    }
+    free(response);
+    if (!want_ids) return StepResult::FAILED;
+
+    last_run_wanted = want_count;
+    LOG_BLE("[CLOUD] Server holds %u of %u sessions, wants %u\n",
+            entries - want_count, entries, want_count);
+    run_phase = want_count > 0 ? RunPhase::UPLOAD : RunPhase::SNAPSHOT;
+    return StepResult::RUNNING;
+}
+
+// Uploads one wanted session file per step, verbatim bytes.
+CloudSync::StepResult CloudSync::step_upload() {
+    if (want_index >= want_count || run_uploaded >= CLOUD_SYNC_MAX_UPLOADS_PER_RUN) {
+        run_phase = RunPhase::SNAPSHOT;
+        return StepResult::RUNNING;
+    }
+    uint32_t session_id = want_ids[want_index++];
+
+    char filename[64];
+    snprintf(filename, sizeof(filename), SESSION_FILE_FORMAT, (unsigned long)session_id);
+    File file = LittleFS.open(filename, "r");
+    if (!file) {
+        // Purged between manifest and now - not an error, just move on.
+        return StepResult::RUNNING;
+    }
+    size_t size = file.size();
+    uint8_t* blob = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!blob) {
+        file.close();
+        LOG_BLE("[CLOUD] Session buffer allocation failed (%zu bytes)\n", size);
+        return StepResult::FAILED;
+    }
+    bool read_ok = file.read(blob, size) == size;
+    file.close();
+    if (!read_ok) {
+        free(blob);
+        return StepResult::RUNNING;  // Skip the unreadable file, keep going
+    }
+
+    int status = http_request("POST", "/sessions", "application/octet-stream",
+                              blob, size, nullptr, 0);
+    free(blob);
+
+    if (status == 201 || status == 200) {  // stored or already-known duplicate
+        run_uploaded++;
+        return StepResult::RUNNING;
+    }
+    if (status == 422) {
+        // The server rejected this file as corrupt; uploading it again will
+        // never succeed. Skip it rather than wedging the whole store.
+        LOG_BLE("[CLOUD] Session %lu rejected as corrupt, skipping\n", (unsigned long)session_id);
+        run_uploaded++;
+        return StepResult::RUNNING;
+    }
+    LOG_BLE("[CLOUD] Session %lu upload failed (HTTP %d)\n", (unsigned long)session_id, status);
+    return StepResult::FAILED;
+}
+
+// Posts the compact health observation that turns Device Health into a
+// history server-side (docs/CLOUD_SYNC.md "Health snapshots ride along").
+CloudSync::StepResult CloudSync::step_snapshot() {
+    char body[768];
+    size_t len = snprintf(body, sizeof(body),
+        "{"
+        "\"source\":\"device\","
+        "\"firmware_version\":\"%s\","
+        "\"build\":%d,"
+        "\"device_id\":\"%s\","
+        "\"uptime_min\":%lu,"
+        "\"heap_free\":%u,"
+        "\"sessions_on_flash\":%lu,"
+        "\"time_synced\":%s,"
+        "\"lifetime\":{"
+        "\"total_grinds\":%lu,"
+        "\"weight_mode_grinds\":%lu,"
+        "\"time_mode_grinds\":%lu,"
+        "\"motor_runtime_sec\":%lu,"
+        "\"total_weight_kg\":%.3f,"
+        "\"avg_accuracy_g\":%.3f,"
+        "\"total_pulses\":%lu,"
+        "\"uptime_hrs\":%lu"
+        "}"
+        "}",
+        BUILD_FIRMWARE_VERSION,
+        BUILD_NUMBER,
+        device_id(),
+        (unsigned long)(millis() / 60000UL),
+        (unsigned int)ESP.getFreeHeap(),
+        (unsigned long)grind_logger.get_total_flash_sessions(),
+        TimeSync::is_synced() ? "true" : "false",
+        (unsigned long)statistics_manager.get_total_grinds(),
+        (unsigned long)statistics_manager.get_weight_mode_grinds(),
+        (unsigned long)statistics_manager.get_time_mode_grinds(),
+        (unsigned long)statistics_manager.get_motor_runtime_sec(),
+        statistics_manager.get_total_weight_kg(),
+        statistics_manager.get_avg_accuracy_g(),
+        (unsigned long)statistics_manager.get_total_pulses(),
+        (unsigned long)statistics_manager.get_device_uptime_hrs());
+
+    int status = http_request("POST", "/snapshots", "application/json",
+                              (const uint8_t*)body, len, nullptr, 0);
+    if (status != 201) {
+        LOG_BLE("[CLOUD] Snapshot upload failed (HTTP %d)\n", status);
+        // Sessions made it; a lost observation is not worth failing the run.
+    }
+    return StepResult::DONE;
+}
+
+// ---- HTTP ------------------------------------------------------------------
+
+int CloudSync::http_request(const char* method, const char* path,
+                            const char* content_type,
+                            const uint8_t* body, size_t body_len,
+                            char* response, size_t response_cap) {
+    char url[sizeof(server_url) + sizeof(store_id) + 48];
+    snprintf(url, sizeof(url), "%s/api/stores/%s%s", server_url, store_id, path);
+
+    esp_http_client_config_t config = {};
+    config.url = url;
+    config.timeout_ms = CLOUD_SYNC_HTTP_TIMEOUT_MS;
+#ifdef CLOUD_SYNC_HAS_CRT_BUNDLE
+    // Validates public CAs (Let's Encrypt, Vercel, ...) with zero
+    // provisioning. Self-hosted plain http:// URLs skip TLS entirely.
+    config.crt_bundle_attach = esp_crt_bundle_attach;
+#endif
+
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+    if (!client) return -1;
+
+    esp_http_client_set_method(client,
+        strcmp(method, "POST") == 0 ? HTTP_METHOD_POST : HTTP_METHOD_GET);
+
+    char auth[sizeof(upload_key) + 8];
+    snprintf(auth, sizeof(auth), "Bearer %s", upload_key);
+    esp_http_client_set_header(client, "Authorization", auth);
+    esp_http_client_set_header(client, "x-device-id", device_id());
+    if (content_type) esp_http_client_set_header(client, "Content-Type", content_type);
+
+    int status = -1;
+    esp_err_t err = esp_http_client_open(client, body_len);
+    if (err == ESP_OK) {
+        if (body_len > 0
+            && esp_http_client_write(client, (const char*)body, body_len) != (int)body_len) {
+            status = -2;
+        } else if (esp_http_client_fetch_headers(client) < 0) {
+            status = -3;
+        } else {
+            status = esp_http_client_get_status_code(client);
+            if (response && response_cap > 0) {
+                int read = esp_http_client_read_response(client, response, response_cap - 1);
+                response[read > 0 ? read : 0] = '\0';
+            }
+        }
+        esp_http_client_close(client);
+    } else {
+        LOG_BLE("[CLOUD] Connection to %s failed (%d)\n", url, (int)err);
+    }
+    esp_http_client_cleanup(client);
+    return status;
+}
+
+// ---- accessors -------------------------------------------------------------
+
+void CloudSync::get_server_url(char* out, size_t len) const { copy_bounded(out, len, server_url); }
+void CloudSync::get_store_id(char* out, size_t len) const { copy_bounded(out, len, store_id); }
+void CloudSync::get_view_key(char* out, size_t len) const { copy_bounded(out, len, view_key); }
+
+const char* CloudSync::state_name() const {
+    switch (state) {
+        case State::NOT_CONFIGURED: return "not_configured";
+        case State::DISABLED_BY_USER: return "disabled";
+        case State::IDLE: return "idle";
+        case State::SYNCING: return "syncing";
+    }
+    return "unknown";
+}
+
+const char* CloudSync::last_result_name() const {
+    switch (last_result) {
+        case LastResult::NONE: return "none";
+        case LastResult::SUCCESS: return "success";
+        case LastResult::PARTIAL: return "partial";
+        case LastResult::FAILED: return "failed";
+        case LastResult::ABORTED: return "aborted";
+    }
+    return "unknown";
+}

@@ -18,7 +18,7 @@ import { renderMultiView } from './views-multi.js';
 import { renderDeviceHealth } from './views-health.js';
 import { renderTrendsView, renderCompareView } from './views-trends.js';
 import {
-    getCloudConfig, clearCloudConfig, createCloudStore, deleteCloudStore,
+    getCloudConfig, saveCloudConfig, clearCloudConfig, createCloudStore, deleteCloudStore,
     adoptShareFragment, buildShareLink, pullFromCloud, pushToCloud, pushSnapshotToCloud,
 } from './cloud.js';
 
@@ -978,9 +978,23 @@ function init() {
     }
 
     // Re-render the summary when the grinder card's background snapshot
-    // arrives (device session count, logging state).
+    // arrives (device session count, logging state) — and claim the device's
+    // cloud store by possession: a grinder this browser can read hands out
+    // its read-only dashboard keys (docs/CLOUD_SYNC.md "Auth model").
     window.GrinderSession?.onChange?.((type) => {
-        if (type === 'snapshot') renderSummary();
+        if (type !== 'snapshot') return;
+        const cloud = window.GrinderSession?.getActive?.()?.snapshot?.cloud;
+        if (cloud?.configured && cloud.view_key && !getCloudConfig()) {
+            saveCloudConfig({
+                storeId: cloud.store_id,
+                viewKey: cloud.view_key,
+                baseUrl: cloud.server_url || '',
+                linkedAt: Date.now(),
+            });
+            renderCloudBar();
+            syncFromCloud({ silent: true });
+        }
+        renderSummary();
     });
 
     // A shared dashboard link (#store=...) links this browser to a cloud

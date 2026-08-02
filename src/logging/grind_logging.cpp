@@ -470,18 +470,44 @@ void GrindLogger::initialize_session_config() {
 }
 
 
+// Chainable zlib-compatible CRC-32 (reflected, poly 0xEDB88320). The header's
+// checksum field covers everything after the header; session, events and
+// measurements live in separate buffers, so the CRC is chained across them.
+// Consumers: the cloud ingest server verifies it when nonzero
+// (tools/web-server/lib/ingest.js); legacy files carry 0 from the old stub.
+static uint32_t crc32_update(uint32_t crc, const void* data, size_t length) {
+    const uint8_t* bytes = (const uint8_t*)data;
+    crc = ~crc;
+    for (size_t i = 0; i < length; i++) {
+        crc ^= bytes[i];
+        for (int bit = 0; bit < 8; bit++) {
+            crc = (crc >> 1) ^ (0xEDB88320UL & (0UL - (crc & 1)));
+        }
+    }
+    return ~crc;
+}
+
+static uint32_t session_payload_checksum(const GrindSession& session,
+                                         const GrindEvent* events, uint16_t event_count,
+                                         const GrindMeasurement* measurements, uint16_t measurement_count) {
+    uint32_t crc = crc32_update(0, &session, sizeof(GrindSession));
+    crc = crc32_update(crc, events, sizeof(GrindEvent) * event_count);
+    crc = crc32_update(crc, measurements, sizeof(GrindMeasurement) * measurement_count);
+    return crc;
+}
+
 bool GrindLogger::write_time_series_session_to_flash(const GrindSession& session, const GrindEvent* events, const GrindMeasurement* measurements) {
     File file = LittleFS.open(GRIND_LOG_FILE, "a");
     if (!file) {
         LOG_BLE("Failed to open log file for writing\n");
         return false;
     }
-    
+
     TimeSeriesSessionHeader header;
     header.session_id = session.session_id;
     header.session_timestamp = session.session_timestamp;
     header.session_size = sizeof(GrindSession) + (sizeof(GrindEvent) * event_count) + (sizeof(GrindMeasurement) * measurement_count);
-    header.checksum = calculate_checksum((const uint8_t*)&session, header.session_size);
+    header.checksum = session_payload_checksum(session, events, event_count, measurements, measurement_count);
     header.event_count = event_count;
     header.measurement_count = measurement_count;
     header.schema_version = GRIND_LOG_SCHEMA_VERSION;
@@ -852,7 +878,9 @@ bool GrindLogger::clear_all_sessions_from_flash() {
 }
 
 bool GrindLogger::remove_oldest_sessions(uint32_t sessions_to_remove) { return true; }
-uint32_t GrindLogger::calculate_checksum(const uint8_t* data, size_t length) { return 0; }
+uint32_t GrindLogger::calculate_checksum(const uint8_t* data, size_t length) {
+    return crc32_update(0, data, length);
+}
 
 void GrindLogger::reset_export_static_variables() {
     // This function forces reset of static variables in export_sessions_binary_chunk
@@ -1208,7 +1236,7 @@ bool GrindLogger::write_individual_session_file(uint32_t session_id, const Grind
     header.session_id = session_id;
     header.session_timestamp = session.session_timestamp;
     header.session_size = total_data_size;
-    header.checksum = calculate_checksum((const uint8_t*)&session, total_data_size);
+    header.checksum = session_payload_checksum(session, events, event_count, measurements, measurement_count);
     header.event_count = event_count;
     header.measurement_count = measurement_count;
     header.schema_version = GRIND_LOG_SCHEMA_VERSION;

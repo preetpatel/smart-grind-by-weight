@@ -75,6 +75,15 @@
         return 'WiFi configured';
     }
 
+    function cloudShortLabel(cloud) {
+        if (!cloud || !cloud.configured) return null;
+        if (!cloud.enabled) return 'backup off';
+        if (cloud.state === 'syncing') return 'backing up…';
+        if (cloud.unsynced) return 'backup pending';
+        if (cloud.last_result === 'success') return 'backed up ✓';
+        return 'backup on';
+    }
+
     // ---- strip ---------------------------------------------------------
 
     function renderPairPrompt(host) {
@@ -111,6 +120,8 @@
         }
         const wifiLabel = wifiShortLabel(snapshot?.wifi);
         if (wifiLabel) facts.appendChild(el('span', { text: wifiLabel }));
+        const cloudLabel = cloudShortLabel(snapshot?.cloud);
+        if (cloudLabel) facts.appendChild(el('span', { text: cloudLabel }));
         const ago = agoLabel(snapshot?.fetchedAt);
         facts.appendChild(el('span', { text: snapshot ? `checked ${ago}` : 'not checked yet' }));
         strip.appendChild(facts);

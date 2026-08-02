@@ -15,6 +15,7 @@
 #include "../../system/statistics_manager.h"
 #include "../../system/time_sync.h"
 #include "../../system/wifi_service.h"
+#include "../../system/cloud_sync.h"
 #include "../components/blocking_overlay.h"
 #include "../components/ui_operations.h"
 #include "../event_bridge_lvgl.h"
@@ -48,6 +49,8 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::BLE_STARTUP_TOGGLE, [this](lv_event_t*) { handle_ble_startup_toggle(); });
     EventBridgeLVGL::register_handler(ET::WIFI_TOGGLE, [this](lv_event_t*) { handle_wifi_toggle(); });
     EventBridgeLVGL::register_handler(ET::WIFI_FORGET, [this](lv_event_t*) { handle_wifi_forget(); });
+    EventBridgeLVGL::register_handler(ET::CLOUD_SYNC_TOGGLE, [this](lv_event_t*) { handle_cloud_sync_toggle(); });
+    EventBridgeLVGL::register_handler(ET::CLOUD_SYNC_FORGET, [this](lv_event_t*) { handle_cloud_sync_forget(); });
     EventBridgeLVGL::register_handler(ET::LOGGING_TOGGLE, [this](lv_event_t*) { handle_logging_toggle(); });
 
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_SWIPE_TOGGLE, [this](lv_event_t*) { handle_grind_mode_swipe_toggle(); });
@@ -113,6 +116,9 @@ void MenuUIController::update() {
     }
     if (menu_screen.is_wifi_page_active()) {
         menu_screen.update_wifi_status();
+    }
+    if (menu_screen.is_cloud_sync_page_active()) {
+        menu_screen.update_cloud_sync_status();
     }
 }
 
@@ -403,6 +409,34 @@ void MenuUIController::handle_wifi_forget() {
         lv_color_hex(THEME_COLOR_WARNING),
         [this]() {
             wifi_service.forget_credentials();
+            return_to_menu();
+        },
+        "CANCEL",
+        [this]() { return_to_menu(); }
+    );
+}
+
+void MenuUIController::handle_cloud_sync_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_cloud_toggle();
+    if (!toggle) return;
+
+    cloud_sync.set_enabled(lv_obj_has_state(toggle, LV_STATE_CHECKED));
+    ui_manager_->menu_screen.update_cloud_sync_status();
+}
+
+void MenuUIController::handle_cloud_sync_forget() {
+    if (!ui_manager_) return;
+
+    ui_manager_->show_confirmation(
+        "FORGET SYNC",
+        "This will remove the cloud store keys from the grinder.\n\n"
+        "Sessions already uploaded stay on the server.",
+        "FORGET",
+        lv_color_hex(THEME_COLOR_WARNING),
+        [this]() {
+            cloud_sync.forget_config();
             return_to_menu();
         },
         "CANCEL",
