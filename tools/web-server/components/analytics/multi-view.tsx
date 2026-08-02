@@ -6,9 +6,18 @@
 // sessions.
 
 import { useMemo, useState } from 'react';
-
+import { MetricTile } from '@/components/analytics/metric';
+import { ResultBadge } from '@/components/analytics/result-badge';
 import { PlotlyChart } from '@/components/plotly-chart';
-import { MetricTile, ResultBadge, SubTabs } from '@/components/ui';
+import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Figure } from '@/lib/analytics/figures';
 import { CHART_CONFIG, COLOR_WEIGHT, chartLayout, grindTimeSeconds } from '@/lib/analytics/figures';
 import { mean, pearson, stddev } from '@/lib/analytics/frame';
@@ -18,8 +27,8 @@ import type { ParsedGrindSession } from '@/lib/parser';
 import { MODE_MAP, PROFILE_MAP } from '@/lib/parser';
 
 const COLOR_TOLERANCE = '#e66767';
-const COLOR_PERFECT = '#0ca30c';
-const COLOR_REFERENCE = '#898781';
+const COLOR_PERFECT = '#58c97d'; // --success, lifted for the dark surface
+const COLOR_REFERENCE = '#78716c'; // stone — chrome, not data
 const COLOR_METHOD_ALT = '#d95926'; // 1500ms-average method, distinct from the 95p method
 
 // Status colors: fixed identities from the reserved status palette, not cycled
@@ -322,13 +331,13 @@ function OverviewTab({ records }: { records: StoredRecord[] }) {
 
     return (
         <div>
-            <div className="metric-grid">
+            <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
                 <MetricTile label="Accuracy Rate" value={data.accuracy} />
                 <MetricTile label="Average Error" value={data.averageError} />
                 <MetricTile label="Error Std Dev" value={data.errorStdDev} />
                 <MetricTile label="Avg Grind Time" value={data.avgGrindTime} />
             </div>
-            <div className="chart-row">
+            <div className="my-4 grid gap-4 md:grid-cols-2">
                 <PlotlyChart figure={data.histogram} small />
                 <PlotlyChart figure={data.outcomes} small />
             </div>
@@ -439,14 +448,14 @@ function PredictiveTab({ records }: { records: StoredRecord[] }) {
 
     return (
         <div>
-            <div className="metric-grid">
+            <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
                 <MetricTile label="Avg Undershoot Target" value={data.avgUndershootTarget} />
                 <MetricTile label="Avg Predictive Error" value={data.avgPredictiveError} />
                 <MetricTile label="Avg Coasting Yield" value={data.avgCoastingYield} />
                 <MetricTile label="Avg Grind Latency" value={data.avgGrindLatency} />
                 <MetricTile label="Avg Flow Rate" value={data.avgFlowRate} />
             </div>
-            <div className="chart-row">
+            <div className="my-4 grid gap-4 md:grid-cols-2">
                 <PlotlyChart figure={data.motorStopHistogram} small />
                 <PlotlyChart figure={data.coastingHistogram} small />
                 <PlotlyChart figure={data.errorScatter} small />
@@ -524,17 +533,17 @@ function PulsesTab({ records }: { records: StoredRecord[] }) {
 
     return (
         <div>
-            <p className="table-hint">
+            <p className="mb-3 text-muted-foreground text-xs">
                 Each point is one PULSE_EXECUTE event. Pulse duration is calculated as (error /
                 pulse_flow_rate); higher correlation between expected and actual yield means better
                 pulse duration predictions.
             </p>
-            <div className="metric-grid">
+            <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
                 <MetricTile label="Pulses Analyzed" value={data.pulsesAnalyzed} />
                 <MetricTile label="95th Percentile Method" value={data.r95} />
                 <MetricTile label="1500ms Average Method" value={data.r1500} />
             </div>
-            <div className="chart-row">
+            <div className="my-4 grid gap-4 md:grid-cols-2">
                 <PlotlyChart figure={data.durationScatter} small />
                 <PlotlyChart figure={data.scatter95} small />
                 <PlotlyChart figure={data.scatter1500} small />
@@ -559,8 +568,8 @@ function SessionsTable({ records }: { records: StoredRecord[] }) {
     return (
         <>
             <h4>Data from Selected Sessions</h4>
-            <div className="table-scroll">
-                <table className="data-table">
+            <div className="mb-5 overflow-x-auto">
+                <table className="w-full border-collapse font-mono text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:border-b [&_td]:py-1.5 [&_td]:pr-4 [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:py-1.5 [&_th]:pr-4 [&_th]:text-left [&_th]:font-sans [&_th]:font-medium [&_th]:text-muted-foreground [&_th]:text-xs [&_tbody_tr:last-child_td]:border-b-0">
                     <thead>
                         <tr>
                             {TABLE_HEADERS.map((header) => (
@@ -660,10 +669,24 @@ export function MultiView({ records }: { records: StoredRecord[] }) {
     } else {
         body = (
             <>
-                <SubTabs tabs={MULTI_TABS} active={tab} onChange={setTab} />
-                {tab === 'predictive' && <PredictiveTab records={filtered} />}
-                {tab === 'pulses' && <PulsesTab records={filtered} />}
-                {tab === 'overview' && <OverviewTab records={filtered} />}
+                <Tabs value={tab} onValueChange={(value) => setTab(value as MultiTabKey)}>
+                    <TabsList>
+                        {MULTI_TABS.map((entry) => (
+                            <TabsTrigger key={entry.key} value={entry.key}>
+                                {entry.label}
+                            </TabsTrigger>
+                        ))}
+                    </TabsList>
+                    <TabsContent value="predictive">
+                        <PredictiveTab records={filtered} />
+                    </TabsContent>
+                    <TabsContent value="pulses">
+                        <PulsesTab records={filtered} />
+                    </TabsContent>
+                    <TabsContent value="overview">
+                        <OverviewTab records={filtered} />
+                    </TabsContent>
+                </Tabs>
                 <SessionsTable records={filtered} />
             </>
         );
@@ -671,28 +694,42 @@ export function MultiView({ records }: { records: StoredRecord[] }) {
 
     return (
         <div>
-            <div className="controls-row">
-                <label className="control">
-                    Profile
-                    <select value={profile} onChange={(e) => setProfile(e.target.value)}>
-                        {profiles.map((option) => (
-                            <option key={option} value={option}>
-                                {option}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                <label className="control">
-                    Mode
-                    <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                        {['All', 'Weight', 'Time'].map((option) => (
-                            <option key={option} value={option}>
-                                {option}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-                <label className="control">
+            <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-b pb-3">
+                <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                    <Label htmlFor="multi-profile" className="font-normal">
+                        Profile
+                    </Label>
+                    <Select value={profile} onValueChange={(value) => setProfile(value ?? 'All')}>
+                        <SelectTrigger id="multi-profile" size="sm" className="w-32">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {profiles.map((option) => (
+                                <SelectItem key={option} value={option}>
+                                    {option}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                    <Label htmlFor="multi-mode" className="font-normal">
+                        Mode
+                    </Label>
+                    <Select value={mode} onValueChange={(value) => setMode(value ?? 'All')}>
+                        <SelectTrigger id="multi-mode" size="sm" className="w-28">
+                            <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {['All', 'Weight', 'Time'].map((option) => (
+                                <SelectItem key={option} value={option}>
+                                    {option}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+                <label className="flex items-center gap-2 text-muted-foreground text-sm">
                     From #
                     <input
                         type="number"
@@ -703,7 +740,7 @@ export function MultiView({ records }: { records: StoredRecord[] }) {
                         onChange={(e) => setIdMin(Number(e.target.value))}
                     />
                 </label>
-                <label className="control">
+                <label className="flex items-center gap-2 text-muted-foreground text-sm">
                     To #
                     <input
                         type="number"

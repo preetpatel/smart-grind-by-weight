@@ -4,10 +4,22 @@
 // on a shared time axis, which is the established reading pattern for grind
 // telemetry in this project.
 //
-// Series colors are CVD-validated for the dark chart surface (#0A0C10): the
-// two real co-occurrence sets (weight/flow/detection + target red, and
-// weight/flow/detection + motor-stop orange) both pass all dataviz palette
-// checks. Red and orange reference lines never share a chart.
+// Series colours are semantic, not categorical — weight, flow, target and
+// detection each mean something — so they stay distinct hues rather than
+// folding into the preset's monochrome --chart-* ramp, which would collapse
+// the overlays that carry most of the analytical value.
+//
+// Validated with the dataviz validator against the warm stone surface
+// (#0c0a09) under --pairs all, which is stricter than adjacent-pairs only and
+// is what matters here because any of these can share a chart:
+//   PASS  lightness band · chroma floor · contrast vs surface
+//   PASS  normal-vision floor, worst pair detection↔target ΔE 16.5
+//   WARN  CVD, worst pair target↔flow ΔE 6.5 protan — legal in the 6–8 band
+//         only with secondary encoding, which holds: target is always a dashed
+//         reference line carrying its own annotation, never a solid trace.
+// Detection moved from the previous violet #9085e9, which sat ΔE 9.8 from the
+// weight blue for *normal* vision — under the hard floor of 15, and not
+// excusable by secondary encoding. Adjacent-pair checking had hidden it.
 
 import type { ParsedGrindEvent, ParsedGrindMeasurement } from '@/lib/parser';
 import { MODE_MAP } from '@/lib/parser';
@@ -30,18 +42,19 @@ export const COLOR_WEIGHT = '#3987e5'; // blue — primary weight trace
 export const COLOR_FLOW = '#199e70'; // aqua-green — flow rate trace
 export const COLOR_TARGET = '#e66767'; // red — target/tolerance reference lines
 export const COLOR_MOTOR_FILL = 'rgba(57, 135, 229, 0.10)'; // motor-on band
-export const COLOR_EVENT = '#898781'; // muted — event markers/guides
-export const COLOR_DETECTION = '#9085e9'; // violet — detection & percentile family
+export const COLOR_EVENT = '#78716c'; // stone — event markers/guides (chrome)
+export const COLOR_DETECTION = '#b950b2'; // magenta — detection & percentile family
 
-// Chart chrome for the dark surface, shared by every analytics view.
-export const CHART_SURFACE = '#0a0c10';
-export const CHART_GRID = '#1c2129';
-export const CHART_INK = '#ecf1f7';
-export const CHART_INK_MUTED = '#7a8490';
+// Chart chrome, taken from the theme tokens so charts sit on the page rather
+// than in a box: the surface is the page background, not a lifted card.
+export const CHART_SURFACE = '#0c0a09'; // --background
+export const CHART_GRID = '#292524'; // --muted
+export const CHART_INK = '#fafaf9'; // --foreground
+export const CHART_INK_MUTED = '#a6a09b'; // --muted-foreground
 export const CHART_FONT = {
-    family: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
+    family: '"Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace',
     size: 11,
-    color: '#a8b2bd',
+    color: '#a6a09b',
 };
 
 // The modebar camera button exports the chart as PNG at 2x for sharing.

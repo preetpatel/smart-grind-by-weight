@@ -5,14 +5,18 @@
 // views-health.js (itself a port of the Streamlit report's Device Health mode).
 
 import type { ReactNode } from 'react';
-import { MetricTile } from '@/components/ui';
+import { MetricTile } from '@/components/analytics/metric';
+import { StatusLabel } from '@/components/status-dot';
+import { Button } from '@/components/ui/button';
 import type { DeviceReports } from '@/lib/analytics/types';
 
 type BadgeKind = 'good' | 'warning' | 'critical';
 
-// Colored dot + label, so state never relies on color alone.
+const BADGE_TONE = { good: 'success', warning: 'caution', critical: 'critical' } as const;
+
+// Dot + label, so state never relies on colour alone.
 function StatusBadge({ kind, text }: { kind: BadgeKind; text: string }) {
-    return <span className={`badge st-${kind}`}>{text}</span>;
+    return <StatusLabel tone={BADGE_TONE[kind]}>{text}</StatusLabel>;
 }
 
 // Metric tile whose value is a prebuilt element (a status badge) rather than
@@ -26,20 +30,16 @@ function BadgeTile({
     badge: ReactNode;
     delta?: string | null;
 }) {
-    return (
-        <div className="metric">
-            <div className="metric-label">{label}</div>
-            <div className="metric-value">{badge}</div>
-            {delta != null && <div className="metric-delta">{delta}</div>}
-        </div>
-    );
+    return <MetricTile label={label} value={badge} delta={delta} />;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
     return (
         <>
-            <h4>{title}</h4>
-            <div className="metric-grid">{children}</div>
+            <h2 className="mt-8 mb-1 font-medium text-base">{title}</h2>
+            <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
+                {children}
+            </div>
         </>
     );
 }
@@ -219,10 +219,12 @@ function DiagnosticsReport({ diagnostics }: { diagnostics: string }) {
 
     return (
         <>
-            <pre className="diagnostics-report">{diagnostics}</pre>
-            <button type="button" className="btn-ghost" onClick={download}>
+            <pre className="max-h-[32rem] overflow-auto rounded-2xl border bg-card px-4 py-3 font-mono text-muted-foreground text-xs whitespace-pre-wrap">
+                {diagnostics}
+            </pre>
+            <Button variant="outline" size="sm" onClick={download}>
                 Download report
-            </button>
+            </Button>
         </>
     );
 }
@@ -230,7 +232,7 @@ function DiagnosticsReport({ diagnostics }: { diagnostics: string }) {
 export function HealthView({ deviceReports }: { deviceReports: DeviceReports | null }) {
     if (!deviceReports || (!deviceReports.system_info && !deviceReports.diagnostics)) {
         return (
-            <div className="status info">
+            <div className="my-4 text-muted-foreground text-sm">
                 No device health snapshot stored. Pull data from the grinder — system info and a
                 diagnostic report are captured automatically with every pull.
             </div>
@@ -245,7 +247,7 @@ export function HealthView({ deviceReports }: { deviceReports: DeviceReports | n
     return (
         <>
             {deviceReports.captured_at && (
-                <p className="table-hint">
+                <p className="mb-3 text-muted-foreground text-xs">
                     Snapshot captured {capturedLabel} — refreshed on every pull.
                 </p>
             )}
@@ -253,17 +255,17 @@ export function HealthView({ deviceReports }: { deviceReports: DeviceReports | n
             {deviceReports.system_info ? (
                 <SystemInfoSections info={deviceReports.system_info} />
             ) : (
-                <div className="status warning">
+                <div className="my-4 text-caution text-sm">
                     System info was not captured during the last pull. Re-pull with the grinder
                     powered on.
                 </div>
             )}
 
-            <h4>Diagnostic Report</h4>
+            <h2 className="mt-8 mb-1 font-medium text-base">Diagnostic Report</h2>
             {deviceReports.diagnostics ? (
                 <DiagnosticsReport diagnostics={deviceReports.diagnostics} />
             ) : (
-                <div className="status warning">
+                <div className="my-4 text-caution text-sm">
                     No diagnostic report was captured during the last pull.
                 </div>
             )}

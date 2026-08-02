@@ -6,7 +6,10 @@
 // so the copy pushes GitHub/passkeys as the recovery story.
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { StatusBox, type StatusMessage } from '@/components/ui';
+import { type StatusMessage, StatusRegion } from '@/components/status-region';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/client/auth';
 
 export function SignInForm({ github }: { github: boolean }) {
@@ -104,40 +107,41 @@ export function SignInForm({ github }: { github: boolean }) {
     };
 
     return (
-        <div className="form-stack">
-            <h2>{mode === 'signup' ? 'Create your account' : 'Sign in'}</h2>
-            <p className="lede-line">
-                Your account keeps your grinder&apos;s cloud backups and dashboards available from
-                any browser.
+        <div className="mx-auto max-w-sm">
+            <h1 className="font-semibold text-2xl tracking-tight">
+                {mode === 'signup' ? 'Create your account' : 'Sign in'}
+            </h1>
+            <p className="mt-1 mb-6 text-muted-foreground text-sm">
+                An account keeps your grinder&apos;s backups and dashboards reachable from any
+                browser you sign in to.
             </p>
 
-            <div className="btn-row">
+            <div className="grid gap-2">
                 {github && (
-                    <button
-                        type="button"
-                        className="btn btn-accent"
-                        disabled={busy}
-                        onClick={signInGithub}
-                    >
+                    <Button variant="outline" disabled={busy} onClick={signInGithub}>
                         Continue with GitHub
-                    </button>
+                    </Button>
                 )}
-                <button type="button" className="btn-ghost" disabled={busy} onClick={signInPasskey}>
+                <Button variant="outline" disabled={busy} onClick={signInPasskey}>
                     Sign in with a passkey
-                </button>
+                </Button>
             </div>
 
-            <div className="auth-divider">or use email</div>
+            <div className="my-6 flex items-center gap-3 text-muted-foreground text-xs">
+                <span className="h-px flex-1 bg-border" />
+                or use email
+                <span className="h-px flex-1 bg-border" />
+            </div>
 
             {/* Password managers key off the form's identity: `key={mode}`
                 remounts the fields when switching sign-in ↔ sign-up so they
                 re-read it as a login vs a registration form (and so offer to
                 save a new password), and `name` attributes are what their
                 heuristics match on — id alone is not enough. */}
-            <form key={mode} name={mode} onSubmit={submit}>
-                <div className="form-group">
-                    <label htmlFor={`${mode}Email`}>Email</label>
-                    <input
+            <form key={mode} name={mode} onSubmit={submit} className="grid gap-4">
+                <div className="grid gap-2">
+                    <Label htmlFor={`${mode}Email`}>Email</Label>
+                    <Input
                         id={`${mode}Email`}
                         name="email"
                         type="email"
@@ -150,9 +154,9 @@ export function SignInForm({ github }: { github: boolean }) {
                         onChange={(e) => setEmail(e.target.value)}
                     />
                 </div>
-                <div className="form-group">
-                    <label htmlFor={`${mode}Password`}>Password</label>
-                    <input
+                <div className="grid gap-2">
+                    <Label htmlFor={`${mode}Password`}>Password</Label>
+                    <Input
                         id={`${mode}Password`}
                         name="password"
                         type="password"
@@ -163,28 +167,27 @@ export function SignInForm({ github }: { github: boolean }) {
                         onChange={(e) => setPassword(e.target.value)}
                     />
                 </div>
-                <div className="btn-row">
-                    <button type="submit" className="btn btn-accent" disabled={busy}>
-                        {mode === 'signup' ? 'Create account' : 'Sign in'}
-                    </button>
-                    <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={() => {
-                            setMode(mode === 'signup' ? 'signin' : 'signup');
-                            setStatus(null);
-                        }}
-                    >
-                        {mode === 'signup'
-                            ? 'I already have an account'
-                            : 'Create a new account instead'}
-                    </button>
-                </div>
+                <Button type="submit" disabled={busy}>
+                    {mode === 'signup' ? 'Create account' : 'Sign in'}
+                </Button>
             </form>
 
-            <StatusBox status={status} />
+            <div className="mt-4">
+                <StatusRegion status={status} />
+            </div>
 
-            <p className="next-step">
+            <button
+                type="button"
+                className="mt-2 text-muted-foreground text-sm underline-offset-4 hover:text-foreground hover:underline"
+                onClick={() => {
+                    setMode(mode === 'signup' ? 'signin' : 'signup');
+                    setStatus(null);
+                }}
+            >
+                {mode === 'signup' ? 'I already have an account' : 'Create a new account instead'}
+            </button>
+
+            <p className="mt-8 border-t pt-6 text-muted-foreground text-xs">
                 There is no password recovery on this server — after signing up, link GitHub or add
                 a passkey on the Account page as your backup way in.
             </p>

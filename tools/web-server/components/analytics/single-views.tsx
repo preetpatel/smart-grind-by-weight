@@ -5,8 +5,10 @@
 // plain-JS views in tools/web-flasher/analytics/views-single.js.
 
 import { useMemo, useState } from 'react';
+import { MetricTile, Note } from '@/components/analytics/metric';
 import { PlotlyChart } from '@/components/plotly-chart';
-import { MetricTile, StatusBox } from '@/components/ui';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import type { Figure } from '@/lib/analytics/figures';
 import {
     buildPhaseFigure,
@@ -29,7 +31,7 @@ const COLOR_NOTCH = COLOR_FLOW; // notch spectrum renders on its own chart
 
 const COLOR_MOTOR_STOP_TARGET = '#d95926'; // orange reference line
 const COLOR_PERCENTILE = COLOR_DETECTION; // detection marker family
-const COLOR_REFERENCE_LINE = '#898781';
+const COLOR_REFERENCE_LINE = '#78716c'; // stone — chrome, not data
 
 function smoothedFlow(measurements: ParsedGrindMeasurement[], smoothingMs: number): number[] {
     const raw = measurements.map((m) => m.flow_rate_g_per_s);
@@ -42,7 +44,7 @@ function smoothedFlow(measurements: ParsedGrindMeasurement[], smoothingMs: numbe
 }
 
 function InfoBox({ text }: { text: string }) {
-    return <StatusBox status={{ text, kind: 'info' }} />;
+    return <Note>{text}</Note>;
 }
 
 // --- Predictive Phase tab -------------------------------------------------
@@ -168,7 +170,7 @@ function buildPredictive(
 
 function PredictiveMetricGrid({ metrics }: { metrics: PredictiveMetrics }) {
     return (
-        <div className="metric-grid">
+        <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
             <MetricTile label="Total Yield (g)" value={metrics.yieldValue.toFixed(2)} />
             <MetricTile
                 label="Motor Stop Target"
@@ -411,15 +413,15 @@ export function PulseTab({
 
     return (
         <>
-            <div className="metric-grid">
+            <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
                 <MetricTile label="Total Pulse Yield (g)" value={result.totalYield.toFixed(2)} />
                 <MetricTile label="Number of Pulses" value={String(result.rows.length)} />
                 <MetricTile label="Pulse Flow Rate (g/s)" value={result.pulseFlowRate.toFixed(3)} />
             </div>
 
             <h4>Pulse Summary</h4>
-            <div className="table-scroll">
-                <table className="data-table">
+            <div className="mb-5 overflow-x-auto">
+                <table className="w-full border-collapse font-mono text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:border-b [&_td]:py-1.5 [&_td]:pr-4 [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:py-1.5 [&_th]:pr-4 [&_th]:text-left [&_th]:font-sans [&_th]:font-medium [&_th]:text-muted-foreground [&_th]:text-xs [&_tbody_tr:last-child_td]:border-b-0">
                     <thead>
                         <tr>
                             {PULSE_TABLE_HEADERS.map((h) => (
@@ -443,7 +445,7 @@ export function PulseTab({
                 </table>
             </div>
 
-            <div className="chart-row">
+            <div className="my-4 grid gap-4 md:grid-cols-2">
                 <PlotlyChart figure={result.contributionFigure} small />
                 <PlotlyChart figure={result.durationFigure} small />
                 <PlotlyChart figure={result.accuracyFigure} small />
@@ -628,21 +630,19 @@ export function VibrationTab({ record }: { record: StoredRecord; includeTaring: 
     if (base.kind === 'insufficient') {
         return (
             <>
-                <p className="table-hint">{VIBRATION_HINT}</p>
-                <StatusBox
-                    status={{
-                        text: 'Not enough data in the predictive phase with the motor on to perform vibration analysis.',
-                        kind: 'warning',
-                    }}
-                />
+                <p className="mb-3 text-muted-foreground text-xs">{VIBRATION_HINT}</p>
+                <Note tone="caution">
+                    Not enough data in the predictive phase with the motor on to perform vibration
+                    analysis.
+                </Note>
             </>
         );
     }
 
     return (
         <>
-            <p className="table-hint">{VIBRATION_HINT}</p>
-            <p className="table-hint">
+            <p className="mb-3 text-muted-foreground text-xs">{VIBRATION_HINT}</p>
+            <p className="mb-3 text-muted-foreground text-xs">
                 {`Analyzing ${base.sampleCount} data points over ${base.durationS.toFixed(2)} seconds. ` +
                     `Average sampling rate: ${base.samplingRate.toFixed(1)} Hz.`}
             </p>
@@ -652,7 +652,7 @@ export function VibrationTab({ record }: { record: StoredRecord; includeTaring: 
 
             <h4>Raw Frequency Spectrum (FFT)</h4>
             {base.peakFreq !== null && (
-                <div className="metric-grid">
+                <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
                     <MetricTile
                         label="Peak Vibration Frequency"
                         value={`${base.peakFreq.toFixed(1)} Hz`}
@@ -662,16 +662,18 @@ export function VibrationTab({ record }: { record: StoredRecord; includeTaring: 
             <PlotlyChart figure={base.rawFigure} small />
 
             <h4>IIR Filter Analysis</h4>
-            <div className="controls-row">
-                <label className="control">
-                    <input
-                        type="checkbox"
+            <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-b pb-3">
+                <div className="flex items-center gap-2">
+                    <Checkbox
+                        id="show-iir"
                         checked={showIir}
-                        onChange={(event) => setShowIir(event.target.checked)}
+                        onCheckedChange={(checked) => setShowIir(checked === true)}
                     />
-                    {' Show IIR filtered spectrum'}
-                </label>
-                <label className="control">
+                    <Label htmlFor="show-iir" className="font-normal text-muted-foreground">
+                        Show IIR filtered spectrum
+                    </Label>
+                </div>
+                <label className="flex items-center gap-2 text-muted-foreground text-sm">
                     {'Alpha '}
                     <input
                         type="range"
@@ -681,22 +683,26 @@ export function VibrationTab({ record }: { record: StoredRecord; includeTaring: 
                         value={alpha}
                         onChange={(event) => setAlpha(Number(event.target.value))}
                     />
-                    <span className="slider-value">{alpha.toFixed(2)}</span>
+                    <span className="min-w-10 text-right font-mono text-sm tabular-nums">
+                        {alpha.toFixed(2)}
+                    </span>
                 </label>
             </div>
             {iirFigure && <PlotlyChart figure={iirFigure} small />}
 
             <h4>Notch Filter Analysis</h4>
-            <div className="controls-row">
-                <label className="control">
-                    <input
-                        type="checkbox"
+            <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-b pb-3">
+                <div className="flex items-center gap-2">
+                    <Checkbox
+                        id="show-notch"
                         checked={showNotch}
-                        onChange={(event) => setShowNotch(event.target.checked)}
+                        onCheckedChange={(checked) => setShowNotch(checked === true)}
                     />
-                    {' Show notch filtered spectrum'}
-                </label>
-                <label className="control">
+                    <Label htmlFor="show-notch" className="font-normal text-muted-foreground">
+                        Show notch filtered spectrum
+                    </Label>
+                </div>
+                <label className="flex items-center gap-2 text-muted-foreground text-sm">
                     {'Frequency (Hz) '}
                     <input
                         type="range"
@@ -706,9 +712,11 @@ export function VibrationTab({ record }: { record: StoredRecord; includeTaring: 
                         value={notchFreq}
                         onChange={(event) => setNotchFreq(Number(event.target.value))}
                     />
-                    <span className="slider-value">{notchFreq.toFixed(1)}</span>
+                    <span className="min-w-10 text-right font-mono text-sm tabular-nums">
+                        {notchFreq.toFixed(1)}
+                    </span>
                 </label>
-                <label className="control">
+                <label className="flex items-center gap-2 text-muted-foreground text-sm">
                     {'Q factor '}
                     <input
                         type="range"
@@ -718,12 +726,12 @@ export function VibrationTab({ record }: { record: StoredRecord; includeTaring: 
                         value={q}
                         onChange={(event) => setQ(Number(event.target.value))}
                     />
-                    <span className="slider-value">{q.toFixed(0)}</span>
+                    <span className="min-w-10 text-right font-mono text-sm tabular-nums">
+                        {q.toFixed(0)}
+                    </span>
                 </label>
             </div>
-            {notchResult?.kind === 'warning' && (
-                <StatusBox status={{ text: notchResult.text, kind: 'warning' }} />
-            )}
+            {notchResult?.kind === 'warning' && <Note tone="caution">{notchResult.text}</Note>}
             {notchResult?.kind === 'figure' && <PlotlyChart figure={notchResult.figure} small />}
         </>
     );
@@ -753,15 +761,15 @@ export function ControllerTab({
 
     return (
         <>
-            <p className="table-hint">
+            <p className="mb-3 text-muted-foreground text-xs">
                 {'Controller loop performance per phase. The grind controller targets a 20 ms loop interval (50 Hz); ' +
                     'lower frequencies indicate system load or blocking operations.'}
             </p>
             {!events.length ? (
                 <InfoBox text="No event data available for this session." />
             ) : (
-                <div className="table-scroll">
-                    <table className="data-table">
+                <div className="mb-5 overflow-x-auto">
+                    <table className="w-full border-collapse font-mono text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:border-b [&_td]:py-1.5 [&_td]:pr-4 [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:py-1.5 [&_th]:pr-4 [&_th]:text-left [&_th]:font-sans [&_th]:font-medium [&_th]:text-muted-foreground [&_th]:text-xs [&_tbody_tr:last-child_td]:border-b-0">
                         <thead>
                             <tr>
                                 {CONTROLLER_TABLE_HEADERS.map((h) => (

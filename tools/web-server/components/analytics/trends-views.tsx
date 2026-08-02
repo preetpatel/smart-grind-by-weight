@@ -11,8 +11,11 @@
 // the device health snapshot), so grinds done with logging off still count.
 
 import { useMemo, useState } from 'react';
+import { MetricTile } from '@/components/analytics/metric';
+import { ResultBadge } from '@/components/analytics/result-badge';
 import { PlotlyChart } from '@/components/plotly-chart';
-import { MetricTile, ResultBadge } from '@/components/ui';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import type { Figure } from '@/lib/analytics/figures';
 import {
     CHART_CONFIG,
@@ -26,7 +29,7 @@ import { isEpochTimestamp, TOLERANCE_G } from '@/lib/analytics/types';
 import type { ParsedGrindSession } from '@/lib/parser';
 import { MODE_MAP } from '@/lib/parser';
 
-const COLOR_PERFECT = '#0ca30c';
+const COLOR_PERFECT = '#58c97d'; // --success, lifted for the dark surface
 
 // Sequential blue ramp for the compare overlay, light -> dark. On the dark
 // chart surface the lightest step is the most prominent, so the NEWEST
@@ -46,7 +49,7 @@ const RECENCY_RAMP = [
 const COMPARE_MAX_SESSIONS = 10;
 
 function InfoBox({ children }: { children: React.ReactNode }) {
-    return <div className="status info">{children}</div>;
+    return <div className="my-4 text-muted-foreground text-sm">{children}</div>;
 }
 
 function formatRuntime(totalSeconds: number): string {
@@ -191,7 +194,7 @@ export function TrendsView({
             {lifetime ? (
                 <>
                     <h4>Lifetime (device odometer)</h4>
-                    <div className="metric-grid">
+                    <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
                         <MetricTile
                             label="Coffee Through Burrs"
                             value={`${lifetimeNumber(lifetime, 'total_weight_kg').toFixed(2)} kg`}
@@ -228,12 +231,12 @@ export function TrendsView({
             ) : (
                 <>
                     <h4>{`Drift across ${rows.length} logged sessions`}</h4>
-                    <p className="table-hint">
+                    <p className="mb-3 text-muted-foreground text-xs">
                         Watch for flow rate declining and grind latency growing over time — both are
                         early signs of burr wear or clogging. Error and pulse count show whether the
                         controller is compensating.
                     </p>
-                    <div className="chart-row">
+                    <div className="my-4 grid gap-4 md:grid-cols-2">
                         <PlotlyChart figure={figures.error} small />
                         <PlotlyChart figure={figures.flowRate} small />
                         <PlotlyChart figure={figures.latencyMs} small />
@@ -306,7 +309,7 @@ function buildCompareFigure(selectedRecords: StoredRecord[], showFlow: boolean):
         y: 0.99,
         xanchor: 'left',
         x: 0.01,
-        bgcolor: 'rgba(10,12,16,0.75)',
+        bgcolor: 'rgba(28,25,23,0.85)',
     };
     if (showFlow) {
         layout.yaxis2 = {
@@ -416,18 +419,23 @@ export function CompareView({
 
     return (
         <>
-            <div className="controls-row">
-                <span className="control">
+            <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-b pb-3">
+                <span className="flex items-center gap-2 text-muted-foreground text-sm">
                     {`${selectedRecords.length}/${COMPARE_MAX_SESSIONS} sessions selected`}
                 </span>
-                <label className="control">
-                    <input
-                        type="checkbox"
+                <div className="flex items-center gap-2">
+                    <Checkbox
+                        id="compare-show-flow"
                         checked={showFlow}
-                        onChange={(event) => setShowFlow(event.target.checked)}
+                        onCheckedChange={(checked) => setShowFlow(checked === true)}
                     />
-                    {' Show flow rate'}
-                </label>
+                    <Label
+                        htmlFor="compare-show-flow"
+                        className="font-normal text-muted-foreground"
+                    >
+                        Show flow rate
+                    </Label>
+                </div>
             </div>
 
             {figure ? (
@@ -437,8 +445,8 @@ export function CompareView({
             )}
 
             {/* Selection table, newest first. */}
-            <div className="table-scroll tall">
-                <table className="data-table">
+            <div className="mb-5 max-h-96 overflow-auto">
+                <table className="w-full border-collapse font-mono text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:border-b [&_td]:py-1.5 [&_td]:pr-4 [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:py-1.5 [&_th]:pr-4 [&_th]:text-left [&_th]:font-sans [&_th]:font-medium [&_th]:text-muted-foreground [&_th]:text-xs [&_tbody_tr:last-child_td]:border-b-0">
                     <thead>
                         <tr>
                             {headers.map((header) => (
@@ -468,12 +476,11 @@ export function CompareView({
                             return (
                                 <tr key={record.sha256} className={checked ? 'selected' : ''}>
                                     <td>
-                                        <input
-                                            type="checkbox"
+                                        <Checkbox
                                             checked={checked}
                                             disabled={!checked && atCap}
-                                            onChange={(event) =>
-                                                toggleSession(s.session_id, event.target.checked)
+                                            onCheckedChange={(value) =>
+                                                toggleSession(s.session_id, value === true)
                                             }
                                         />
                                     </td>

@@ -3,8 +3,10 @@
 // "Overall" analysis tab: metrics grid, per-phase event marker toggles, the
 // weight + flow overview chart, and the raw data drill-down.
 import { useMemo, useState } from 'react';
+import { MetricTile } from '@/components/analytics/metric';
 import { PlotlyChart } from '@/components/plotly-chart';
-import { MetricTile } from '@/components/ui';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import {
     buildOverviewFigure,
     DEFAULT_HIDDEN_PHASES,
@@ -25,7 +27,7 @@ function MetricsGrid({ record, includeTaring }: { record: StoredRecord; includeT
     if (mode === 'TIME') {
         const timeErrorS = s.time_error_ms / 1000;
         return (
-            <div className="metric-grid">
+            <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
                 <MetricTile
                     label="Target Time (s)"
                     value={(s.target_time_ms / 1000).toFixed(2)}
@@ -53,7 +55,7 @@ function MetricsGrid({ record, includeTaring }: { record: StoredRecord; includeT
     const error = s.final_weight - s.target_weight;
     const withinTolerance = Math.abs(error) < TOLERANCE_G;
     return (
-        <div className="metric-grid">
+        <div className="my-4 grid grid-cols-2 gap-x-8 gap-y-5 sm:grid-cols-3 lg:grid-cols-5">
             <MetricTile
                 label="Target (g)"
                 value={s.target_weight.toFixed(2)}
@@ -75,8 +77,8 @@ function formatCell(value: unknown): string {
 
 function RawTable<T extends object>({ items, columns }: { items: T[]; columns: (keyof T)[] }) {
     return (
-        <div className="table-scroll tall">
-            <table className="data-table">
+        <div className="mb-5 max-h-96 overflow-auto">
+            <table className="w-full border-collapse font-mono text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:border-b [&_td]:py-1.5 [&_td]:pr-4 [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:py-1.5 [&_th]:pr-4 [&_th]:text-left [&_th]:font-sans [&_th]:font-medium [&_th]:text-muted-foreground [&_th]:text-xs [&_tbody_tr:last-child_td]:border-b-0">
                 <thead>
                     <tr>
                         {columns.map((c) => (
@@ -103,8 +105,8 @@ function RawDataSection({ record }: { record: StoredRecord }) {
     return (
         <details>
             <summary>Raw data for this session</summary>
-            <div className="table-scroll">
-                <table className="data-table">
+            <div className="mb-5 overflow-x-auto">
+                <table className="w-full border-collapse font-mono text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:border-b [&_td]:py-1.5 [&_td]:pr-4 [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:py-1.5 [&_th]:pr-4 [&_th]:text-left [&_th]:font-sans [&_th]:font-medium [&_th]:text-muted-foreground [&_th]:text-xs [&_tbody_tr:last-child_td]:border-b-0">
                     <tbody>
                         {Object.entries(record.session).map(([key, value]) => (
                             <tr key={key}>
@@ -195,26 +197,33 @@ export function OverallTab({
     return (
         <div>
             <MetricsGrid record={record} includeTaring={includeTaring} />
-            <div className="controls-row">
-                <span className="control">Event markers:</span>
+            <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-3 border-b pb-3">
+                <span className="flex items-center gap-2 text-muted-foreground text-sm">
+                    Event markers:
+                </span>
                 {phases.map((phase) => (
-                    <label
+                    <div
                         key={phase}
-                        className="control"
+                        className="flex items-center gap-2"
                         title={PHASE_DESCRIPTIONS[phase] ?? phase}
                     >
-                        <input
-                            type="checkbox"
+                        <Checkbox
+                            id={`phase-${phase}`}
                             checked={!hiddenPhases.has(phase)}
-                            onChange={(e) => {
+                            onCheckedChange={(value) => {
                                 const next = new Set(hiddenPhases);
-                                if (e.target.checked) next.delete(phase);
+                                if (value === true) next.delete(phase);
                                 else next.add(phase);
                                 setHiddenPhases(next);
                             }}
-                        />{' '}
-                        {phase}
-                    </label>
+                        />
+                        <Label
+                            htmlFor={`phase-${phase}`}
+                            className="font-mono font-normal text-muted-foreground text-xs"
+                        >
+                            {phase}
+                        </Label>
+                    </div>
                 ))}
             </div>
             <PlotlyChart figure={figure} />

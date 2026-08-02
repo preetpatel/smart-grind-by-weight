@@ -6,7 +6,13 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
-import { StatusBox, type StatusMessage } from '@/components/ui';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { RenameDialog } from '@/components/rename-dialog';
+import { type StatusMessage, StatusRegion } from '@/components/status-region';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/client/auth';
 import { deleteStore, listMyStores, type OwnedStore, renameStore } from '@/lib/client/cloud';
 
@@ -36,6 +42,9 @@ export function AccountPanel({ github }: { github: boolean }) {
     const [currentPassword, setCurrentPassword] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState('');
+    const [passkeyToRemove, setPasskeyToRemove] = useState<PasskeyEntry | null>(null);
+    const [storeToRename, setStoreToRename] = useState<OwnedStore | null>(null);
+    const [storeToDelete, setStoreToDelete] = useState<OwnedStore | null>(null);
     const [deletePassword, setDeletePassword] = useState('');
 
     const showError = (error: unknown, prefix: string) =>
@@ -66,11 +75,14 @@ export function AccountPanel({ github }: { github: boolean }) {
     if (isPending) return null;
     if (!session?.user) {
         return (
-            <div className="form-stack">
-                <h2>Account</h2>
-                <p className="lede-line">
+            <div className="max-w-2xl">
+                <h1 className="font-semibold text-2xl tracking-tight">Account</h1>
+                <p className="mt-1 text-muted-foreground text-sm">
                     You&apos;re not signed in.{' '}
-                    <Link href="/signin" className="link-inline">
+                    <Link
+                        href="/signin"
+                        className="underline underline-offset-4 hover:text-foreground"
+                    >
                         Sign in
                     </Link>{' '}
                     to manage your cloud stores and sign-in methods.
@@ -127,7 +139,6 @@ export function AccountPanel({ github }: { github: boolean }) {
     };
 
     const removePasskey = async (entry: PasskeyEntry) => {
-        if (!window.confirm(`Remove passkey "${entry.name ?? entry.id}"?`)) return;
         const result = await authClient.passkey.deletePasskey({ id: entry.id });
         if (result?.error) {
             setStatus({ text: result.error.message ?? 'Could not remove it.', kind: 'error' });
@@ -136,9 +147,7 @@ export function AccountPanel({ github }: { github: boolean }) {
         reload();
     };
 
-    const rename = async (store: OwnedStore) => {
-        const name = window.prompt('Store name', store.name ?? '');
-        if (!name?.trim()) return;
+    const rename = async (store: OwnedStore, name: string) => {
         try {
             await renameStore(store.store_id, name.trim());
             reload();
@@ -148,13 +157,6 @@ export function AccountPanel({ github }: { github: boolean }) {
     };
 
     const destroy = async (store: OwnedStore) => {
-        if (
-            !window.confirm(
-                `Permanently delete store ${store.store_id} and its ${store.session_count} sessions?`,
-            )
-        ) {
-            return;
-        }
         try {
             await deleteStore(store.store_id);
             setStatus({ text: 'Store deleted.', kind: 'info' });
@@ -165,11 +167,11 @@ export function AccountPanel({ github }: { github: boolean }) {
     };
 
     const copyShareLink = async (store: OwnedStore) => {
+        const { toast } = await import('sonner');
         try {
             await navigator.clipboard.writeText(shareLink(store));
-            setStatus({
-                text: 'Dashboard link copied — anyone with it can view (not modify) this store.',
-                kind: 'success',
+            toast.success('Dashboard link copied', {
+                description: 'Anyone with it can read this store, but not change it.',
             });
         } catch {
             setStatus({ text: `Dashboard link: ${shareLink(store)}`, kind: 'info' });
@@ -202,194 +204,260 @@ export function AccountPanel({ github }: { github: boolean }) {
     };
 
     return (
-        <div className="form-stack">
-            <h2>Account</h2>
-            <p className="lede-line">
-                Signed in as <b>{session.user.email}</b>
+        <div className="max-w-2xl">
+            <h1 className="font-semibold text-2xl tracking-tight">Account</h1>
+            <p className="mt-1 text-muted-foreground text-sm">
+                Signed in as <span className="text-foreground">{session.user.email}</span>
             </p>
 
-            <StatusBox status={status} />
-
-            <h3>Sign-in methods</h3>
-            <div className="btn-row">
-                {github && !hasGithub && (
-                    <button
-                        type="button"
-                        className="btn-ghost"
-                        disabled={busy}
-                        onClick={linkGithub}
-                    >
-                        Link GitHub
-                    </button>
-                )}
-                {hasGithub && <span className="g-chip update">GitHub linked</span>}
-                <button type="button" className="btn-ghost" disabled={busy} onClick={addPasskey}>
-                    Add a passkey
-                </button>
+            <div className="mt-5">
+                <StatusRegion status={status} />
             </div>
-            {passkeys.length > 0 && (
-                <ul className="account-list">
-                    {passkeys.map((entry) => (
-                        <li key={entry.id}>
-                            <span>{entry.name ?? 'Passkey'}</span>
-                            <button
-                                type="button"
-                                className="btn-ghost danger"
-                                onClick={() => removePasskey(entry)}
+
+            <section className="mt-8">
+                <h2 className="font-medium text-base">Sign-in methods</h2>
+                <p className="mt-1 mb-4 text-muted-foreground text-sm">
+                    There is no password recovery here, so a linked GitHub account or a passkey is
+                    your way back in.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                    {github && !hasGithub && (
+                        <Button variant="outline" size="sm" disabled={busy} onClick={linkGithub}>
+                            Link GitHub
+                        </Button>
+                    )}
+                    {hasGithub && <Badge variant="outline">GitHub linked</Badge>}
+                    <Button variant="outline" size="sm" disabled={busy} onClick={addPasskey}>
+                        Add a passkey
+                    </Button>
+                </div>
+                {passkeys.length > 0 && (
+                    <ul className="mt-4 border-t">
+                        {passkeys.map((entry) => (
+                            <li
+                                key={entry.id}
+                                className="flex items-center justify-between gap-4 border-b py-2.5 text-sm"
                             >
-                                Remove
-                            </button>
-                        </li>
-                    ))}
-                </ul>
-            )}
+                                <span>{entry.name ?? 'Passkey'}</span>
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="text-muted-foreground hover:text-destructive"
+                                    onClick={() => setPasskeyToRemove(entry)}
+                                >
+                                    Remove
+                                </Button>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </section>
 
             {hasPassword && (
-                <form name="changePassword" onSubmit={changePassword}>
-                    <h3>Change password</h3>
-                    {/* A change-password form needs a username field for
-                        password managers to know *which* saved login to
-                        update; read-only, and it doubles as a reminder of
-                        whose password is being changed. */}
-                    <div className="form-group">
-                        <label htmlFor="changePasswordAccount">Account</label>
-                        <input
-                            id="changePasswordAccount"
-                            name="username"
-                            type="text"
-                            autoComplete="username"
-                            readOnly
-                            value={session.user.email}
-                        />
-                    </div>
-                    <div className="form-group">
-                        <label htmlFor="currentPassword">Current password</label>
-                        <input
-                            id="currentPassword"
-                            name="current-password"
-                            type="password"
-                            autoComplete="current-password"
-                            required
-                            value={currentPassword}
-                            onChange={(e) => setCurrentPassword(e.target.value)}
-                        />
-                    </div>
-                    <div className="form-group">
-                        <label htmlFor="newPassword">New password</label>
-                        <input
-                            id="newPassword"
-                            name="new-password"
-                            type="password"
-                            autoComplete="new-password"
-                            minLength={8}
-                            required
-                            value={newPassword}
-                            onChange={(e) => setNewPassword(e.target.value)}
-                        />
-                    </div>
-                    <button type="submit" className="btn-ghost" disabled={busy}>
-                        Change password
-                    </button>
-                </form>
+                <section className="mt-10 border-t pt-8">
+                    <h2 className="font-medium text-base">Change password</h2>
+                    <form
+                        name="changePassword"
+                        onSubmit={changePassword}
+                        className="mt-4 grid gap-4"
+                    >
+                        {/* A change-password form needs a username field for
+                            password managers to know *which* saved login to
+                            update; read-only, and it doubles as a reminder of
+                            whose password is being changed. */}
+                        <div className="grid gap-2">
+                            <Label htmlFor="changePasswordAccount">Account</Label>
+                            <Input
+                                id="changePasswordAccount"
+                                name="username"
+                                type="text"
+                                autoComplete="username"
+                                readOnly
+                                className="text-muted-foreground"
+                                value={session.user.email}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="currentPassword">Current password</Label>
+                            <Input
+                                id="currentPassword"
+                                name="current-password"
+                                type="password"
+                                autoComplete="current-password"
+                                required
+                                value={currentPassword}
+                                onChange={(e) => setCurrentPassword(e.target.value)}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="newPassword">New password</Label>
+                            <Input
+                                id="newPassword"
+                                name="new-password"
+                                type="password"
+                                autoComplete="new-password"
+                                minLength={8}
+                                required
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                            />
+                        </div>
+                        <Button type="submit" variant="outline" className="w-fit" disabled={busy}>
+                            Change password
+                        </Button>
+                    </form>
+                </section>
             )}
 
-            <h3>Cloud stores</h3>
-            {stores.length === 0 ? (
-                <p className="lede-line">
-                    No stores yet. Set up cloud backup from{' '}
-                    <Link href="/" className="link-inline">
-                        My Grinder → WiFi &amp; Sync
-                    </Link>{' '}
-                    with your grinder nearby.
-                </p>
-            ) : (
-                <ul className="account-list">
-                    {stores.map((store) => (
-                        <li key={store.store_id}>
-                            <span>
-                                <b>{store.name ?? store.store_id}</b>
-                                <span className="store-line">
-                                    {' '}
-                                    {store.store_id} · {store.session_count} sessions
-                                    {store.last_received_at
-                                        ? ` · last upload ${new Date(store.last_received_at).toLocaleDateString()}`
-                                        : ''}
+            <section className="mt-10 border-t pt-8">
+                <h2 className="font-medium text-base">Cloud stores</h2>
+                {stores.length === 0 ? (
+                    <p className="mt-1 text-muted-foreground text-sm">
+                        No stores yet. Set one up from{' '}
+                        <Link
+                            href="/grinder/wifi"
+                            className="underline underline-offset-4 hover:text-foreground"
+                        >
+                            WiFi &amp; Sync
+                        </Link>{' '}
+                        with your grinder nearby.
+                    </p>
+                ) : (
+                    <ul className="mt-4 border-t">
+                        {stores.map((store) => (
+                            <li
+                                key={store.store_id}
+                                className="group flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b py-3"
+                            >
+                                <span className="min-w-0">
+                                    <span className="block font-medium text-sm">
+                                        {store.name ?? store.store_id}
+                                    </span>
+                                    <span className="block font-mono text-muted-foreground text-xs">
+                                        {store.store_id} · {store.session_count} sessions
+                                        {store.last_received_at
+                                            ? ` · last upload ${new Date(store.last_received_at).toLocaleDateString()}`
+                                            : ''}
+                                    </span>
                                 </span>
-                            </span>
-                            <span className="account-list-actions">
-                                <button
-                                    type="button"
-                                    className="btn-ghost"
-                                    onClick={() => copyShareLink(store)}
-                                >
-                                    Copy link
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn-ghost"
-                                    onClick={() => rename(store)}
-                                >
-                                    Rename
-                                </button>
-                                <button
-                                    type="button"
-                                    className="btn-ghost danger"
-                                    onClick={() => destroy(store)}
-                                >
-                                    Delete
-                                </button>
-                            </span>
-                        </li>
-                    ))}
-                </ul>
-            )}
+                                <span className="flex shrink-0 items-center gap-1 opacity-60 transition-opacity group-hover:opacity-100">
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => copyShareLink(store)}
+                                    >
+                                        Copy link
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setStoreToRename(store)}
+                                    >
+                                        Rename
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="text-muted-foreground hover:text-destructive"
+                                        onClick={() => setStoreToDelete(store)}
+                                    >
+                                        Delete
+                                    </Button>
+                                </span>
+                            </li>
+                        ))}
+                    </ul>
+                )}
+            </section>
 
-            <h3>Session</h3>
-            <div className="btn-row">
-                <button type="button" className="btn-ghost" onClick={signOut}>
+            <section className="mt-10 border-t pt-8">
+                <Button variant="outline" size="sm" onClick={signOut}>
                     Sign out
-                </button>
-            </div>
+                </Button>
+            </section>
 
-            <details>
-                <summary>Delete account</summary>
-                <form onSubmit={deleteAccount}>
-                    <p className="lede-line">
+            <details className="mt-10 border-t pt-8">
+                <summary className="cursor-pointer text-muted-foreground text-sm">
+                    Delete account
+                </summary>
+                <form onSubmit={deleteAccount} className="mt-4 grid gap-4">
+                    <p className="text-muted-foreground text-sm">
                         Deletes your account, every cloud store you own and all their sessions.
-                        Grinders keep working locally; their cloud uploads will start failing until
+                        Grinders keep working locally; their uploads start failing until
                         re-provisioned.
                     </p>
-                    <div className="form-group">
-                        <label htmlFor="deleteConfirm">Type &quot;delete&quot; to confirm</label>
-                        <input
+                    <div className="grid gap-2">
+                        <Label htmlFor="deleteConfirm">Type &quot;delete&quot; to confirm</Label>
+                        <Input
                             id="deleteConfirm"
                             name="deleteConfirm"
                             type="text"
                             autoComplete="off"
                             data-1p-ignore
                             data-lpignore="true"
+                            className="max-w-xs"
                             value={deleteConfirm}
                             onChange={(e) => setDeleteConfirm(e.target.value)}
                         />
                     </div>
                     {hasPassword && (
-                        <div className="form-group">
-                            <label htmlFor="deletePassword">Your password</label>
-                            <input
+                        <div className="grid gap-2">
+                            <Label htmlFor="deletePassword">Your password</Label>
+                            <Input
                                 id="deletePassword"
                                 name="password"
                                 type="password"
                                 autoComplete="current-password"
+                                className="max-w-xs"
                                 value={deletePassword}
                                 onChange={(e) => setDeletePassword(e.target.value)}
                             />
                         </div>
                     )}
-                    <button type="submit" className="btn-ghost danger" disabled={busy}>
+                    <Button type="submit" variant="destructive" className="w-fit" disabled={busy}>
                         Delete my account
-                    </button>
+                    </Button>
                 </form>
             </details>
+
+            <ConfirmDialog
+                open={passkeyToRemove !== null}
+                onOpenChange={(open) => !open && setPasskeyToRemove(null)}
+                title={`Remove ${passkeyToRemove?.name ?? 'this passkey'}?`}
+                description="That device can no longer sign you in. Any other passkeys, your password and a linked GitHub account keep working."
+                confirmLabel="Remove"
+                destructive
+                onConfirm={() => {
+                    if (passkeyToRemove) removePasskey(passkeyToRemove);
+                    setPasskeyToRemove(null);
+                }}
+            />
+
+            <RenameDialog
+                open={storeToRename !== null}
+                onOpenChange={(open) => !open && setStoreToRename(null)}
+                title="Rename store"
+                description="Only a label for you — the store id and its share links are unchanged."
+                label="Store name"
+                initialValue={storeToRename?.name ?? ''}
+                onSubmit={(name) => {
+                    if (storeToRename) rename(storeToRename, name);
+                    setStoreToRename(null);
+                }}
+            />
+
+            <ConfirmDialog
+                open={storeToDelete !== null}
+                onOpenChange={(open) => !open && setStoreToDelete(null)}
+                title="Delete this store?"
+                description={`Permanently removes ${storeToDelete?.session_count ?? 0} sessions and breaks every share link to it. Any grinder uploading here will start failing until re-provisioned. This cannot be undone.`}
+                confirmLabel="Delete store"
+                destructive
+                onConfirm={() => {
+                    if (storeToDelete) destroy(storeToDelete);
+                    setStoreToDelete(null);
+                }}
+            />
         </div>
     );
 }

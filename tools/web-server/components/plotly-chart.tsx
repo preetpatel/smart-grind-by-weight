@@ -51,5 +51,12 @@ export function PlotlyChart({ figure, small = false }: { figure: Figure; small?:
         };
     }, []);
 
-    return <div ref={host} className={`chart-container ${small ? 'small' : ''}`} />;
+    // Flat: no border, no fill. The figure's own paper_bgcolor matches the
+    // page, so the chart reads as part of the document.
+    return (
+        <div
+            ref={host}
+            className={small ? 'mb-5 min-h-[20rem] w-full' : 'mb-5 min-h-[28rem] w-full'}
+        />
+    );
 }
