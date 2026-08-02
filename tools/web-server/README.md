@@ -3,12 +3,17 @@
 One Next.js app — strict TypeScript, Biome, pnpm — serving everything web for
 the grinder (design: `docs/CLOUD_SYNC.md`):
 
-1. **The device UI** (`/`) — Get Started (USB install via esp-web-tools),
-   Update (BLE OTA), WiFi & Sync provisioning, and Diagnostics, with the
-   shared device strip above every page.
+1. **The device UI** — an adaptive home (`/`) that shows the pairing path to
+   new visitors and the grinder's own status to owners, plus
+   `/grinder/{get-started,update,wifi,diagnostics}`: USB install via
+   esp-web-tools, BLE OTA, WiFi + cloud provisioning, and the diagnostic
+   report. The grinder itself is the sidebar's workspace switcher.
 2. **The analytics dashboard** (`/analytics`) — full grind analysis from a
-   BLE pull or the cloud store (single-session, compare, multi-session,
-   trends, device health), rendered with Plotly.
+   BLE pull or the cloud store, rendered with Plotly: an overview, a
+   filterable session table (`/analytics/sessions`), per-grind deep dives at
+   `/analytics/session/[sha]` (addressable by content hash, so a link to one
+   grind survives re-pulls and factory resets), plus compare, multi-session,
+   trends and device health.
 3. **Accounts** (`/signin`, `/account`) — Better Auth (email/password,
    passkeys, GitHub when configured). Cloud stores belong to accounts, so
    dashboards follow the user to any signed-in browser; read-only `#store=`
@@ -68,7 +73,7 @@ cd tools/web-server
 BETTER_AUTH_SECRET=$(openssl rand -hex 32) docker compose up -d
 ```
 
-Point the flasher's WiFi & Sync provisioning at `http://<host>:3000`. The
+Point the app's WiFi & Sync provisioning at `http://<host>:3000`. The
 compose file disables the per-store session quota (`SYNC_SESSION_QUOTA=0`).
 Put a reverse proxy (Caddy, Tailscale, nginx) in front for TLS if the server
 is reachable beyond your LAN — passkeys and Web Bluetooth both need a secure

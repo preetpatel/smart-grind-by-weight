@@ -70,7 +70,7 @@ agreed design; each decision was made deliberately — change them knowingly.
   backoff. No new retry machinery.
 - **Failure is silent and normal.** Self-hosted servers go down; no UI errors, nothing
   blocks. Status surfaces passively: Menu → Settings → Cloud Sync (last result/time,
-  pending count) and a sync chip on the flasher device strip.
+  pending count) and the backup row on the web app's home page.
 - **Transport: HTTPS to a real domain.** `esp_http_client` + ESP-IDF CA bundle validates
   Let's Encrypt/Vercel certs out of the box — no pinning, no cert provisioning. TLS RAM
   (~40 KB) is paid only inside windows, which never overlap grinds.
@@ -115,7 +115,8 @@ agreed design; each decision was made deliberately — change them knowingly.
   same-origin: Better Auth checks origins on its own endpoints; custom session
   mutations go through `assertSameOrigin` on top of SameSite=Lax cookies.
 - **Lifecycle.** Store delete (cascade: blobs, summaries, snapshots, store) and
-  `view_key` rotation are owner-session actions (Account page + WiFi & Sync). After a
+  `view_key` rotation are owner-session actions (Account page, WiFi & Sync, and
+  Revoke shared links in the analytics cloud bar). After a
   view-key rotation, re-provision the device so future BLE claims hand out the fresh
   key. `upload_key` leak recovery = just provision again (rotation is the mechanism).
 
@@ -135,7 +136,7 @@ agreed design; each decision was made deliberately — change them knowingly.
   (env-gated), email/password and passkey one-tap; `/account` manages sign-in methods,
   passkeys, the account's stores (rename / share link / delete) and account deletion
   (typed confirmation, cascades stores).
-- **Flasher:** WiFi tab is **WiFi & Sync** — one flow provisions both (the coupling is
+- **Web app:** the WiFi page is **WiFi & Sync** — one flow provisions both (the coupling is
   real: sync needs WiFi). Requires sign-in; it reuses the device's store when the
   account owns it (rotating the upload key) or creates a fresh one, then writes the
   credentials over BLE in the same session. Forget Sync offers server-side deletion
