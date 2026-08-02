@@ -336,7 +336,7 @@ export class GrinderDataClient {
                     onProgress({
                         stage: 'retry',
                         sessionId,
-                        message: `Session ${sessionId} attempt ${attempt} failed (${lastError.message}), retrying...`,
+                        message: `Grind #${sessionId} failed (${lastError.message}) — retrying…`,
                     });
                     await this.stopExport();
                     await new Promise((resolve) => setTimeout(resolve, RETRY_SETTLE_DELAY_MS));
@@ -417,7 +417,7 @@ export class GrinderDataClient {
         let systemInfo: DeviceReports['system_info'] = null;
         let diagnostics: string | null = null;
         try {
-            onProgress({ stage: 'health', message: 'Reading system information...' });
+            onProgress({ stage: 'health', message: 'Reading system info…' });
             systemInfo = await this.getSystemInfo();
         } catch (error) {
             onProgress({
@@ -426,12 +426,12 @@ export class GrinderDataClient {
             });
         }
         try {
-            onProgress({ stage: 'health', message: 'Capturing diagnostic report...' });
+            onProgress({ stage: 'health', message: 'Capturing diagnostics…' });
             diagnostics = await this.getDiagnosticReport();
             if (diagnostics && !diagnostics.includes(DIAGNOSTICS_END_MARKER)) {
                 onProgress({
                     stage: 'warning',
-                    message: 'Diagnostic report timed out; keeping partial report',
+                    message: 'Diagnostics timed out; keeping what arrived',
                 });
             }
         } catch (error) {
@@ -454,12 +454,12 @@ export class GrinderDataClient {
     async pullAllSessions(
         onProgress: (progress: PullProgress) => void = () => {},
     ): Promise<PullResult> {
-        onProgress({ stage: 'list', message: 'Requesting session file list...' });
+        onProgress({ stage: 'list', message: 'Listing grinds…' });
         const sessionIds = await this.getFileList();
         onProgress({
             stage: 'list-done',
             total: sessionIds.length,
-            message: `Found ${sessionIds.length} session files`,
+            message: `${sessionIds.length} grinds to pull`,
         });
 
         const records: StoredRecord[] = [];
@@ -473,7 +473,7 @@ export class GrinderDataClient {
                 sessionId,
                 index: i,
                 total: sessionIds.length,
-                message: `Pulling session ${sessionId} (${i + 1}/${sessionIds.length})...`,
+                message: `Pulling grind ${i + 1} of ${sessionIds.length}…`,
             });
             try {
                 records.push(await this.pullSession(sessionId, onProgress));
@@ -483,7 +483,7 @@ export class GrinderDataClient {
                 onProgress({
                     stage: 'error',
                     sessionId,
-                    message: `Session ${sessionId} failed: ${message}`,
+                    message: `Grind #${sessionId} failed: ${message}`,
                 });
             }
         }

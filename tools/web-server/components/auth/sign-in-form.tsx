@@ -111,10 +111,6 @@ export function SignInForm({ github }: { github: boolean }) {
             <h1 className="font-semibold text-2xl tracking-tight">
                 {mode === 'signup' ? 'Create your account' : 'Sign in'}
             </h1>
-            <p className="mt-1 mb-6 text-muted-foreground text-sm">
-                An account keeps your grinder&apos;s backups and dashboards reachable from any
-                browser you sign in to.
-            </p>
 
             <div className="grid gap-2">
                 {github && (
@@ -188,8 +184,7 @@ export function SignInForm({ github }: { github: boolean }) {
             </button>
 
             <p className="mt-8 border-t pt-6 text-muted-foreground text-xs">
-                There is no password recovery on this server — after signing up, link GitHub or add
-                a passkey on the Account page as your backup way in.
+                There is no password recovery — add a passkey or link GitHub after signing up.
             </p>
         </div>
     );

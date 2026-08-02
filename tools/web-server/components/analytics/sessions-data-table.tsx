@@ -177,7 +177,7 @@ export function SessionsDataTable({
                 enableHiding: false,
                 header: ({ table }) => (
                     <Checkbox
-                        aria-label="Select all visible sessions"
+                        aria-label="Select all grinds"
                         checked={table.getIsAllPageRowsSelected()}
                         indeterminate={table.getIsSomePageRowsSelected()}
                         onCheckedChange={(value) => table.toggleAllPageRowsSelected(value === true)}
@@ -185,7 +185,7 @@ export function SessionsDataTable({
                 ),
                 cell: ({ row }) => (
                     <Checkbox
-                        aria-label={`Select session ${row.original.session.session_id}`}
+                        aria-label={`Select grind ${row.original.session.session_id}`}
                         checked={row.getIsSelected()}
                         onCheckedChange={(value) => row.toggleSelected(value === true)}
                     />
@@ -373,8 +373,8 @@ export function SessionsDataTable({
                     <Input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search sessions"
-                        aria-label="Search sessions"
+                        placeholder="Search grinds"
+                        aria-label="Search grinds"
                         className="h-8 w-56 pl-8"
                     />
                 </div>
@@ -497,7 +497,7 @@ export function SessionsDataTable({
                                     colSpan={columns.length}
                                     className="h-24 text-center text-muted-foreground text-sm"
                                 >
-                                    No sessions match those filters.
+                                    No grinds match those filters.
                                 </TableCell>
                             </TableRow>
                         )}
@@ -574,8 +574,8 @@ export function SessionsDataTable({
             <div className="mt-4 flex flex-wrap items-center gap-3 text-muted-foreground text-xs">
                 <span>
                     {filteredCount === records.length
-                        ? `${records.length} sessions`
-                        : `${filteredCount} of ${records.length} sessions`}
+                        ? `${records.length} grinds`
+                        : `${filteredCount} of ${records.length} grinds`}
                     {selectedIds.length > 0 && ` · ${selectedIds.length} selected`}
                 </span>
                 <div className="flex-1" />

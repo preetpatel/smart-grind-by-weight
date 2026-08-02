@@ -6,7 +6,7 @@
 // something you reach for often.
 import { Cloud, CloudUpload, Copy, Ellipsis, Link2Off, RefreshCw, ShieldOff } from 'lucide-react';
 import Link from 'next/link';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
 import { StatusDot } from '@/components/status-dot';
 import { Button } from '@/components/ui/button';
@@ -48,7 +48,7 @@ export function CloudBar({
     onSourcesChanged: () => void;
     onSync: () => void;
     onBackfill: () => void;
-    onStatus: (text: string, kind: 'info' | 'success' | 'error') => void;
+    onStatus: (text: string, kind: 'info' | 'success' | 'error', action?: ReactNode) => void;
 }) {
     const [confirmRotate, setConfirmRotate] = useState(false);
 
@@ -57,11 +57,11 @@ export function CloudBar({
         const { toast } = await import('sonner');
         try {
             await navigator.clipboard.writeText(buildShareLink(source));
-            toast.success('Dashboard link copied', {
-                description: 'Anyone with it can read this store, but not change it.',
+            toast.success('Share link copied', {
+                description: 'Anyone with it can read your grinds.',
             });
         } catch {
-            onStatus(`Dashboard link: ${buildShareLink(source)}`, 'info');
+            onStatus(`Share link: ${buildShareLink(source)}`, 'info');
         }
     };
 
@@ -70,15 +70,22 @@ export function CloudBar({
         try {
             await rotateViewKey(source.storeId);
             onSourcesChanged();
+            // The grinder holds the old key, so it needs setting up again —
+            // said with the control that does it rather than directions to it.
             onStatus(
-                'Previous links no longer work. Set the grinder up again so it picks up the new key.',
+                'Share links revoked.',
                 'success',
+                <Button
+                    variant="outline"
+                    size="sm"
+                    nativeButton={false}
+                    render={<Link href="/grinder/wifi" />}
+                >
+                    Set up the grinder again
+                </Button>,
             );
         } catch (error) {
-            onStatus(
-                `Could not revoke: ${error instanceof Error ? error.message : error}`,
-                'error',
-            );
+            onStatus(`Couldn’t revoke: ${error instanceof Error ? error.message : error}`, 'error');
         }
     };
 
@@ -86,9 +93,7 @@ export function CloudBar({
         return (
             <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-2 border-b pb-4 text-sm">
                 <StatusDot tone="neutral" />
-                <span className="text-muted-foreground">
-                    Not backed up — this data lives only in this browser.
-                </span>
+                <span className="text-muted-foreground">Not backed up — this browser only.</span>
                 {/* A store belongs to a grinder, so setting one up starts at
                     the grinder rather than here. */}
                 <Button
@@ -98,7 +103,7 @@ export function CloudBar({
                     render={<Link href={signedIn ? '/grinder/wifi' : '/signin'} />}
                 >
                     <Cloud />
-                    {signedIn ? 'Set up cloud backup' : 'Sign in to back up'}
+                    {signedIn ? 'Turn on backup' : 'Sign in to back up'}
                 </Button>
             </div>
         );
@@ -136,7 +141,7 @@ export function CloudBar({
                     <span className="font-medium text-foreground">
                         {source.name ?? source.storeId}
                     </span>
-                    {source.owned ? '' : ' · read-only link'}
+                    {source.owned ? '' : ' · read-only'}
                 </span>
             )}
 
@@ -150,7 +155,7 @@ export function CloudBar({
             <DropdownMenu>
                 <DropdownMenuTrigger
                     render={
-                        <Button variant="ghost" size="icon-sm" aria-label="Cloud store actions">
+                        <Button variant="ghost" size="icon-sm" aria-label="Backup actions">
                             <Ellipsis />
                         </Button>
                     }
@@ -159,17 +164,17 @@ export function CloudBar({
                     {source.owned && (
                         <DropdownMenuItem onClick={onBackfill}>
                             <CloudUpload />
-                            Back up local sessions
+                            Back up local grinds
                         </DropdownMenuItem>
                     )}
                     <DropdownMenuItem onClick={copyLink}>
                         <Copy />
-                        Copy dashboard link
+                        Copy share link
                     </DropdownMenuItem>
                     {source.owned && (
                         <DropdownMenuItem onClick={() => setConfirmRotate(true)}>
                             <ShieldOff />
-                            Revoke shared links
+                            Revoke share links
                         </DropdownMenuItem>
                     )}
                     <DropdownMenuSeparator />
@@ -183,7 +188,7 @@ export function CloudBar({
                             onClick={() => {
                                 clearViewerSource();
                                 onSourcesChanged();
-                                onStatus('Disconnected from the shared store.', 'info');
+                                onStatus('Disconnected.', 'info');
                             }}
                         >
                             <Link2Off />
@@ -196,8 +201,8 @@ export function CloudBar({
             <ConfirmDialog
                 open={confirmRotate}
                 onOpenChange={setConfirmRotate}
-                title="Revoke every shared link?"
-                description="Any link you have handed out stops working immediately. Your grinder holds the old key too, so set it up again afterwards. No grind data is deleted."
+                title="Revoke every share link?"
+                description="Every link you've shared stops working, and the grinder needs setting up again. No grinds are deleted."
                 confirmLabel="Revoke links"
                 destructive
                 onConfirm={() => revokeLinks()}

@@ -7,10 +7,7 @@ import { UnsupportedBrowser } from '@/components/unsupported-browser';
 export default function WifiPage() {
     return (
         <>
-            <PageHeader
-                title="WiFi & Sync"
-                description="Give the grinder your network so its clock stays right without a phone nearby, and point it at a cloud store to back up every grind."
-            />
+            <PageHeader title="WiFi & Backup" />
             <UnsupportedBrowser />
             <WifiSyncPanel />
         </>

@@ -37,7 +37,7 @@ function ErrorSparkline({ weightRecords }: { weightRecords: StoredRecord[] }) {
             aria-label={`Weight error for the last ${points.length} grinds, against a ±${TOLERANCE_G} gram tolerance band`}
             className="block h-14 w-full"
         >
-            <title>Weight error per session</title>
+            <title>Weight error per grind</title>
             {/* Tolerance band as a filled region, not two dashed rules: the
                 question is "inside or outside", which is an area. */}
             <rect
@@ -161,7 +161,7 @@ export function Hero({ records }: { records: StoredRecord[] }) {
 
             <div className="min-w-0">
                 <div className="flex flex-wrap divide-x divide-border border-b pb-1">
-                    <Kpi label="Sessions" value={String(records.length)} />
+                    <Kpi label="Grinds" value={String(records.length)} />
                     {errors.length > 0 && (
                         <>
                             <Kpi

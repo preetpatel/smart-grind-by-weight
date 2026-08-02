@@ -55,6 +55,9 @@ interface AnalyticsState {
     deviceReports: DeviceReports | null;
     lastPull: string | null;
     status: StatusMessage | null;
+    // A control the outcome requires, rendered beside the message instead of a
+    // sentence naming the page it lives on.
+    statusAction: ReactNode;
     progress: number | null;
     busy: boolean;
     loaded: boolean;
@@ -63,7 +66,7 @@ interface AnalyticsState {
     signedIn: boolean;
     deviceSessions: number | undefined;
     loggingOff: boolean;
-    showStatus: (text: string, kind?: StatusMessage['kind']) => void;
+    showStatus: (text: string, kind?: StatusMessage['kind'], action?: ReactNode) => void;
     clearStatus: () => void;
     pullData: () => Promise<void>;
     exportJson: () => void;
@@ -91,6 +94,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const [deviceReports, setDeviceReports] = useState<DeviceReports | null>(null);
     const [lastPull, setLastPull] = useState<string | null>(null);
     const [status, setStatus] = useState<StatusMessage | null>(null);
+    const [statusAction, setStatusAction] = useState<ReactNode>(null);
     const [progress, setProgress] = useState<number | null>(null);
     const [busy, setBusy] = useState(false);
     const [loaded, setLoaded] = useState(false);
@@ -179,10 +183,16 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     }, []);
 
     const showStatus = useCallback(
-        (text: string, kind: StatusMessage['kind'] = 'info') => setStatus({ text, kind }),
+        (text: string, kind: StatusMessage['kind'] = 'info', action: ReactNode = null) => {
+            setStatus({ text, kind });
+            setStatusAction(action);
+        },
         [],
     );
-    const clearStatus = useCallback(() => setStatus(null), []);
+    const clearStatus = useCallback(() => {
+        setStatus(null);
+        setStatusAction(null);
+    }, []);
 
     const refreshSources = useCallback(async () => {
         setViewer(getViewerSource());
@@ -212,7 +222,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
             const activeSource = sourceRef.current;
             if (!activeSource) return;
             try {
-                if (!silent) showStatus('Checking the cloud store...');
+                if (!silent) showStatus('Checking your backup…');
                 const known = new Set(recordsRef.current.map((r) => r.sha256));
                 const {
                     records: fetched,
@@ -230,21 +240,21 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                 if (fetched.length) await loadFromStore();
                 if (errors.length) {
                     showStatus(
-                        `Cloud sync: ${fetched.length} sessions added, ${errors.length} failed.`,
+                        `${fetched.length} grinds added, ${errors.length} failed.`,
                         'warning',
                     );
                 } else if (fetched.length) {
                     showStatus(
-                        `Synced ${fetched.length} sessions from the cloud (${cloudTotal} in the store).`,
+                        `Synced ${fetched.length} grinds · ${cloudTotal} backed up.`,
                         'success',
                     );
                 } else if (!silent) {
-                    showStatus('Local data already matches the cloud store.', 'success');
+                    showStatus('Already up to date.', 'success');
                 }
             } catch (error) {
                 if (!silent) {
                     showStatus(
-                        `Cloud sync failed: ${error instanceof Error ? error.message : error}`,
+                        `Sync failed: ${error instanceof Error ? error.message : error}`,
                         'error',
                     );
                 }
@@ -273,19 +283,16 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                     },
                 );
                 if (errors.length) {
-                    showStatus(
-                        `Cloud backup: ${stored} sessions uploaded, ${errors.length} failed.`,
-                        'warning',
-                    );
+                    showStatus(`${stored} uploaded, ${errors.length} failed.`, 'warning');
                 } else if (stored) {
-                    showStatus(`Backed up ${stored} sessions to the cloud.`, 'success');
+                    showStatus(`Backed up ${stored} grinds.`, 'success');
                 } else if (!silent) {
-                    showStatus('The cloud store already holds every local session.', 'success');
+                    showStatus('Everything is backed up.', 'success');
                 }
             } catch (error) {
                 if (!silent) {
                     showStatus(
-                        `Cloud backup failed: ${error instanceof Error ? error.message : error}`,
+                        `Backup failed: ${error instanceof Error ? error.message : error}`,
                         'error',
                     );
                 }
@@ -333,10 +340,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
 
     const pullData = useCallback(async () => {
         if (!grinder.supported) {
-            showStatus(
-                'Web Bluetooth is not supported in this browser. Use Chrome or Edge.',
-                'error',
-            );
+            showStatus('Web Bluetooth needs Chrome or Edge.', 'error');
             return;
         }
         setBusy(true);
@@ -354,9 +358,9 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         };
 
         try {
-            showStatus('Scanning for grinder...');
+            showStatus('Connecting…');
             await client.connect();
-            showStatus('Connected. Requesting session list...');
+            showStatus('Listing grinds…');
 
             const { records: pulled, errors } = await client.pullAllSessions((p) => {
                 if (p.stage === 'list-done') {
@@ -384,14 +388,14 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
 
             if (errors.length) {
                 showStatus(
-                    `Pulled ${pulled.length} sessions; ${errors.length} failed: ` +
+                    `Pulled ${pulled.length} grinds; ${errors.length} failed: ` +
                         errors.map((e) => `#${e.sessionId} (${e.message})`).join(', '),
                     'warning',
                 );
             } else if (pulled.length) {
-                showStatus(`Pulled ${pulled.length} sessions from the grinder.`, 'success');
+                showStatus(`Pulled ${pulled.length} grinds.`, 'success');
             } else {
-                showStatus('The grinder has no stored sessions to pull.', 'warning');
+                showStatus('No grinds on the grinder.', 'warning');
             }
 
             await loadFromStore();
@@ -419,7 +423,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
 
     const exportJson = useCallback(() => {
         if (!recordsRef.current.length) {
-            showStatus('Nothing to export yet — pull or import data first.', 'warning');
+            showStatus('Nothing to export yet.', 'warning');
             return;
         }
         const json = buildExportJson(recordsRef.current, deviceReports, [
@@ -435,7 +439,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         link.click();
         link.remove();
         URL.revokeObjectURL(url);
-        showStatus(`Exported ${recordsRef.current.length} sessions.`, 'success');
+        showStatus(`Exported ${recordsRef.current.length} grinds.`, 'success');
     }, [deviceReports, showStatus]);
 
     const importJson = useCallback(
@@ -452,7 +456,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                 if (importedReports) await saveMeta('deviceReports', importedReports);
                 await saveMeta('lastPull', new Date().toISOString());
                 await loadFromStore();
-                showStatus(`Imported ${imported.length} sessions from ${file.name}.`, 'success');
+                showStatus(`Imported ${imported.length} grinds.`, 'success');
             } catch (error) {
                 showStatus(
                     `Import failed: ${error instanceof Error ? error.message : error}`,
@@ -500,7 +504,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
                     await deleteCloudSession(activeSource, sha256);
                 } catch (error) {
                     showStatus(
-                        `Deleted here, but the cloud copy could not be removed: ${
+                        `Deleted here, but not from your backup: ${
                             error instanceof Error ? error.message : error
                         }`,
                         'warning',
@@ -516,7 +520,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
     const clearStoredData = useCallback(async () => {
         await clearAll();
         await loadFromStore();
-        showStatus('Stored data cleared.', 'info');
+        showStatus('Local grinds deleted.', 'info');
     }, [loadFromStore, showStatus]);
 
     const snapshot = grinder.active?.snapshot;
@@ -526,6 +530,7 @@ export function AnalyticsProvider({ children }: { children: ReactNode }) {
         deviceReports,
         lastPull,
         status,
+        statusAction,
         progress,
         busy,
         loaded,

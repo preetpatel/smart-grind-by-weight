@@ -27,9 +27,9 @@ export function DiagnosticsPanel() {
         ble.hold();
         setBusy(true);
         try {
-            setStatus({ text: 'Connecting to device...', kind: 'info' });
+            setStatus({ text: 'Connecting…', kind: 'info' });
             await ble.connect();
-            setStatus({ text: 'Connected. Requesting diagnostic report...', kind: 'info' });
+            setStatus({ text: 'Requesting report…', kind: 'info' });
 
             const debugService = await ble.getService(ble.UUIDS.DEBUG_SERVICE);
             const sysinfoService = await ble.getService(ble.UUIDS.SYSINFO_SERVICE);
@@ -58,7 +58,7 @@ export function DiagnosticsPanel() {
             debugTx.addEventListener('characteristicvaluechanged', onChunk);
 
             await trigger.writeValue(new Uint8Array([0x01]) as BufferSource);
-            setStatus({ text: 'Generating report...', kind: 'info' });
+            setStatus({ text: 'Generating…', kind: 'info' });
 
             const startTime = Date.now();
             while (!complete && Date.now() - startTime < TIMEOUT_MS) {
@@ -71,7 +71,7 @@ export function DiagnosticsPanel() {
                 setStatus({ text: 'Report received.', kind: 'success' });
             } else {
                 setStatus({
-                    text: 'Report generation timed out. Partial report received.',
+                    text: 'Timed out — showing the partial report.',
                     kind: 'error',
                 });
                 if (fullReport) setReport(fullReport);
@@ -102,10 +102,10 @@ export function DiagnosticsPanel() {
         try {
             await navigator.clipboard.writeText(report);
             const { toast } = await import('sonner');
-            toast.success('Report copied to clipboard');
+            toast.success('Report copied');
         } catch {
             const { toast } = await import('sonner');
-            toast.error('Could not copy the report');
+            toast.error('Couldn’t copy the report');
         }
     };
 
@@ -127,7 +127,7 @@ export function DiagnosticsPanel() {
         <div>
             <Button disabled={busy} onClick={getReport}>
                 <Stethoscope />
-                {busy ? 'Reading…' : 'Connect & get diagnostics'}
+                {busy ? 'Reading…' : 'Get report'}
             </Button>
 
             <div className="mt-6 max-w-2xl">

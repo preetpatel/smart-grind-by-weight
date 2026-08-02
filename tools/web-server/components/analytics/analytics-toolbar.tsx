@@ -20,7 +20,7 @@ export function AnalyticsToolbar() {
         <div className="mb-5 flex flex-wrap items-center gap-2">
             <Button disabled={busy || !grinder.supported} onClick={() => pullData()}>
                 <Plug />
-                Connect &amp; pull data
+                Pull grinds
             </Button>
             <div className="flex-1" />
             <Button variant="ghost" size="sm" onClick={exportJson}>
@@ -56,9 +56,9 @@ export function AnalyticsToolbar() {
             <ConfirmDialog
                 open={confirmClear}
                 onOpenChange={setConfirmClear}
-                title="Delete grind data stored in this browser?"
-                description="The grinder keeps its own copy, and anything already backed up stays in your cloud store. Only this browser's cache is cleared."
-                confirmLabel="Delete local data"
+                title="Delete local grinds?"
+                description="Only this browser's copy — the grinder and your backup keep theirs."
+                confirmLabel="Delete"
                 destructive
                 onConfirm={() => clearStoredData()}
             />

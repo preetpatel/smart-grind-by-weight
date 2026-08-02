@@ -12,6 +12,7 @@ import { StatusRegion } from '@/components/status-region';
 function AnalyticsChrome({ children }: { children: ReactNode }) {
     const {
         status,
+        statusAction,
         progress,
         source,
         ownedStores,
@@ -32,9 +33,9 @@ function AnalyticsChrome({ children }: { children: ReactNode }) {
                 onSourcesChanged={() => refreshSources()}
                 onSync={() => syncFromCloud()}
                 onBackfill={() => backfillToCloud()}
-                onStatus={(text, kind) => showStatus(text, kind)}
+                onStatus={(text, kind, action) => showStatus(text, kind, action)}
             />
-            <StatusRegion status={status} progress={progress} />
+            <StatusRegion status={status} progress={progress} action={statusAction} />
             {children}
         </>
     );

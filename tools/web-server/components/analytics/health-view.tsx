@@ -70,11 +70,7 @@ function SystemInfoSections({ info }: { info: NonNullable<DeviceReports['system_
             delta={system.epoch ? new Date(num(system.epoch) * 1000).toLocaleString() : null}
         />
     ) : (
-        <BadgeTile
-            label="Device Clock"
-            badge={<StatusBadge kind="warning" text="NOT SYNCED" />}
-            delta="syncs on every BLE connect"
-        />
+        <BadgeTile label="Device Clock" badge={<StatusBadge kind="warning" text="NOT SYNCED" />} />
     );
 
     const hardwareTiles: readonly [string, unknown][] = [
@@ -161,7 +157,7 @@ function SystemInfoSections({ info }: { info: NonNullable<DeviceReports['system_
                 ))}
             </Section>
 
-            <Section title="Stored Session Data">
+            <Section title="Stored Grinds">
                 {sessionStats.logging_enabled !== undefined && (
                     <BadgeTile
                         label="Grind Logging"
@@ -172,13 +168,11 @@ function SystemInfoSections({ info }: { info: NonNullable<DeviceReports['system_
                                 <StatusBadge kind="warning" text="OFF" />
                             )
                         }
-                        delta={
-                            sessionStats.logging_enabled ? null : 'grinds are not being recorded'
-                        }
+                        delta={sessionStats.logging_enabled ? null : 'not recording'}
                     />
                 )}
                 <MetricTile
-                    label="Sessions on Device"
+                    label="Grinds on Device"
                     value={String(sessionStats.total_sessions ?? 0)}
                 />
                 <BadgeTile
@@ -194,7 +188,7 @@ function SystemInfoSections({ info }: { info: NonNullable<DeviceReports['system_
                 <MetricTile label="Export" value={sessionStats.export_active ? 'Active' : 'Idle'} />
                 {Boolean(sessionStats.fs_total_kb) && (
                     <MetricTile
-                        label="Session Storage"
+                        label="Storage"
                         value={`${((fsUsedKb / fsTotalKb) * 100).toFixed(0)}%`}
                         delta={`${fsUsedKb.toLocaleString()} / ${fsTotalKb.toLocaleString()} KB`}
                     />
@@ -231,12 +225,7 @@ function DiagnosticsReport({ diagnostics }: { diagnostics: string }) {
 
 export function HealthView({ deviceReports }: { deviceReports: DeviceReports | null }) {
     if (!deviceReports || (!deviceReports.system_info && !deviceReports.diagnostics)) {
-        return (
-            <div className="my-4 text-muted-foreground text-sm">
-                No device health snapshot stored. Pull data from the grinder — system info and a
-                diagnostic report are captured automatically with every pull.
-            </div>
-        );
+        return <div className="my-4 text-muted-foreground text-sm">No health snapshot yet.</div>;
     }
 
     const captured = new Date(deviceReports.captured_at);
@@ -247,17 +236,14 @@ export function HealthView({ deviceReports }: { deviceReports: DeviceReports | n
     return (
         <>
             {deviceReports.captured_at && (
-                <p className="mb-3 text-muted-foreground text-xs">
-                    Snapshot captured {capturedLabel} — refreshed on every pull.
-                </p>
+                <p className="mb-3 text-muted-foreground text-xs">Captured {capturedLabel}</p>
             )}
 
             {deviceReports.system_info ? (
                 <SystemInfoSections info={deviceReports.system_info} />
             ) : (
                 <div className="my-4 text-caution text-sm">
-                    System info was not captured during the last pull. Re-pull with the grinder
-                    powered on.
+                    System info was not captured in the last pull.
                 </div>
             )}
 
@@ -266,7 +252,7 @@ export function HealthView({ deviceReports }: { deviceReports: DeviceReports | n
                 <DiagnosticsReport diagnostics={deviceReports.diagnostics} />
             ) : (
                 <div className="my-4 text-caution text-sm">
-                    No diagnostic report was captured during the last pull.
+                    No diagnostic report in the last pull.
                 </div>
             )}
         </>

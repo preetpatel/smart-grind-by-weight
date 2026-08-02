@@ -1,11 +1,12 @@
 'use client';
 
-import { TrendingUp } from 'lucide-react';
+import { Plug, TrendingUp } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useAnalytics } from '@/components/analytics/analytics-provider';
 import { type SettingChange, TrendsView } from '@/components/analytics/trends-views';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
+import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import {
     Select,
@@ -18,7 +19,7 @@ import {
 const ALL_BEANS = 'all';
 
 export default function TrendsPage() {
-    const { records, deviceReports, loaded, annotations } = useAnalytics();
+    const { records, deviceReports, loaded, annotations, busy, pullData } = useAnalytics();
     const [bean, setBean] = useState(ALL_BEANS);
 
     const beans = useMemo(() => {
@@ -59,10 +60,7 @@ export default function TrendsPage() {
 
     return (
         <>
-            <PageHeader
-                title="Trends"
-                description="How the grinder is changing over time — accuracy drift, flow rate decay and burr wear. Annotated grind-setting changes are marked on every chart."
-            />
+            <PageHeader title="Trends" />
 
             {beans.length > 0 && (
                 <div className="mb-5 flex items-center gap-2">
@@ -104,10 +102,13 @@ export default function TrendsPage() {
                 <EmptyState
                     icon={TrendingUp}
                     title={records.length ? 'No grinds for that bean' : 'Not enough history yet'}
-                    description={
-                        records.length
-                            ? 'Pick another bean, or annotate more grinds to build its history.'
-                            : 'Trends need a run of grinds over time. Pull data from the grinder to start building one.'
+                    action={
+                        records.length ? undefined : (
+                            <Button disabled={busy} onClick={() => pullData()}>
+                                <Plug />
+                                Pull grinds
+                            </Button>
+                        )
                     }
                 />
             )}

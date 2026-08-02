@@ -104,7 +104,7 @@ function RawTable<T extends object>({ items, columns }: { items: T[]; columns: (
 function RawDataSection({ record }: { record: StoredRecord }) {
     return (
         <details>
-            <summary>Raw data for this session</summary>
+            <summary>Raw data</summary>
             <div className="mb-5 overflow-x-auto">
                 <table className="w-full border-collapse font-mono text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:border-b [&_td]:py-1.5 [&_td]:pr-4 [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:py-1.5 [&_th]:pr-4 [&_th]:text-left [&_th]:font-sans [&_th]:font-medium [&_th]:text-muted-foreground [&_th]:text-xs [&_tbody_tr:last-child_td]:border-b-0">
                     <tbody>

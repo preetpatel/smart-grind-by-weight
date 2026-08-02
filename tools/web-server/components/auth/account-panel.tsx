@@ -85,14 +85,14 @@ export function AccountPanel({ github }: { github: boolean }) {
             <div className="max-w-2xl">
                 <h1 className="font-semibold text-2xl tracking-tight">Account</h1>
                 <p className="mt-1 text-muted-foreground text-sm">
-                    You&apos;re not signed in.{' '}
+                    Not signed in.{' '}
                     <Link
                         href="/signin"
                         className="underline underline-offset-4 hover:text-foreground"
                     >
                         Sign in
                     </Link>{' '}
-                    to manage your cloud stores and sign-in methods.
+                    to manage your backups.
                 </p>
             </div>
         );
@@ -141,7 +141,7 @@ export function AccountPanel({ github }: { github: boolean }) {
             setStatus({ text: result.error.message ?? 'Could not add a passkey.', kind: 'error' });
             return;
         }
-        setStatus({ text: 'Passkey added — use it for one-tap sign-in.', kind: 'success' });
+        setStatus({ text: 'Passkey added.', kind: 'success' });
         reload();
     };
 
@@ -166,7 +166,7 @@ export function AccountPanel({ github }: { github: boolean }) {
     const release = async (store: OwnedStore) => {
         try {
             await releaseStore(store.store_id);
-            setStatus({ text: 'Grinder released. This store is now an archive.', kind: 'info' });
+            setStatus({ text: 'Grinder released.', kind: 'info' });
             reload();
         } catch (error) {
             showError(error, 'Release failed');
@@ -176,7 +176,7 @@ export function AccountPanel({ github }: { github: boolean }) {
     const destroy = async (store: OwnedStore) => {
         try {
             await deleteStore(store.store_id);
-            setStatus({ text: 'Store deleted.', kind: 'info' });
+            setStatus({ text: 'Backup deleted.', kind: 'info' });
             reload();
         } catch (error) {
             showError(error, 'Delete failed');
@@ -187,11 +187,11 @@ export function AccountPanel({ github }: { github: boolean }) {
         const { toast } = await import('sonner');
         try {
             await navigator.clipboard.writeText(shareLink(store));
-            toast.success('Dashboard link copied', {
-                description: 'Anyone with it can read this store, but not change it.',
+            toast.success('Share link copied', {
+                description: 'Anyone with it can read your grinds.',
             });
         } catch {
-            setStatus({ text: `Dashboard link: ${shareLink(store)}`, kind: 'info' });
+            setStatus({ text: `Share link: ${shareLink(store)}`, kind: 'info' });
         }
     };
 
@@ -234,8 +234,7 @@ export function AccountPanel({ github }: { github: boolean }) {
             <section className="mt-8">
                 <h2 className="font-medium text-base">Sign-in methods</h2>
                 <p className="mt-1 mb-4 text-muted-foreground text-sm">
-                    There is no password recovery here, so a linked GitHub account or a passkey is
-                    your way back in.
+                    There is no password recovery — a passkey or linked GitHub is your way back in.
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                     {github && !hasGithub && (
@@ -327,15 +326,15 @@ export function AccountPanel({ github }: { github: boolean }) {
             )}
 
             <section className="mt-10 border-t pt-8">
-                <h2 className="font-medium text-base">Cloud stores</h2>
+                <h2 className="font-medium text-base">Backups</h2>
                 {stores.length === 0 ? (
                     <p className="mt-1 text-muted-foreground text-sm">
-                        No stores yet. Set one up from{' '}
+                        None yet — set one up from{' '}
                         <Link
                             href="/grinder/wifi"
                             className="underline underline-offset-4 hover:text-foreground"
                         >
-                            WiFi &amp; Sync
+                            WiFi &amp; Backup
                         </Link>{' '}
                         with your grinder nearby.
                     </p>
@@ -431,9 +430,7 @@ export function AccountPanel({ github }: { github: boolean }) {
                 </summary>
                 <form onSubmit={deleteAccount} className="mt-4 grid gap-4">
                     <p className="text-muted-foreground text-sm">
-                        Deletes your account, every cloud store you own and all their sessions.
-                        Grinders keep working locally; their uploads start failing until
-                        re-provisioned.
+                        Deletes your account and every backup you own. Your grinders keep working.
                     </p>
                     <div className="grid gap-2">
                         <Label htmlFor="deleteConfirm">Type &quot;delete&quot; to confirm</Label>
@@ -473,7 +470,7 @@ export function AccountPanel({ github }: { github: boolean }) {
                 open={passkeyToRemove !== null}
                 onOpenChange={(open) => !open && setPasskeyToRemove(null)}
                 title={`Remove ${passkeyToRemove?.name ?? 'this passkey'}?`}
-                description="That device can no longer sign you in. Any other passkeys, your password and a linked GitHub account keep working."
+                description="That device can no longer sign you in."
                 confirmLabel="Remove"
                 destructive
                 onConfirm={() => {
@@ -485,9 +482,9 @@ export function AccountPanel({ github }: { github: boolean }) {
             <RenameDialog
                 open={storeToRename !== null}
                 onOpenChange={(open) => !open && setStoreToRename(null)}
-                title="Rename store"
-                description="Only a label for you — the store id and its share links are unchanged."
-                label="Store name"
+                title="Rename backup"
+                description="Only a label — share links are unchanged."
+                label="Name"
                 initialValue={storeToRename?.name ?? ''}
                 onSubmit={(name) => {
                     if (storeToRename) rename(storeToRename, name);
@@ -499,7 +496,7 @@ export function AccountPanel({ github }: { github: boolean }) {
                 open={storeToRelease !== null}
                 onOpenChange={(open) => !open && setStoreToRelease(null)}
                 title="Release this grinder?"
-                description="Its grinds stay here as an archive. The grinder stops uploading, and whoever sets it up next starts a fresh history — how you hand one on."
+                description="Its grinds stay here. The grinder stops uploading and starts fresh for its next owner."
                 confirmLabel="Release grinder"
                 onConfirm={() => {
                     if (storeToRelease) release(storeToRelease);
@@ -510,9 +507,9 @@ export function AccountPanel({ github }: { github: boolean }) {
             <ConfirmDialog
                 open={storeToDelete !== null}
                 onOpenChange={(open) => !open && setStoreToDelete(null)}
-                title="Delete this store?"
-                description={`Permanently removes ${storeToDelete?.session_count ?? 0} grinds and breaks every share link to it. This cannot be undone.`}
-                confirmLabel="Delete store"
+                title="Delete this backup?"
+                description={`Permanently deletes ${storeToDelete?.session_count ?? 0} grinds. This cannot be undone.`}
+                confirmLabel="Delete backup"
                 destructive
                 onConfirm={() => {
                     if (storeToDelete) destroy(storeToDelete);

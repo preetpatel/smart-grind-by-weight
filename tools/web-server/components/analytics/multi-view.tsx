@@ -443,7 +443,7 @@ function PredictiveTab({ records }: { records: StoredRecord[] }) {
     }, [records]);
 
     if (!data) {
-        return <InfoBox text="No predictive phase data available for the selected sessions." />;
+        return <InfoBox text="No predictive phase data in the selected grinds." />;
     }
 
     return (
@@ -528,7 +528,7 @@ function PulsesTab({ records }: { records: StoredRecord[] }) {
     }, [records]);
 
     if (!data) {
-        return <InfoBox text="No pulse data available for the selected sessions." />;
+        return <InfoBox text="No pulse data in the selected grinds." />;
     }
 
     return (
@@ -567,7 +567,7 @@ const TABLE_HEADERS = [
 function SessionsTable({ records }: { records: StoredRecord[] }) {
     return (
         <>
-            <h4>Data from Selected Sessions</h4>
+            <h4>Data from selected grinds</h4>
             <div className="mb-5 overflow-x-auto">
                 <table className="w-full border-collapse font-mono text-sm tabular-nums [&_td]:whitespace-nowrap [&_td]:border-b [&_td]:py-1.5 [&_td]:pr-4 [&_th]:whitespace-nowrap [&_th]:border-b [&_th]:py-1.5 [&_th]:pr-4 [&_th]:text-left [&_th]:font-sans [&_th]:font-medium [&_th]:text-muted-foreground [&_th]:text-xs [&_tbody_tr:last-child_td]:border-b-0">
                     <thead>
@@ -643,26 +643,18 @@ export function MultiView({ records }: { records: StoredRecord[] }) {
 
     let body: React.ReactNode;
     if (!filtered.length) {
-        body = <InfoBox text="No sessions match the selected filters." type="warning" />;
+        body = <InfoBox text="No grinds match the selected filters." type="warning" />;
     } else if (filteredModes.size > 1) {
         body = (
             <>
-                <InfoBox
-                    text="Mixed grind modes selected. Filter to a single mode to view analytics."
-                    type="warning"
-                />
+                <InfoBox text="Mixed modes — filter to one." type="warning" />
                 <SessionsTable records={filtered} />
             </>
         );
     } else if (filteredModes.has('TIME')) {
         body = (
             <>
-                <InfoBox
-                    text={
-                        'Multi-session analytics currently focus on grind-by-weight sessions. ' +
-                        'Filter to Weight mode to view the predictive and pulse analysis.'
-                    }
-                />
+                <InfoBox text="Weight-mode grinds only." />
                 <SessionsTable records={filtered} />
             </>
         );

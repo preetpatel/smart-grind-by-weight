@@ -42,7 +42,7 @@ export function crc32(data: Uint8Array): number {
 }
 
 async function downloadFirmware(url: string, callbacks: OtaCallbacks): Promise<Uint8Array> {
-    callbacks.onStatus(`Downloading firmware...`, 'info');
+    callbacks.onStatus('Downloading…', 'info');
     callbacks.onProgress(0);
 
     const response = await fetch(url);
@@ -71,18 +71,14 @@ async function downloadFirmware(url: string, callbacks: OtaCallbacks): Promise<U
         firmware.set(chunk, offset);
         offset += chunk.length;
     }
-    callbacks.onStatus(`Downloaded ${Math.round(firmware.length / 1024)}KB firmware`, 'success');
+    callbacks.onStatus(`Downloaded ${Math.round(firmware.length / 1024)} KB.`, 'success');
     return firmware;
 }
 
 // Verify a downloaded OTA binary against the release's SHA-256 manifest
 // (published alongside the assets since v1.6.0-rc.6; older releases skip).
 // Throws on mismatch so the flash never starts with corrupt bytes.
-async function verifyFirmwareDownload(
-    firmwareUrl: string,
-    data: Uint8Array,
-    callbacks: OtaCallbacks,
-): Promise<void> {
+async function verifyFirmwareDownload(firmwareUrl: string, data: Uint8Array): Promise<void> {
     if (!firmwareUrl.endsWith('-web-ota.bin')) return;
     const manifestUrl = firmwareUrl.replace(/-web-ota\.bin$/, '.sha256');
     let manifestText: string;
@@ -106,9 +102,8 @@ async function verifyFirmwareDownload(
         .map((b) => b.toString(16).padStart(2, '0'))
         .join('');
     if (actual !== expected) {
-        throw new Error('Downloaded firmware fails its SHA-256 check - try again');
+        throw new Error('The download is corrupt — try again');
     }
-    callbacks.onStatus('Download verified against release SHA-256 manifest', 'info');
 }
 
 // After an apply that ended without a definitive status (link dropped during
@@ -139,10 +134,7 @@ async function verifyVersionAfterReboot(
 async function reconnectAfterDrop(callbacks: OtaCallbacks): Promise<void> {
     for (let attempt = 1; attempt <= RECONNECT_ATTEMPTS; attempt++) {
         await delay(RECONNECT_DELAY_MS);
-        callbacks.onStatus(
-            `Reconnecting to grinder (attempt ${attempt}/${RECONNECT_ATTEMPTS})...`,
-            'info',
-        );
+        callbacks.onStatus(`Reconnecting (${attempt}/${RECONNECT_ATTEMPTS})…`, 'info');
         try {
             await ble.connect({ interactive: false });
             return;
@@ -150,7 +142,7 @@ async function reconnectAfterDrop(callbacks: OtaCallbacks): Promise<void> {
             console.warn('Reconnect attempt failed:', error);
         }
     }
-    throw new Error('The link dropped mid-transfer and the grinder could not be reached again');
+    throw new Error('Lost the connection to the grinder');
 }
 
 // One full transfer over the current connection: START, chunk stream, END+CRC,
@@ -227,13 +219,13 @@ async function uploadOnce(
         new Uint8Array(startData, offset).set(versionBytes);
 
         await controlChar.writeValue(startData);
-        callbacks.onStatus('Sent start command, waiting for device...', 'info');
+        callbacks.onStatus('Waiting for the grinder…', 'info');
         await waitForStatus((s) => s === STATUS_RECEIVING, 15000, 'device ready');
 
         // Send firmware data in chunks; chunk writes can fail transiently
         // mid-transfer, so retry before giving up - unless the link itself is
         // gone, in which case retrying on the dead connection is pointless.
-        callbacks.onStatus('Uploading firmware...', 'info');
+        callbacks.onStatus('Uploading…', 'info');
         let chunkCount = 0;
         for (let i = 0; i < firmwareData.length; i += CHUNK_SIZE) {
             const chunk = firmwareData.slice(i, i + CHUNK_SIZE);
@@ -254,7 +246,7 @@ async function uploadOnce(
             if (chunkCount % 10 === 0 || i + CHUNK_SIZE >= firmwareData.length) {
                 const progress = Math.round(((i + chunk.length) / firmwareData.length) * 100);
                 callbacks.onProgress(progress);
-                callbacks.onStatus(`Uploading: ${progress}%`, 'info');
+                callbacks.onStatus(`Uploading ${progress}%`, 'info');
             }
         }
 
@@ -265,7 +257,7 @@ async function uploadOnce(
         endCommand[0] = CMD_END;
         new DataView(endCommand.buffer).setUint32(1, crc32(firmwareData), true);
         await controlChar.writeValue(endCommand);
-        callbacks.onStatus('Upload complete, applying update (takes 30-90s)...', 'info');
+        callbacks.onStatus('Applying — takes up to 90 seconds…', 'info');
 
         try {
             return await waitForStatus(
@@ -293,7 +285,7 @@ export async function connectAndFlash(
     expectedVersion: string | null,
     callbacks: OtaCallbacks,
 ): Promise<void> {
-    callbacks.onStatus('Connecting to grinder...', 'info');
+    callbacks.onStatus('Connecting…', 'info');
     await ble.connect({ interactive: true });
 
     // Own the link for the whole upload + apply. Without this, any concurrent
@@ -303,12 +295,11 @@ export async function connectAndFlash(
     ble.hold();
     try {
         const firmwareData = await downloadFirmware(firmwareUrl, callbacks);
-        await verifyFirmwareDownload(firmwareUrl, firmwareData, callbacks);
+        await verifyFirmwareDownload(firmwareUrl, firmwareData);
 
-        callbacks.onStatus('Starting firmware update...', 'info');
         callbacks.onProgress(0);
         if (expectedVersion) {
-            callbacks.onStatus(`Installing version: ${expectedVersion}`, 'info');
+            callbacks.onStatus(`Installing v${expectedVersion}…`, 'info');
         }
 
         let outcome: number | null = null;
@@ -323,7 +314,7 @@ export async function connectAndFlash(
                 if (ble.isConnected() || attempt >= MAX_TRANSFER_ATTEMPTS) throw error;
                 console.warn(`Transfer attempt ${attempt} lost the link:`, error);
                 callbacks.onStatus(
-                    `Connection lost mid-upload - restarting transfer (attempt ${attempt + 1}/${MAX_TRANSFER_ATTEMPTS})...`,
+                    `Connection lost — restarting (${attempt + 1}/${MAX_TRANSFER_ATTEMPTS})…`,
                     'info',
                 );
                 callbacks.onProgress(0);
@@ -332,36 +323,28 @@ export async function connectAndFlash(
         }
 
         if (outcome === STATUS_ERROR) {
-            throw new Error('The device reported the update failed while applying');
+            throw new Error('The grinder rejected the update');
         }
 
         callbacks.onProgress(100);
         setTimeout(() => callbacks.onProgress(null), 3000);
 
         if (outcome === STATUS_SUCCESS) {
-            callbacks.onStatus('Firmware update completed successfully!', 'success');
+            callbacks.onStatus('Updated.', 'success');
             // Refresh the cached snapshot once the device is back up so the
             // strip and update banner reflect the new version.
             setTimeout(() => {
                 ble.refreshSnapshot({ interactive: false }).catch(() => {});
             }, 25000);
         } else {
-            callbacks.onStatus('Update sent - reconnecting to verify...', 'info');
+            callbacks.onStatus('Verifying…', 'info');
             const verified = await verifyVersionAfterReboot(expectedVersion);
             if (verified === true) {
-                callbacks.onStatus(
-                    `Update verified - device is running v${expectedVersion}`,
-                    'success',
-                );
+                callbacks.onStatus(`Updated to v${expectedVersion}.`, 'success');
             } else if (verified === false) {
-                throw new Error(
-                    `Device did not come back on v${expectedVersion} - the update failed`,
-                );
+                throw new Error(`The grinder didn’t come back on v${expectedVersion}`);
             } else {
-                callbacks.onStatus(
-                    'Could not confirm the update - reconnect to check the firmware version',
-                    'error',
-                );
+                callbacks.onStatus('Couldn’t confirm the update — reconnect to check.', 'error');
             }
         }
     } catch (error) {

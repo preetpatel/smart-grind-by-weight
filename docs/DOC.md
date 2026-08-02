@@ -214,7 +214,7 @@ ESP32-S3 GND       →    Pin 4 (Ground)
 
 **Two-Step Installation Process:**
 
-1. **First Install (My Grinder → Get Started, USB - One Time Only)**
+1. **First Install (Grinder → Install, USB - One Time Only)**
    - Connect ESP32 via USB cable
    - Use Chrome/Edge browser (desktop or Android)
    - Select firmware version from dropdown

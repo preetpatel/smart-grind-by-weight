@@ -38,7 +38,7 @@ export function UpdatePanel() {
             return;
         }
         if (!supported) {
-            setStatus({ text: 'Web Bluetooth is not supported in this browser.', kind: 'error' });
+            setStatus({ text: 'Web Bluetooth needs Chrome or Edge.', kind: 'error' });
             return;
         }
         setBusy(true);
@@ -49,7 +49,7 @@ export function UpdatePanel() {
             });
         } catch (flashError) {
             setStatus({
-                text: `Flash failed: ${flashError instanceof Error ? flashError.message : flashError}`,
+                text: `Update failed: ${flashError instanceof Error ? flashError.message : flashError}`,
                 kind: 'error',
             });
             console.error('Flash error:', flashError);
@@ -64,15 +64,14 @@ export function UpdatePanel() {
                 <p className="mb-6 text-sm">
                     {updateAvailable ? (
                         <>
-                            <span className="text-caution">v{latest.version} is available.</span>{' '}
+                            <span className="text-caution">v{latest.version} available</span>{' '}
                             <span className="text-muted-foreground">
-                                Your grinder runs{' '}
-                                <span className="font-mono">v{deviceVersion}</span>.
+                                · running <span className="font-mono">v{deviceVersion}</span>
                             </span>
                         </>
                     ) : (
                         <span className="text-muted-foreground">
-                            Up to date on <span className="font-mono">v{deviceVersion}</span>.
+                            Up to date · <span className="font-mono">v{deviceVersion}</span>
                         </span>
                     )}
                 </p>
@@ -108,13 +107,11 @@ export function UpdatePanel() {
 
             <Button className="mt-6" disabled={busy} onClick={flash}>
                 <Zap />
-                {busy ? 'Flashing…' : 'Connect & flash'}
+                {busy ? 'Installing…' : selected ? `Install v${selected.version}` : 'Install'}
             </Button>
 
             <p className="mt-3 text-muted-foreground text-xs">
-                Keep the grinder powered and this tab open until it reboots. If the link drops
-                mid-transfer the upload restarts itself, and a failed update rolls back to the
-                previous firmware.
+                Keep the grinder powered and this tab open until it reboots.
             </p>
 
             <div className="mt-6">

@@ -10,8 +10,10 @@
 //   any browser can claim dashboard access by holding the grinder. Secrets
 //   (WiFi password, upload key) are never readable back.
 import { Cloud, Wifi } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { StatRow, StatValue } from '@/components/stat-row';
 import { type StatusMessage, StatusRegion } from '@/components/status-region';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,60 +46,86 @@ function nulJoinedPayload(opcode: number, fields: string[]): Uint8Array {
     return payload;
 }
 
-function describeWifiStatus(status: WifiStatusJson): string {
-    if (!status.configured) return 'No WiFi credentials stored on the grinder.';
-    const parts = [`Network: ${status.ssid}`];
-    if (!status.enabled) {
-        parts.push('WiFi is turned off on the grinder.');
-    } else {
-        const idleText =
-            status.last_result === 'success'
-                ? 'Synced — radio off until the next daily sync'
-                : status.last_result === 'wifi_failed'
-                  ? 'Could not join the network (check the password)'
-                  : status.last_result === 'sntp_failed'
-                    ? 'Joined the network but got no time-server response'
-                    : status.last_result === 'aborted'
-                      ? 'Deferred (grinder was busy), will retry shortly'
-                      : 'Waiting for the first sync attempt';
-        const stateText =
-            {
-                idle: idleText,
-                connecting: 'Connecting to the network…',
-                syncing: 'Connected — syncing the clock…',
-                uploading: 'Connected — backing up grind sessions…',
-                disabled: 'WiFi is turned off on the grinder.',
-                not_configured: 'No credentials stored.',
-            }[status.state] ?? status.state;
-        parts.push(stateText);
-    }
-    if (status.tz_name) parts.push(`Timezone: ${status.tz_name}`);
-    if (status.time_synced && status.last_sync_epoch) {
-        parts.push(
-            `Clock last synced: ${new Date(status.last_sync_epoch * 1000).toLocaleString()}`,
-        );
-    }
-    return parts.join(' · ');
+// Resting state and live progress are two different vocabularies. State is
+// scanned as rows; progress is read as a short phrase while you wait. One
+// function serving both is what turned this panel into a commentary track.
+const sentence = (fragment: string) => `${fragment.charAt(0).toUpperCase()}${fragment.slice(1)}.`;
+
+// Only the outcomes worth acting on — success and "not tried yet" are already
+// legible in the rows.
+const WIFI_FAILURE: Record<string, string> = {
+    wifi_failed: 'couldn’t join — check the password',
+    sntp_failed: 'joined, but no time server answered',
+    aborted: 'the grinder was busy — it retries on its own',
+};
+
+const WIFI_PROGRESS: Record<string, string> = {
+    connecting: 'Joining the network…',
+    syncing: 'Syncing the clock…',
+    uploading: 'Backing up grinds…',
+};
+
+const CLOUD_RESULT: Record<string, string> = {
+    success: 'up to date',
+    partial: 'partly uploaded',
+    failed: 'server unreachable',
+    aborted: 'interrupted — retries on its own',
+};
+
+const stamp = (epoch: number) => new Date(epoch * 1000).toLocaleString();
+
+function WifiRows({ status }: { status: WifiStatusJson }) {
+    if (!status.configured) return null;
+    const synced = status.time_synced && status.last_sync_epoch > 0;
+    return (
+        <div className="mb-6">
+            <StatRow
+                label="Network"
+                value={<StatValue mono>{status.ssid}</StatValue>}
+                hint={status.enabled ? undefined : 'WiFi off'}
+                hintTone="caution"
+            />
+            <StatRow
+                label="Clock"
+                value={
+                    <StatValue>{synced ? stamp(status.last_sync_epoch) : 'not synced'}</StatValue>
+                }
+                hint={WIFI_FAILURE[status.last_result]}
+                hintTone="caution"
+            />
+            {status.tz_name && (
+                <StatRow label="Timezone" value={<StatValue mono>{status.tz_name}</StatValue>} />
+            )}
+        </div>
+    );
 }
 
-function describeCloudStatus(status: CloudStatusJson): string {
-    if (!status.configured) return 'No cloud store on the grinder yet.';
-    const parts = [
-        `Store ${status.store_id}${status.enabled ? '' : ' (sync turned off on the grinder)'}`,
-    ];
-    const idleText =
-        {
-            success: 'Up to date',
-            partial: 'Partially synced — the next WiFi window continues',
-            failed: 'Server unreachable on the last attempt',
-            aborted: 'Last attempt was interrupted (grinder was busy)',
-            none: status.unsynced ? 'Waiting for the next WiFi window' : 'Nothing to sync yet',
-        }[status.last_result] ?? status.last_result;
-    parts.push(status.state === 'syncing' ? 'Uploading sessions now…' : idleText);
-    if (status.last_success_epoch) {
-        parts.push(`last synced ${new Date(status.last_success_epoch * 1000).toLocaleString()}`);
-    }
-    return parts.join(' · ');
+function CloudRows({ status }: { status: CloudStatusJson }) {
+    if (!status.configured) return null;
+    const result = CLOUD_RESULT[status.last_result];
+    return (
+        <div className="mb-6">
+            <StatRow
+                label="Backup"
+                value={
+                    <StatValue>
+                        {status.state === 'syncing'
+                            ? 'uploading…'
+                            : !status.enabled
+                              ? 'off'
+                              : (result ?? (status.unsynced ? 'waiting to upload' : 'nothing new'))}
+                    </StatValue>
+                }
+                hintTone="caution"
+            />
+            {status.last_success_epoch > 0 && (
+                <StatRow
+                    label="Last upload"
+                    value={<StatValue>{stamp(status.last_success_epoch)}</StatValue>}
+                />
+            )}
+        </div>
+    );
 }
 
 async function wifiChars() {
@@ -154,13 +182,10 @@ export function WifiSyncPanel() {
     const deleteCloudStore = async (storeId: string) => {
         try {
             await deleteStore(storeId);
-            setCloudStatus({
-                text: 'Cloud store deleted, along with every session in it.',
-                kind: 'success',
-            });
+            setCloudStatus({ text: 'Backup deleted.', kind: 'success' });
         } catch (error) {
             setCloudStatus({
-                text: `Could not delete the store: ${error instanceof Error ? error.message : error}`,
+                text: `Couldn’t delete it: ${error instanceof Error ? error.message : error}`,
                 kind: 'error',
             });
         }
@@ -184,14 +209,15 @@ export function WifiSyncPanel() {
         }
     }, [knownWifi?.ssid]);
 
-    const knownWifiText = useMemo(
-        () => (knownWifi ? describeWifiStatus(knownWifi) : null),
-        [knownWifi],
-    );
+    const knownCloud = active?.snapshot?.cloud;
+    // Unknown is not the same as absent: a browser that has never read this
+    // grinder must not be told it needs WiFi it may well already have.
+    const signedIn = Boolean(session?.user);
+    const needsWifi = knownWifi !== undefined && !knownWifi.configured;
 
     const configureWifi = async () => {
         if (!ssid.trim()) {
-            setWifiStatus({ text: 'Enter the WiFi network name first.', kind: 'error' });
+            setWifiStatus({ text: 'Enter a network name.', kind: 'error' });
             return;
         }
         setWifiBusy(true);
@@ -201,7 +227,7 @@ export function WifiSyncPanel() {
         // notification callback, invisible to TS control-flow narrowing.
         const lastStatus: { current: WifiStatusJson | null } = { current: null };
         try {
-            setWifiStatus({ text: 'Connecting to grinder…', kind: 'info' });
+            setWifiStatus({ text: 'Connecting…', kind: 'info' });
             const chars = await wifiChars();
             statusChar = chars.statusChar;
 
@@ -213,7 +239,8 @@ export function WifiSyncPanel() {
                     lastStatus.current = JSON.parse(
                         new TextDecoder().decode(target.value),
                     ) as WifiStatusJson;
-                    setWifiStatus({ text: describeWifiStatus(lastStatus.current), kind: 'info' });
+                    const phrase = WIFI_PROGRESS[lastStatus.current.state];
+                    if (phrase) setWifiStatus({ text: phrase, kind: 'info' });
                 } catch {
                     /* partial/invalid frame; wait for the next one */
                 }
@@ -230,10 +257,7 @@ export function WifiSyncPanel() {
                     zone.zoneName,
                 ]) as BufferSource,
             );
-            setWifiStatus({
-                text: 'Credentials sent — grinder is trying the network…',
-                kind: 'info',
-            });
+            setWifiStatus({ text: 'Joining the network…', kind: 'info' });
 
             // The grinder attempts the connection immediately; wait for a
             // terminal result (sync done or failed), up to ~60s.
@@ -249,18 +273,15 @@ export function WifiSyncPanel() {
             }
 
             if (outcome?.last_result === 'success') {
-                setWifiStatus({
-                    text: `✓ WiFi set up and clock synced! ${describeWifiStatus(outcome)}`,
-                    kind: 'success',
-                });
+                setWifiStatus({ text: 'Clock synced.', kind: 'success' });
             } else if (outcome) {
                 setWifiStatus({
-                    text: `WiFi saved, but the first sync failed. ${describeWifiStatus(outcome)} The grinder keeps retrying on its own.`,
+                    text: sentence(WIFI_FAILURE[outcome.last_result] ?? 'the first sync failed'),
                     kind: 'error',
                 });
             } else {
                 setWifiStatus({
-                    text: 'Credentials saved. No result yet — use Check Status in a minute.',
+                    text: 'Saved. No result yet — Refresh in a minute.',
                     kind: 'info',
                 });
             }
@@ -290,17 +311,15 @@ export function WifiSyncPanel() {
 
     const checkWifi = async () => {
         try {
-            setWifiStatus({ text: 'Connecting to grinder…', kind: 'info' });
+            setWifiStatus({ text: 'Connecting…', kind: 'info' });
             const { statusChar } = await wifiChars();
             const status = await readJsonChar<WifiStatusJson>(statusChar);
-            setWifiStatus({
-                text: describeWifiStatus(status),
-                kind: status.time_synced ? 'success' : 'info',
-            });
+            // The rows above carry the detail; this only says the read landed.
+            setWifiStatus(null);
             ble.applyPatch({ wifi: status });
         } catch (error) {
             setWifiStatus({
-                text: `Could not read WiFi status: ${error instanceof Error ? error.message : error}`,
+                text: `Couldn’t read the grinder: ${error instanceof Error ? error.message : error}`,
                 kind: 'error',
             });
         } finally {
@@ -310,17 +329,14 @@ export function WifiSyncPanel() {
 
     const forgetWifi = async () => {
         try {
-            setWifiStatus({ text: 'Connecting to grinder…', kind: 'info' });
+            setWifiStatus({ text: 'Connecting…', kind: 'info' });
             const { configChar } = await wifiChars();
             await configChar.writeValue(new Uint8Array([0x02]) as BufferSource);
-            setWifiStatus({
-                text: 'WiFi credentials removed from the grinder.',
-                kind: 'success',
-            });
+            setWifiStatus({ text: 'Network forgotten.', kind: 'success' });
             ble.applyPatch({ wifi: { configured: false } as WifiStatusJson });
         } catch (error) {
             setWifiStatus({
-                text: `Could not forget WiFi: ${error instanceof Error ? error.message : error}`,
+                text: `Couldn’t forget it: ${error instanceof Error ? error.message : error}`,
                 kind: 'error',
             });
         } finally {
@@ -329,13 +345,7 @@ export function WifiSyncPanel() {
     };
 
     const setUpCloudBackup = async () => {
-        if (!session?.user) {
-            setCloudStatus({
-                text: 'Sign in first — backups belong to your account.',
-                kind: 'error',
-            });
-            return;
-        }
+        if (!signedIn) return;
         setCloudBusy(true);
         // The server round trip sits between two BLE operations; hold the link
         // so the idle timer can't drop it mid-flow.
@@ -343,7 +353,7 @@ export function WifiSyncPanel() {
         try {
             const serverUrl = apiBaseForDevice();
 
-            setCloudStatus({ text: 'Connecting to grinder…', kind: 'info' });
+            setCloudStatus({ text: 'Connecting…', kind: 'info' });
             // Read the grinder rather than the cached snapshot: this browser
             // may never have seen it, and trusting the cache is exactly how a
             // second store used to appear for a grinder that already had one.
@@ -351,7 +361,7 @@ export function WifiSyncPanel() {
             const deviceId = snapshot.system?.device_id;
             if (typeof deviceId !== 'string' || !deviceId) {
                 setCloudStatus({
-                    text: 'Could not read this grinder’s id — update its firmware and try again.',
+                    text: 'This firmware is too old to back up — update it first.',
                     kind: 'error',
                 });
                 return;
@@ -360,7 +370,7 @@ export function WifiSyncPanel() {
             // The store is chosen by grinder, not by browser: same device,
             // same store, however many times this runs. Its own keys are the
             // proof of possession that allows taking over a second-hand one.
-            setCloudStatus({ text: 'Preparing your cloud store…', kind: 'info' });
+            setCloudStatus({ text: 'Preparing…', kind: 'info' });
             const onDevice = snapshot.cloud;
             const credentials = await claimStoreForDevice({
                 deviceId,
@@ -387,23 +397,17 @@ export function WifiSyncPanel() {
             const status = await readJsonChar<CloudStatusJson>(statusChar);
             ble.applyPatch({ cloud: status });
             if (status.configured) {
-                setCloudStatus({
-                    text: `Backing up. ${describeCloudStatus(status)}`,
-                    kind: 'success',
-                });
+                setCloudStatus({ text: 'Backup on.', kind: 'success' });
             } else {
-                setCloudStatus({
-                    text: 'The grinder did not accept the configuration — try again.',
-                    kind: 'error',
-                });
+                setCloudStatus({ text: 'The grinder refused it — try again.', kind: 'error' });
             }
         } catch (error) {
             console.error('Cloud setup error:', error);
             setCloudStatus({
                 text:
                     error instanceof CloudApiError && error.code === 'device_bound_elsewhere'
-                        ? 'This grinder is registered to another account. Its owner can release it from their account page.'
-                        : `Cloud setup failed: ${error instanceof Error ? error.message : error}`,
+                        ? 'This grinder belongs to another account — its owner has to release it first.'
+                        : `Setup failed: ${error instanceof Error ? error.message : error}`,
                 kind: 'error',
             });
         } finally {
@@ -414,7 +418,7 @@ export function WifiSyncPanel() {
 
     const checkCloud = async () => {
         try {
-            setCloudStatus({ text: 'Connecting to grinder…', kind: 'info' });
+            setCloudStatus({ text: 'Connecting…', kind: 'info' });
             const { statusChar } = await cloudChars();
             const status = await readJsonChar<CloudStatusJson>(statusChar);
             ble.applyPatch({ cloud: status });
@@ -429,19 +433,14 @@ export function WifiSyncPanel() {
                     baseUrl: status.server_url || '',
                     linkedAt: Date.now(),
                 });
-                setCloudStatus({
-                    text: `${describeCloudStatus(status)} · This browser is linked, read-only.`,
-                    kind: 'success',
-                });
+                setCloudStatus({ text: 'This browser is linked, read-only.', kind: 'success' });
                 return;
             }
-            setCloudStatus({
-                text: describeCloudStatus(status),
-                kind: status.last_result === 'success' ? 'success' : 'info',
-            });
+            // The rows above carry the detail; this only says the read landed.
+            setCloudStatus(null);
         } catch (error) {
             setCloudStatus({
-                text: `Could not read cloud sync status: ${error instanceof Error ? error.message : error}`,
+                text: `Couldn’t read the grinder: ${error instanceof Error ? error.message : error}`,
                 kind: 'error',
             });
         } finally {
@@ -456,7 +455,7 @@ export function WifiSyncPanel() {
             ? active.snapshot.cloud.store_id
             : null;
         try {
-            setCloudStatus({ text: 'Connecting to grinder…', kind: 'info' });
+            setCloudStatus({ text: 'Connecting…', kind: 'info' });
             const { configChar } = await cloudChars();
             await configChar.writeValue(new Uint8Array([0x02]) as BufferSource);
             ble.applyPatch({ cloud: { configured: false } as CloudStatusJson });
@@ -469,19 +468,16 @@ export function WifiSyncPanel() {
                           (store) => store.store_id === deviceStoreId,
                       )
                     : false;
-            // The store keeps its grinder, so setting sync up again lands back
+            // The store keeps its grinder, so turning backup on again lands back
             // on this history rather than starting a second store. Handing the
             // grinder on is Release, over on the account page.
-            setCloudStatus({
-                text: 'Sync removed. Uploaded grinds stay in your account.',
-                kind: 'success',
-            });
+            setCloudStatus({ text: 'Backup off.', kind: 'success' });
             // Owning the store is the only case where deleting it is ours to
             // offer, so ask separately rather than bundling it into one prompt.
             if (ownsIt && deviceStoreId) setStoreToDelete(deviceStoreId);
         } catch (error) {
             setCloudStatus({
-                text: `Could not forget cloud sync: ${error instanceof Error ? error.message : error}`,
+                text: `Couldn’t turn it off: ${error instanceof Error ? error.message : error}`,
                 kind: 'error',
             });
         } finally {
@@ -492,23 +488,9 @@ export function WifiSyncPanel() {
     return (
         <div className="max-w-2xl">
             <section>
-                <h2 className="font-medium text-base">WiFi</h2>
-                <p className="mt-1 mb-5 text-muted-foreground text-sm">
-                    A few seconds a day to set the clock, then the radio goes off. Daylight saving
-                    is read from this browser and runs on the grinder itself.
-                </p>
+                <h2 className="mb-4 font-medium text-base">WiFi</h2>
 
-                {knownWifiText && (
-                    <p
-                        className={
-                            knownWifi?.time_synced
-                                ? 'mb-5 text-success text-sm'
-                                : 'mb-5 text-muted-foreground text-sm'
-                        }
-                    >
-                        {knownWifiText}
-                    </p>
-                )}
+                {knownWifi && <WifiRows status={knownWifi} />}
 
                 <div className="space-y-4">
                     <div className="space-y-2">
@@ -552,7 +534,7 @@ export function WifiSyncPanel() {
                         <span className="text-muted-foreground">Timezone </span>
                         {tzError ? (
                             <span className="text-caution">
-                                could not be detected — the clock will run in UTC
+                                not detected — the clock runs in UTC
                             </span>
                         ) : tz ? (
                             <span className="font-mono text-muted-foreground">
@@ -567,10 +549,10 @@ export function WifiSyncPanel() {
                 <div className="mt-5 flex flex-wrap gap-2">
                     <Button disabled={wifiBusy} onClick={configureWifi}>
                         <Wifi />
-                        {wifiBusy ? 'Sending…' : 'Send to grinder'}
+                        {wifiBusy ? 'Saving…' : 'Save'}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={checkWifi}>
-                        Check status
+                        Refresh
                     </Button>
                     <Button
                         variant="ghost"
@@ -588,19 +570,34 @@ export function WifiSyncPanel() {
             </section>
 
             <section className="mt-10 border-t pt-8">
-                <h2 className="font-medium text-base">Cloud backup</h2>
-                <p className="mt-1 mb-5 text-muted-foreground text-sm">
-                    The grinder holds its last hundred or so grinds. Your account holds all of them,
-                    on every browser you sign in to.
-                </p>
+                <h2 className="mb-4 font-medium text-base">Backup</h2>
 
-                <div className="flex flex-wrap gap-2">
-                    <Button disabled={cloudBusy} onClick={setUpCloudBackup}>
+                {knownCloud && <CloudRows status={knownCloud} />}
+
+                <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                        disabled={cloudBusy || !signedIn || needsWifi}
+                        onClick={setUpCloudBackup}
+                    >
                         <Cloud />
-                        {cloudBusy ? 'Setting up…' : 'Set up cloud backup'}
+                        {cloudBusy ? 'Setting up…' : 'Turn on backup'}
                     </Button>
+                    {/* The control carries its own readiness rather than a
+                        paragraph above it listing what backup requires. */}
+                    {!signedIn ? (
+                        <Link
+                            href="/signin"
+                            className="text-muted-foreground text-sm underline-offset-4 hover:text-foreground hover:underline"
+                        >
+                            Sign in first
+                        </Link>
+                    ) : (
+                        needsWifi && (
+                            <span className="text-muted-foreground text-sm">Needs WiFi</span>
+                        )
+                    )}
                     <Button variant="ghost" size="sm" onClick={checkCloud}>
-                        Check status
+                        Refresh
                     </Button>
                     <Button
                         variant="ghost"
@@ -608,7 +605,7 @@ export function WifiSyncPanel() {
                         className="text-muted-foreground hover:text-destructive"
                         onClick={() => setConfirmForgetCloud(true)}
                     >
-                        Forget sync
+                        Turn off
                     </Button>
                 </div>
 
@@ -621,7 +618,7 @@ export function WifiSyncPanel() {
                 open={confirmForgetWifi}
                 onOpenChange={setConfirmForgetWifi}
                 title="Forget this network?"
-                description="The grinder drops the credentials and stops syncing its clock. You can set it up again any time."
+                description="The grinder stops syncing its clock."
                 confirmLabel="Forget network"
                 destructive
                 onConfirm={() => forgetWifi()}
@@ -630,9 +627,9 @@ export function WifiSyncPanel() {
             <ConfirmDialog
                 open={confirmForgetCloud}
                 onOpenChange={setConfirmForgetCloud}
-                title="Stop backing up?"
-                description="The grinder stops uploading. Everything already backed up stays in your account, and setting sync up again returns to the same history."
-                confirmLabel="Forget sync"
+                title="Turn off backup?"
+                description="The grinder stops uploading. Grinds already backed up are kept."
+                confirmLabel="Turn off"
                 destructive
                 onConfirm={() => forgetCloud()}
             />
@@ -641,8 +638,8 @@ export function WifiSyncPanel() {
                 open={storeToDelete !== null}
                 onOpenChange={(open) => !open && setStoreToDelete(null)}
                 title="Also delete the backup?"
-                description="Permanently removes every grind it holds, for every browser and share link. This cannot be undone."
-                confirmLabel="Delete store"
+                description="Permanently deletes every grind in it. This cannot be undone."
+                confirmLabel="Delete backup"
                 cancelLabel="Keep it"
                 destructive
                 onConfirm={() => {

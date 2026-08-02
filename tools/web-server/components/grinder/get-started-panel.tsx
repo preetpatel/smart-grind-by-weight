@@ -60,8 +60,7 @@ export function GetStartedPanel({ onGoToWifi }: { onGoToWifi?: () => void }) {
                 <esp-web-install-button manifest={manifest}>
                     <Button slot="activate">Flash over USB</Button>
                     <span slot="unsupported" className="text-destructive text-sm">
-                        This browser can&apos;t install over USB — Web Serial needs Chrome or Edge
-                        on desktop.
+                        Installing over USB needs Chrome or Edge on desktop.
                     </span>
                     <span slot="not-allowed" className="text-destructive text-sm">
                         Installing only works over HTTPS or on localhost.
@@ -70,8 +69,7 @@ export function GetStartedPanel({ onGoToWifi }: { onGoToWifi?: () => void }) {
             </div>
 
             <p className="mt-3 text-muted-foreground text-xs">
-                Connect the board over USB-C and pick its serial port when prompted. This only has
-                to happen once — every update after that goes over Bluetooth.
+                Connect the board over USB-C and pick its serial port when prompted.
             </p>
 
             <p className="mt-8 border-t pt-6 text-sm">
@@ -81,7 +79,7 @@ export function GetStartedPanel({ onGoToWifi }: { onGoToWifi?: () => void }) {
                         onClick={onGoToWifi}
                         className="inline-flex items-center gap-1.5 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                     >
-                        Flashed successfully? Set up WiFi so the clock stays synced
+                        Set up WiFi &amp; Backup
                         <ArrowRight className="size-3.5" />
                     </button>
                 ) : (
@@ -89,7 +87,7 @@ export function GetStartedPanel({ onGoToWifi }: { onGoToWifi?: () => void }) {
                         href="/grinder/wifi"
                         className="inline-flex items-center gap-1.5 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
                     >
-                        Flashed successfully? Set up WiFi so the clock stays synced
+                        Set up WiFi &amp; Backup
                         <ArrowRight className="size-3.5" />
                     </Link>
                 )}

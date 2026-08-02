@@ -325,7 +325,7 @@ export async function pullFromCloud(
         onProgress({
             index: i,
             total: missing.length,
-            message: `Downloading session #${entry.session_id} (${i + 1}/${missing.length}) from the cloud...`,
+            message: `Downloading grind ${i + 1} of ${missing.length}…`,
         });
         try {
             const response = await apiFetch(source, `/${source.storeId}/sessions/${entry.sha256}`);
@@ -382,7 +382,7 @@ export async function pushToCloud(
         onProgress({
             index: i,
             total: candidates.length,
-            message: `Backing up session #${record.session_id} (${i + 1}/${candidates.length}) to the cloud...`,
+            message: `Backing up grind ${i + 1} of ${candidates.length}…`,
         });
         try {
             const headers: Record<string, string> = {

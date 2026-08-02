@@ -30,19 +30,12 @@ function FirstRun({ supported }: { supported: boolean }) {
 
     return (
         <>
-            <PageHeader
-                title="Set up your grinder"
-                description="A scale that grinds to a target weight, and a browser that can talk to it directly — no app, no account needed."
-            />
+            <PageHeader title="Set up your grinder" />
             <UnsupportedBrowser />
 
             <div className="max-w-2xl space-y-8">
                 <section className="space-y-3">
                     <h2 className="font-medium text-base">Already flashed?</h2>
-                    <p className="text-muted-foreground text-sm">
-                        Pair over Bluetooth to see its firmware, network and grind history here.
-                        Pairing is remembered in this browser.
-                    </p>
                     <Button
                         disabled={!supported || busy}
                         onClick={async () => {
@@ -65,10 +58,6 @@ function FirstRun({ supported }: { supported: boolean }) {
 
                 <section className="space-y-3 border-t pt-8">
                     <h2 className="font-medium text-base">Brand new board?</h2>
-                    <p className="text-muted-foreground text-sm">
-                        Install the firmware over a USB cable first. It only has to happen once —
-                        every update after that is wireless.
-                    </p>
                     <Button
                         variant="outline"
                         nativeButton={false}
@@ -114,9 +103,7 @@ export default function HomePage() {
             <PageHeader
                 title={active.label}
                 description={
-                    connected
-                        ? 'Connected now.'
-                        : `Not connected — showing the last reading, ${relativeLabel(snapshot?.fetchedAt)}.`
+                    connected ? 'Connected' : `Last read ${relativeLabel(snapshot?.fetchedAt)}`
                 }
                 actions={
                     updateAvailable && (
@@ -139,7 +126,7 @@ export default function HomePage() {
                             ? `v${latestVersion} available`
                             : version
                               ? 'up to date'
-                              : 'connect to read it'
+                              : undefined
                     }
                     hintTone={updateAvailable ? 'caution' : 'muted'}
                 />
@@ -159,13 +146,13 @@ export default function HomePage() {
                         wifi?.configured
                             ? wifi.time_synced
                                 ? 'clock synced'
-                                : 'clock not synced yet'
-                            : 'the clock drifts without it'
+                                : 'clock not synced'
+                            : undefined
                     }
                     hintTone={wifi?.configured && !wifi.time_synced ? 'caution' : 'muted'}
                 />
                 <StatRow
-                    label="Cloud backup"
+                    label="Backup"
                     href="/grinder/wifi"
                     value={
                         <StatValue>
@@ -178,14 +165,8 @@ export default function HomePage() {
                                     : 'On'}
                         </StatValue>
                     }
-                    hint={
-                        cloud?.configured
-                            ? cloud.unsynced
-                                ? 'grinds waiting to upload'
-                                : 'every grind is backed up'
-                            : 'grinds live only on the device'
-                    }
-                    hintTone={cloud?.configured && cloud.unsynced ? 'caution' : 'muted'}
+                    hint={cloud?.configured && cloud.unsynced ? 'waiting to upload' : undefined}
+                    hintTone="caution"
                 />
                 <StatRow
                     label="Grinds on device"
@@ -195,8 +176,8 @@ export default function HomePage() {
                             {sessions === undefined ? '—' : String(sessions)}
                         </StatValue>
                     }
-                    hint={loggingOff ? 'logging is off — grinds are not recorded' : 'ready to pull'}
-                    hintTone={loggingOff ? 'caution' : 'muted'}
+                    hint={loggingOff ? 'logging off — not recording' : undefined}
+                    hintTone="caution"
                 />
             </div>
 
@@ -205,7 +186,7 @@ export default function HomePage() {
                     href="/analytics"
                     className="inline-flex items-center gap-1.5 underline-offset-4 hover:underline"
                 >
-                    Open the analytics dashboard
+                    Open analytics
                     <ArrowRight className="size-3.5" />
                 </Link>
             </p>

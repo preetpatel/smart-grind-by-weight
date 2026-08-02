@@ -7,10 +7,7 @@ import { UnsupportedBrowser } from '@/components/unsupported-browser';
 export default function DiagnosticsPage() {
     return (
         <>
-            <PageHeader
-                title="Diagnostics"
-                description="Live health report straight off the device — calibration, load-cell noise, task timing and the last OTA outcome."
-            />
+            <PageHeader title="Diagnostics" />
             <UnsupportedBrowser />
             <DiagnosticsPanel />
         </>

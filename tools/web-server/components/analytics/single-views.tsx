@@ -201,18 +201,16 @@ export function PredictiveTab({
     );
 
     if (result.kind === 'not-weight') {
-        return (
-            <InfoBox text="Predictive analysis is only available for grind-by-weight sessions." />
-        );
+        return <InfoBox text="Weight-mode grinds only." />;
     }
     if (result.kind === 'no-events') {
-        return <InfoBox text="No predictive phase data found for this session." />;
+        return <InfoBox text="No predictive phase in this grind." />;
     }
     if (result.kind === 'no-measurements') {
         return (
             <>
                 <PredictiveMetricGrid metrics={result.metrics} />
-                <InfoBox text="No measurement data recorded for the predictive phase." />
+                <InfoBox text="No measurements in the predictive phase." />
             </>
         );
     }
@@ -405,7 +403,7 @@ export function PulseTab({
     );
 
     if (result.kind === 'not-weight') {
-        return <InfoBox text="Pulse analysis is only available for grind-by-weight sessions." />;
+        return <InfoBox text="Weight-mode grinds only." />;
     }
     if (result.kind === 'no-pulses') {
         return <InfoBox text="No pulse phase data found for this session." />;

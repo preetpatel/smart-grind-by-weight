@@ -277,7 +277,7 @@ export function TrendsView({
             )}
 
             {figures === null ? (
-                <InfoBox>Trends need at least two logged weight-mode sessions.</InfoBox>
+                <InfoBox>Needs at least two weight-mode grinds.</InfoBox>
             ) : (
                 <>
                     <h4>{`Drift across ${rows.length} logged sessions`}</h4>
@@ -454,7 +454,7 @@ export function CompareView({
     );
 
     if (!records.length) {
-        return <InfoBox>No sessions stored yet.</InfoBox>;
+        return <InfoBox>No grinds yet.</InfoBox>;
     }
 
     const atCap = selectedIds.size >= COMPARE_MAX_SESSIONS;
@@ -491,7 +491,7 @@ export function CompareView({
             {figure ? (
                 <PlotlyChart figure={figure} />
             ) : (
-                <InfoBox>Select sessions below to overlay their grind curves.</InfoBox>
+                <InfoBox>Select grinds below to overlay them.</InfoBox>
             )}
 
             {/* Selection table, newest first. */}

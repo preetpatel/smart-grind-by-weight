@@ -20,9 +20,8 @@ export function UnsupportedBrowser() {
             <TriangleAlert />
             <AlertTitle>This browser can&apos;t reach the grinder</AlertTitle>
             <AlertDescription>
-                Connecting needs Web Bluetooth — available in Chrome and Edge on desktop and
-                Android. Firefox and every iOS browser are out. You can still read a shared
-                dashboard link here.
+                Web Bluetooth needs Chrome or Edge, on desktop or Android. Share links still work
+                here.
             </AlertDescription>
         </Alert>
     );

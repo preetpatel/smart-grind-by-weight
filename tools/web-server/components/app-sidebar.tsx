@@ -54,19 +54,19 @@ import { useGrinder } from '@/lib/client/use-grinder';
 
 const GRINDER_NAV = [
     { href: '/', label: 'Home', icon: House },
-    { href: '/grinder/get-started', label: 'Get Started', icon: Usb },
+    { href: '/grinder/get-started', label: 'Install', icon: Usb },
     { href: '/grinder/update', label: 'Update', icon: Zap },
-    { href: '/grinder/wifi', label: 'WiFi & Sync', icon: Wifi },
+    { href: '/grinder/wifi', label: 'WiFi & Backup', icon: Wifi },
     { href: '/grinder/diagnostics', label: 'Diagnostics', icon: Stethoscope },
 ] as const;
 
 const ANALYTICS_NAV = [
     { href: '/analytics', label: 'Overview', icon: Activity },
-    { href: '/analytics/sessions', label: 'Sessions', icon: ListFilter },
+    { href: '/analytics/sessions', label: 'Grinds', icon: ListFilter },
     { href: '/analytics/compare', label: 'Compare', icon: GitCompare },
-    { href: '/analytics/multi', label: 'Multi-Session', icon: Layers },
+    { href: '/analytics/multi', label: 'Aggregate', icon: Layers },
     { href: '/analytics/trends', label: 'Trends', icon: TrendingUp },
-    { href: '/analytics/health', label: 'Device Health', icon: Stethoscope },
+    { href: '/analytics/health', label: 'Health', icon: Stethoscope },
 ] as const;
 
 function ConnectionDot({ connected }: { connected: boolean }) {
@@ -138,9 +138,6 @@ function GrinderSwitcher() {
                 <ConnectionDot connected={false} />
                 <span className="grid flex-1 text-left leading-tight">
                     <span className="truncate font-medium">Connect a grinder</span>
-                    <span className="truncate text-muted-foreground text-xs">
-                        pair once to see it here
-                    </span>
                 </span>
             </SidebarMenuButton>
         );
@@ -191,15 +188,15 @@ function GrinderSwitcher() {
                         onClick={() => run(() => ble.refreshSnapshot({ interactive: true }))}
                     >
                         <RefreshCw />
-                        Refresh status
+                        Refresh
                     </DropdownMenuItem>
                     <DropdownMenuItem disabled={busy} onClick={() => run(() => ble.addGrinder())}>
                         <Plus />
-                        Add another grinder
+                        Add grinder
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem variant="destructive" onClick={() => setConfirmForget(true)}>
-                        Forget this grinder
+                        Forget
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
@@ -208,7 +205,7 @@ function GrinderSwitcher() {
                 open={confirmForget}
                 onOpenChange={setConfirmForget}
                 title={`Forget ${active.label}?`}
-                description="Removes it from this browser only. The grinder itself keeps its settings and stored grinds."
+                description="Removes it from this browser only — the grinder keeps everything."
                 confirmLabel="Forget"
                 destructive
                 onConfirm={() => ble.forget(active.id)}
@@ -333,7 +330,7 @@ export function AppSidebar() {
                         variant="outline"
                         className="justify-start border-caution/40 text-caution group-data-[collapsible=icon]:hidden"
                     >
-                        Grind logging is off
+                        Logging off
                     </Badge>
                 )}
                 <SidebarMenu>

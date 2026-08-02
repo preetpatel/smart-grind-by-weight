@@ -65,10 +65,9 @@ export default function SessionPage() {
     if (!record) {
         return (
             <>
-                <PageHeader title="Session not found" />
+                <PageHeader title="Grind not found" />
                 <EmptyState
                     title="This grind isn't in this browser"
-                    description="It may have been cleared, or the link came from a different store. Pull again or sync from the cloud."
                     action={
                         <Button
                             variant="outline"
@@ -76,7 +75,7 @@ export default function SessionPage() {
                             render={<Link href="/analytics/sessions" />}
                         >
                             <ArrowLeft />
-                            All sessions
+                            All grinds
                         </Button>
                     }
                 />
@@ -89,7 +88,7 @@ export default function SessionPage() {
     return (
         <>
             <PageHeader
-                title={`Session #${record.session.session_id}`}
+                title={`Grind #${record.session.session_id}`}
                 description={sessionStartLabel(record.session)}
                 actions={
                     <>
@@ -109,7 +108,7 @@ export default function SessionPage() {
                             render={<Link href="/analytics/sessions" />}
                         >
                             <ArrowLeft />
-                            All sessions
+                            All grinds
                         </Button>
                     </>
                 }
@@ -189,8 +188,8 @@ export default function SessionPage() {
                 title={`Delete grind #${record.session.session_id}?`}
                 description={
                     source?.owned
-                        ? 'Removed from this browser and from your cloud store for good — the grinder will not be able to upload it again. Its own copy on the device is untouched.'
-                        : 'Removed from this browser. The grinder keeps its own copy, so pulling again will bring it back.'
+                        ? 'Deleted here and from your backup for good. The grinder keeps its own copy.'
+                        : 'Removed from this browser. Pulling again brings it back.'
                 }
                 confirmLabel="Delete grind"
                 destructive

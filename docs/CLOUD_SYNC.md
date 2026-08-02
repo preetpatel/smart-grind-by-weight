@@ -47,7 +47,7 @@ agreed design; each decision was made deliberately — change them knowingly.
 - **Health snapshots ride along.** After each successful sync the device POSTs the same
   compact snapshot it serves over BLE (lifetime stats, diagnostics state, firmware
   version, OTA outcome; < 1 KB). Keyed `(device_id, received_at)`, kept as timestamped
-  observations — this turns Device Health into a *history* (noise creep, calibration
+  observations — this turns the Health view into a *history* (noise creep, calibration
   drift, error-rate vs firmware version), which BLE-only "now" reads can never show. Also
   feeds the burr odometer (lifetime stats predate the server and survive purges) and an
   update-available nudge.
@@ -155,7 +155,7 @@ agreed design; each decision was made deliberately — change them knowingly.
   same-origin: Better Auth checks origins on its own endpoints; custom session
   mutations go through `assertSameOrigin` on top of SameSite=Lax cookies.
 - **Lifecycle.** Store delete (cascade: blobs, summaries, snapshots, store), grinder
-  release and `view_key` rotation are owner-session actions (Account page, WiFi & Sync,
+  release and `view_key` rotation are owner-session actions (Account page, WiFi & Backup,
   and Revoke shared links in the analytics cloud bar). After a
   view-key rotation, re-provision the device so future BLE claims hand out the fresh
   key. `upload_key` leak recovery = just provision again (rotation is the mechanism).
@@ -177,7 +177,7 @@ agreed design; each decision was made deliberately — change them knowingly.
   passkeys, the account's stores (each showing its grinder, or an *Archive* badge when
   unbound — rename / share link / release / delete) and account deletion (typed
   confirmation, cascades stores).
-- **Web app:** the WiFi page is **WiFi & Sync** — one flow provisions both (the coupling is
+- **Web app:** the WiFi page is **WiFi & Backup** — one flow provisions both (the coupling is
   real: sync needs WiFi). Requires sign-in. It reads the grinder *live* over BLE first —
   never the cached snapshot, which is how a browser with cold `localStorage` used to mint
   a duplicate store — then lets the server pick the store from the device id and writes
@@ -213,7 +213,7 @@ agreed design; each decision was made deliberately — change them knowingly.
   `src/bluetooth/manager.*`, settings page in `src/ui/screens/menu_screen.*` +
   `src/ui/controllers/menu_controller.*`, limits in `src/config/cloud_sync.h`.
 - **Web:** all in `tools/web-server` — `lib/client/cloud.ts` (API client, share
-  links, cloud pull/backfill), `components/grinder/wifi-sync-panel.tsx` (WiFi & Sync
+  links, cloud pull/backfill), `components/grinder/wifi-sync-panel.tsx` (WiFi & Backup
   provisioning flow), `lib/analytics/store.ts` (IndexedDB v2 keyed by sha256, raw
   bytes retained), `lib/client/ble.ts` + `components/device-strip.tsx` (cloud status
   in the snapshot + device-strip chip), `app/analytics/page.tsx` +
@@ -226,6 +226,6 @@ agreed design; each decision was made deliberately — change them knowingly.
    ingest path the ESP will use — the API earns production traffic before any firmware
    ships).
 2. **Phase 2 — firmware.** Provisioning characteristic + NVS, WifiService consumer,
-   manifest sync + snapshot POST, settings page, WiFi & Sync flasher flow.
+   manifest sync + snapshot POST, settings page, WiFi & Backup flasher flow.
 3. **Phase 3 — polish.** Python tool pulls from export endpoint, rotation UI niceties,
    device-strip chip refinements.

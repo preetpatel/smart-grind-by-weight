@@ -73,7 +73,7 @@ cd tools/web-server
 BETTER_AUTH_SECRET=$(openssl rand -hex 32) docker compose up -d
 ```
 
-Point the app's WiFi & Sync provisioning at `http://<host>:3000`. The
+Point the app's WiFi & Backup provisioning at `http://<host>:3000`. The
 compose file disables the per-store session quota (`SYNC_SESSION_QUOTA=0`).
 Put a reverse proxy (Caddy, Tailscale, nginx) in front for TLS if the server
 is reachable beyond your LAN — passkeys and Web Bluetooth both need a secure

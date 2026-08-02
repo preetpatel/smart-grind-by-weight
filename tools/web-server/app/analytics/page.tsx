@@ -2,7 +2,7 @@
 
 // Analytics overview: the last grind, how the machine has been doing overall,
 // and a way into the detail. Everything else lives in its own section now.
-import { Activity, ArrowRight } from 'lucide-react';
+import { Activity, ArrowRight, Plug } from 'lucide-react';
 import Link from 'next/link';
 import { useAnalytics } from '@/components/analytics/analytics-provider';
 import { Hero } from '@/components/analytics/hero';
@@ -12,7 +12,8 @@ import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 
 export default function AnalyticsOverviewPage() {
-    const { records, loaded, deviceSessions, loggingOff, lastPull } = useAnalytics();
+    const { records, loaded, deviceSessions, loggingOff, lastPull, busy, pullData } =
+        useAnalytics();
 
     if (!loaded) return null;
 
@@ -22,11 +23,15 @@ export default function AnalyticsOverviewPage() {
                 <PageHeader title="Analytics" />
                 <EmptyState
                     icon={Activity}
-                    title="No grind data in this browser yet"
+                    title="No grinds here yet"
                     description={
-                        deviceSessions
-                            ? `Your grinder is holding ${deviceSessions} sessions. Pull them over Bluetooth to see how it has been performing.`
-                            : 'Pull data from the grinder over Bluetooth, sync from a cloud store, or import a JSON export.'
+                        deviceSessions ? `${deviceSessions} waiting on the grinder.` : null
+                    }
+                    action={
+                        <Button disabled={busy} onClick={() => pullData()}>
+                            <Plug />
+                            Pull grinds
+                        </Button>
                     }
                 />
             </>
@@ -42,8 +47,8 @@ export default function AnalyticsOverviewPage() {
                 title="Analytics"
                 description={
                     <>
-                        {records.length} sessions · {totalEvents.toLocaleString()} events ·{' '}
-                        {totalMeasurements.toLocaleString()} measurements in this browser
+                        {records.length} grinds · {totalEvents.toLocaleString()} events ·{' '}
+                        {totalMeasurements.toLocaleString()} measurements
                         {lastPull ? ` · last pull ${new Date(lastPull).toLocaleString()}` : ''}
                     </>
                 }
@@ -51,8 +56,8 @@ export default function AnalyticsOverviewPage() {
 
             {loggingOff && (
                 <p className="mb-5 text-caution text-sm">
-                    Grind logging is off on the device — new grinds are not being recorded. Turn it
-                    back on under Menu → Logs &amp; Data on the grinder.
+                    Logging is off — new grinds aren&apos;t recorded. Grinder → Menu → Logs &amp;
+                    Data.
                 </p>
             )}
 
@@ -67,7 +72,7 @@ export default function AnalyticsOverviewPage() {
                         nativeButton={false}
                         render={<Link href="/analytics/sessions" />}
                     >
-                        All {records.length} sessions
+                        All {records.length} grinds
                         <ArrowRight />
                     </Button>
                 </div>

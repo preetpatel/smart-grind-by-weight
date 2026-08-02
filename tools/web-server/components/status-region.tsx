@@ -5,6 +5,7 @@
 // minutes and the user needs somewhere stable to watch. Toasts are reserved
 // for short acknowledgements.
 import { CircleAlert, CircleCheck, Info, TriangleAlert } from 'lucide-react';
+import type { ReactNode } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
 
@@ -25,9 +26,13 @@ const PRESENTATION = {
 export function StatusRegion({
     status,
     progress,
+    action,
 }: {
     status: StatusMessage | null;
     progress?: number | null;
+    // A follow-up the outcome requires, as a control rather than a sentence
+    // telling the reader which page to go and find.
+    action?: ReactNode;
 }) {
     if (!status?.text && progress == null) return null;
     const { variant, Icon } = PRESENTATION[status?.kind ?? 'info'];
@@ -38,6 +43,9 @@ export function StatusRegion({
                 <Alert variant={variant}>
                     <Icon />
                     <AlertDescription className="text-current">{status.text}</AlertDescription>
+                    {action && (
+                        <div className="mt-1.5 group-has-[>svg]/alert:col-start-2">{action}</div>
+                    )}
                 </Alert>
             )}
             {progress != null && (

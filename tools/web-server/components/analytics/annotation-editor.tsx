@@ -56,11 +56,7 @@ export function AnnotationEditor({
 
     return (
         <section className="mt-10 border-t pt-6">
-            <h2 className="font-medium text-base">Notes</h2>
-            <p className="mt-1 mb-4 text-muted-foreground text-sm">
-                Kept in this browser, and in your cloud store when you have one. The grind setting
-                shows up as a marker on the trend charts.
-            </p>
+            <h2 className="mb-4 font-medium text-base">Notes</h2>
 
             <div className="grid max-w-3xl gap-4 sm:grid-cols-3">
                 <div className="grid gap-2">

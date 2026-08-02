@@ -136,7 +136,7 @@ Prefer working locally? The same pull and dashboard are available via the Stream
 python3 tools/grinder.py analyze
 ```
 
-Track accuracy, flow rates, grind times, and optimize your coffee workflow with detailed session analytics. The dashboard's **Device Health** view shows the firmware, memory, task performance, and diagnostics snapshot captured during the pull.
+Track accuracy, flow rates, grind times, and optimize your coffee workflow with detailed session analytics. The dashboard's **Health** view shows the firmware, memory, task performance, and diagnostics snapshot captured during the pull.
 
 ---
 
