@@ -186,6 +186,17 @@ export async function deleteStore(storeId: string): Promise<void> {
     await ownerFetch(`/api/stores/${storeId}`, { method: 'DELETE' });
 }
 
+// Leak recovery for a shared dashboard link: mints a fresh view key, which
+// kills every existing share link. The grinder holds the old key too, so it
+// must be re-provisioned before its BLE claim works again.
+export async function rotateViewKey(storeId: string): Promise<string> {
+    const response = await ownerFetch(`/api/stores/${storeId}/rotate-view-key`, {
+        method: 'POST',
+    });
+    const { view_key } = (await response.json()) as { view_key: string };
+    return view_key;
+}
+
 // ---- store metadata -------------------------------------------------------
 
 export interface StoreMeta {

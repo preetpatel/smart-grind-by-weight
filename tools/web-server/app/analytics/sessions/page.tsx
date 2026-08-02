@@ -1,15 +1,13 @@
 'use client';
 
 import { ListFilter } from 'lucide-react';
-import { useRouter } from 'next/navigation';
 import { useAnalytics } from '@/components/analytics/analytics-provider';
-import { SessionsTable } from '@/components/analytics/sessions-table';
+import { SessionsDataTable } from '@/components/analytics/sessions-data-table';
 import { EmptyState } from '@/components/empty-state';
 import { PageHeader } from '@/components/page-header';
 
 export default function SessionsPage() {
     const { records, loaded } = useAnalytics();
-    const router = useRouter();
 
     if (!loaded) return null;
 
@@ -17,14 +15,10 @@ export default function SessionsPage() {
         <>
             <PageHeader
                 title="Sessions"
-                description="Every grind this browser knows about. Open one to see its full analysis."
+                description="Every grind this browser knows about. Open one for its full analysis, or select a few and send them to Compare."
             />
             {records.length ? (
-                <SessionsTable
-                    records={records}
-                    selectedSha={null}
-                    onSelect={(sha) => sha && router.push(`/analytics/session/${sha}`)}
-                />
+                <SessionsDataTable records={records} />
             ) : (
                 <EmptyState
                     icon={ListFilter}

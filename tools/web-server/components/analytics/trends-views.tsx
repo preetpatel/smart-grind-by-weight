@@ -355,17 +355,30 @@ function buildCompareFigure(selectedRecords: StoredRecord[], showFlow: boolean):
     return { traces, layout, config: CHART_CONFIG };
 }
 
-export function CompareView({ records }: { records: StoredRecord[] }) {
+export function CompareView({
+    records,
+    initialSessionIds,
+}: {
+    records: StoredRecord[];
+    initialSessionIds?: number[];
+}) {
     const [initialized, setInitialized] = useState(false);
     const [selected, setSelected] = useState<ReadonlySet<number>>(() => new Set<number>());
     const [showFlow, setShowFlow] = useState(false);
 
-    // First visit with data present: preselect the two newest sessions so the
-    // chart isn't empty. (Render-time state adjustment, mirroring the
-    // original's one-shot `initialized` flag.)
+    // First visit with data present: honour a selection handed over from the
+    // sessions table, otherwise preselect the two newest so the chart isn't
+    // empty. (Render-time state adjustment, mirroring the original's one-shot
+    // `initialized` flag.)
     if (records.length > 0 && !initialized) {
         setInitialized(true);
-        setSelected(new Set(records.slice(-2).map((record) => record.session_id)));
+        setSelected(
+            new Set(
+                initialSessionIds?.length
+                    ? initialSessionIds.slice(0, COMPARE_MAX_SESSIONS)
+                    : records.slice(-2).map((record) => record.session_id),
+            ),
+        );
     }
 
     // Drop selections that no longer exist (cleared/re-pulled data).
