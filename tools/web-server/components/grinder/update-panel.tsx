@@ -1,8 +1,14 @@
 'use client';
 
-// Wireless firmware update over BLE (React port of the flasher's OTA flow).
+// Wireless firmware update over BLE. The flash takes minutes and can fail
+// halfway, so progress and status stay in a fixed region on the page rather
+// than a toast, and the destructive-ish action is a single unmistakable button.
+import { Zap } from 'lucide-react';
 import { useState } from 'react';
-import { ProgressBar, StatusBox, type StatusMessage } from '@/components/ui';
+import { type StatusMessage, StatusRegion } from '@/components/status-region';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Label } from '@/components/ui/label';
 import { connectAndFlash } from '@/lib/client/ota';
 import { compareVersions, latestStable } from '@/lib/client/releases';
 import { useGrinder } from '@/lib/client/use-grinder';
@@ -28,11 +34,11 @@ export function UpdatePanel() {
 
     const flash = async () => {
         if (!selected?.ota) {
-            setStatus({ text: 'Please select a firmware version', kind: 'error' });
+            setStatus({ text: 'Pick a firmware version first.', kind: 'error' });
             return;
         }
         if (!supported) {
-            setStatus({ text: 'Web Bluetooth not supported in this browser', kind: 'error' });
+            setStatus({ text: 'Web Bluetooth is not supported in this browser.', kind: 'error' });
             return;
         }
         setBusy(true);
@@ -53,46 +59,67 @@ export function UpdatePanel() {
     };
 
     return (
-        <div className="form-stack">
-            <h2>Update firmware</h2>
-            <p className="lede-line">
-                Wireless, over Bluetooth. First-time installs use Get Started instead.
-            </p>
-
+        <div className="max-w-2xl">
             {deviceVersion && latest && (
-                <div className={`status ${updateAvailable ? 'warning' : 'success'}`}>
-                    {updateAvailable
-                        ? `Update available: v${latest.version} — your grinder runs v${deviceVersion}.`
-                        : `Your grinder is on the latest firmware (v${deviceVersion}).`}
-                </div>
+                <p className="mb-6 text-sm">
+                    {updateAvailable ? (
+                        <>
+                            <span className="text-caution">v{latest.version} is available.</span>{' '}
+                            <span className="text-muted-foreground">
+                                Your grinder runs{' '}
+                                <span className="font-mono">v{deviceVersion}</span>.
+                            </span>
+                        </>
+                    ) : (
+                        <span className="text-muted-foreground">
+                            Up to date on <span className="font-mono">v{deviceVersion}</span>.
+                        </span>
+                    )}
+                </p>
             )}
-            {error && <div className="status error">Failed to load the firmware list: {error}</div>}
 
-            <div className="form-group">
-                <label htmlFor="firmwareSelect">Firmware version</label>
+            {error && (
+                <p className="mb-6 text-destructive text-sm">
+                    Couldn&apos;t load the firmware list: {error}
+                </p>
+            )}
+
+            <div className="space-y-2">
+                <Label htmlFor="ota-firmware">Firmware version</Label>
                 <FirmwareSelect
+                    id="ota-firmware"
                     entries={entries}
                     kind="ota"
                     showPrereleases={showRc}
                     selectedTag={tag}
                     onSelect={setTag}
                 />
-                <label className="check-line">
-                    <input
-                        type="checkbox"
+                <div className="flex items-center gap-2 pt-1">
+                    <Checkbox
+                        id="ota-show-rc"
                         checked={showRc}
-                        onChange={(e) => setShowRc(e.target.checked)}
+                        onCheckedChange={(checked) => setShowRc(checked === true)}
                     />
-                    Show release candidates (RC, beta, alpha)
-                </label>
+                    <Label htmlFor="ota-show-rc" className="font-normal text-muted-foreground">
+                        Show release candidates
+                    </Label>
+                </div>
             </div>
 
-            <button type="button" className="btn" disabled={busy} onClick={flash}>
-                Connect &amp; Flash Firmware
-            </button>
+            <Button className="mt-6" disabled={busy} onClick={flash}>
+                <Zap />
+                {busy ? 'Flashing…' : 'Connect & flash'}
+            </Button>
 
-            <StatusBox status={status} />
-            <ProgressBar percent={progress} />
+            <p className="mt-3 text-muted-foreground text-xs">
+                Keep the grinder powered and this tab open until it reboots. If the link drops
+                mid-transfer the upload restarts itself, and a failed update rolls back to the
+                previous firmware.
+            </p>
+
+            <div className="mt-6">
+                <StatusRegion status={status} progress={progress} />
+            </div>
         </div>
     );
 }

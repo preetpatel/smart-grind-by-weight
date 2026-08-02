@@ -1,7 +1,14 @@
 'use client';
 
-// Release dropdown shared by the USB install and OTA update panels.
+// Release picker shared by the USB install and OTA update panels.
 import { useEffect, useState } from 'react';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { type FirmwareEntry, fetchReleases } from '@/lib/client/releases';
 
 export function useReleases(): { entries: FirmwareEntry[]; error: string | null } {
@@ -16,12 +23,14 @@ export function useReleases(): { entries: FirmwareEntry[]; error: string | null 
 }
 
 export function FirmwareSelect({
+    id,
     entries,
     kind,
     showPrereleases,
     selectedTag,
     onSelect,
 }: {
+    id?: string;
     entries: FirmwareEntry[];
     kind: 'manifest' | 'ota';
     showPrereleases: boolean;
@@ -39,19 +48,30 @@ export function FirmwareSelect({
 
     if (!visible.length) {
         return (
-            <select disabled>
-                <option>{entries.length ? 'No firmware available' : 'Loading releases…'}</option>
-            </select>
+            <Select disabled value="">
+                <SelectTrigger id={id} className="w-full max-w-sm">
+                    <span className="text-muted-foreground">
+                        {entries.length ? 'No firmware available' : 'Loading releases…'}
+                    </span>
+                </SelectTrigger>
+                <SelectContent />
+            </Select>
         );
     }
+
     return (
-        <select value={selected} onChange={(e) => onSelect(e.target.value)}>
-            {visible.map((entry) => (
-                <option key={entry.tag} value={entry.tag}>
-                    {entry.prerelease ? `${entry.display} (pre-release)` : entry.display}
-                </option>
-            ))}
-        </select>
+        <Select value={selected} onValueChange={(value) => onSelect(value ?? '')}>
+            <SelectTrigger id={id} className="w-full max-w-sm font-mono">
+                <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+                {visible.map((entry) => (
+                    <SelectItem key={entry.tag} value={entry.tag} className="font-mono">
+                        {entry.prerelease ? `${entry.display} (pre-release)` : entry.display}
+                    </SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
     );
 }
 

@@ -3,8 +3,10 @@
 // Diagnostic report capture over BLE (React port of the flasher's
 // diagnostics flow): triggers report generation, streams it from the debug
 // characteristic, and offers copy/download.
+import { Copy, Download, Stethoscope } from 'lucide-react';
 import { useState } from 'react';
-import { StatusBox, type StatusMessage } from '@/components/ui';
+import { type StatusMessage, StatusRegion } from '@/components/status-region';
+import { Button } from '@/components/ui/button';
 import * as ble from '@/lib/client/ble';
 
 const END_MARKER = '=== END OF REPORT ===';
@@ -66,7 +68,7 @@ export function DiagnosticsPanel() {
             const fullReport = chunks.join('');
             if (complete) {
                 setReport(fullReport);
-                setStatus({ text: '✓ Diagnostic report generated successfully!', kind: 'success' });
+                setStatus({ text: 'Report received.', kind: 'success' });
             } else {
                 setStatus({
                     text: 'Report generation timed out. Partial report received.',
@@ -99,9 +101,11 @@ export function DiagnosticsPanel() {
         if (!report) return;
         try {
             await navigator.clipboard.writeText(report);
-            setStatus({ text: '✓ Report copied to clipboard!', kind: 'success' });
+            const { toast } = await import('sonner');
+            toast.success('Report copied to clipboard');
         } catch {
-            setStatus({ text: 'Failed to copy report.', kind: 'error' });
+            const { toast } = await import('sonner');
+            toast.error('Could not copy the report');
         }
     };
 
@@ -117,43 +121,39 @@ export function DiagnosticsPanel() {
         a.click();
         a.remove();
         URL.revokeObjectURL(url);
-        setStatus({ text: '✓ Report downloaded!', kind: 'success' });
     };
 
     return (
-        <>
-            <div className="form-stack">
-                <h2>Diagnostic report</h2>
-                <p className="lede-line">
-                    Pulls the device&apos;s full self-test report — attach it to GitHub issues when
-                    something misbehaves.
-                </p>
+        <div>
+            <Button disabled={busy} onClick={getReport}>
+                <Stethoscope />
+                {busy ? 'Reading…' : 'Connect & get diagnostics'}
+            </Button>
 
-                <button
-                    type="button"
-                    className="btn btn-accent"
-                    disabled={busy}
-                    onClick={getReport}
-                >
-                    Connect &amp; Get Diagnostics
-                </button>
-                <StatusBox status={status} />
+            <div className="mt-6 max-w-2xl">
+                <StatusRegion status={status} />
             </div>
 
             {report !== null && (
-                <div>
-                    <h4>Report</h4>
-                    <textarea id="diagnosticsReport" readOnly value={report} />
-                    <div className="btn-row">
-                        <button type="button" className="btn-ghost" onClick={copyReport}>
-                            Copy to Clipboard
-                        </button>
-                        <button type="button" className="btn-ghost" onClick={downloadReport}>
-                            Download Report
-                        </button>
+                <div className="mt-2">
+                    <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <h2 className="font-medium text-base">Report</h2>
+                        <div className="flex gap-1">
+                            <Button variant="ghost" size="sm" onClick={copyReport}>
+                                <Copy />
+                                Copy
+                            </Button>
+                            <Button variant="ghost" size="sm" onClick={downloadReport}>
+                                <Download />
+                                Download
+                            </Button>
+                        </div>
                     </div>
+                    <pre className="max-h-[32rem] overflow-auto rounded-2xl border bg-card px-4 py-3 font-mono text-muted-foreground text-xs whitespace-pre-wrap">
+                        {report}
+                    </pre>
                 </div>
             )}
-        </>
+        </div>
     );
 }

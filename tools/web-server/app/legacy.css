@@ -151,7 +151,7 @@ h4 {
     margin-bottom: 18px;
 }
 
-label {
+label:not([data-slot]) {
     display: block;
     margin-bottom: 6px;
     font-size: 13px;
@@ -159,10 +159,13 @@ label {
     color: var(--ink-2);
 }
 
-input[type="text"],
-input[type="email"],
-input[type="password"],
-select {
+/* :not([data-slot]) keeps these off shadcn primitives, which all carry a
+   data-slot attribute. Without it the legacy skin bleeds into migrated
+   surfaces and, e.g., paints a cool-blue fill on a warm stone Input. */
+input[type="text"]:not([data-slot]),
+input[type="email"]:not([data-slot]),
+input[type="password"]:not([data-slot]),
+select:not([data-slot]) {
     width: 100%;
     padding: 10px 12px;
     background: var(--panel);
@@ -173,13 +176,13 @@ select {
     color: var(--ink);
 }
 
-input[type="text"]:read-only,
-input[type="email"]:read-only {
+input[type="text"]:not([data-slot]):read-only,
+input[type="email"]:not([data-slot]):read-only {
     color: var(--ink-2);
 }
 
-input:focus,
-select:focus {
+input:not([data-slot]):focus,
+select:not([data-slot]):focus {
     outline: none;
     border-color: var(--accent);
 }

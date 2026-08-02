@@ -9,8 +9,13 @@
 //   Status chars: JSON readback; the cloud one carries store_id + view_key so
 //   any browser can claim dashboard access by holding the grinder. Secrets
 //   (WiFi password, upload key) are never readable back.
+import { Cloud, Wifi } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { StatusBox, type StatusMessage } from '@/components/ui';
+import { ConfirmDialog } from '@/components/confirm-dialog';
+import { type StatusMessage, StatusRegion } from '@/components/status-region';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { authClient } from '@/lib/client/auth';
 import type { CloudStatusJson, WifiStatusJson } from '@/lib/client/ble';
 import * as ble from '@/lib/client/ble';
@@ -142,6 +147,24 @@ export function WifiSyncPanel() {
     const [cloudStatus, setCloudStatus] = useState<StatusMessage | null>(null);
     const [wifiBusy, setWifiBusy] = useState(false);
     const [cloudBusy, setCloudBusy] = useState(false);
+    const [confirmForgetWifi, setConfirmForgetWifi] = useState(false);
+    const [confirmForgetCloud, setConfirmForgetCloud] = useState(false);
+    const [storeToDelete, setStoreToDelete] = useState<string | null>(null);
+
+    const deleteCloudStore = async (storeId: string) => {
+        try {
+            await deleteStore(storeId);
+            setCloudStatus({
+                text: 'Cloud store deleted, along with every session in it.',
+                kind: 'success',
+            });
+        } catch (error) {
+            setCloudStatus({
+                text: `Could not delete the store: ${error instanceof Error ? error.message : error}`,
+                kind: 'error',
+            });
+        }
+    };
 
     useEffect(() => {
         try {
@@ -286,13 +309,12 @@ export function WifiSyncPanel() {
     };
 
     const forgetWifi = async () => {
-        if (!confirm('Remove the stored WiFi credentials from the grinder?')) return;
         try {
             setWifiStatus({ text: 'Connecting to grinder…', kind: 'info' });
             const { configChar } = await wifiChars();
             await configChar.writeValue(new Uint8Array([0x02]) as BufferSource);
             setWifiStatus({
-                text: '✓ WiFi credentials removed from the grinder.',
+                text: 'WiFi credentials removed from the grinder.',
                 kind: 'success',
             });
             ble.applyPatch({ wifi: { configured: false } as WifiStatusJson });
@@ -408,13 +430,6 @@ export function WifiSyncPanel() {
     };
 
     const forgetCloud = async () => {
-        if (
-            !confirm(
-                'Remove the cloud store keys from the grinder? Sessions already uploaded stay on the server.',
-            )
-        ) {
-            return;
-        }
         // Capture the store id from the cached snapshot before the forget
         // wipes it — needed for the optional owner-side deletion below.
         const deviceStoreId = active?.snapshot?.cloud?.configured
@@ -434,22 +449,13 @@ export function WifiSyncPanel() {
                           (store) => store.store_id === deviceStoreId,
                       )
                     : false;
-            if (
-                ownsIt &&
-                deviceStoreId &&
-                confirm('Also permanently delete the cloud store and every session in it?')
-            ) {
-                await deleteStore(deviceStoreId);
-                setCloudStatus({
-                    text: '✓ Sync removed from the grinder and the cloud store deleted.',
-                    kind: 'success',
-                });
-            } else {
-                setCloudStatus({
-                    text: '✓ Sync removed from the grinder. The cloud store itself remains (manage it from your Account page).',
-                    kind: 'success',
-                });
-            }
+            setCloudStatus({
+                text: 'Sync removed from the grinder. The cloud store itself remains — manage it from your Account page.',
+                kind: 'success',
+            });
+            // Owning the store is the only case where deleting it is ours to
+            // offer, so ask separately rather than bundling it into one prompt.
+            if (ownsIt && deviceStoreId) setStoreToDelete(deviceStoreId);
         } catch (error) {
             setCloudStatus({
                 text: `Could not forget cloud sync: ${error instanceof Error ? error.message : error}`,
@@ -461,111 +467,168 @@ export function WifiSyncPanel() {
     };
 
     return (
-        <div className="form-stack">
-            <h2>WiFi time sync</h2>
-            <p className="lede-line">
-                Your WiFi keeps the grinder&apos;s clock synced — a few seconds a day, radio off
-                otherwise — and powers the optional cloud backup below. Daylight-saving rules come
-                from this browser and run on the grinder itself.
-            </p>
+        <div className="max-w-2xl">
+            <section>
+                <h2 className="font-medium text-base">WiFi</h2>
+                <p className="mt-1 mb-5 text-muted-foreground text-sm">
+                    The grinder joins your network for a few seconds a day to set its clock, then
+                    turns the radio off. Daylight-saving rules are read from this browser and run on
+                    the grinder itself, so transitions happen with no network at all.
+                </p>
 
-            {knownWifiText && (
-                <div className={`status ${knownWifi?.time_synced ? 'success' : 'info'}`}>
-                    {knownWifiText}
+                {knownWifiText && (
+                    <p
+                        className={
+                            knownWifi?.time_synced
+                                ? 'mb-5 text-success text-sm'
+                                : 'mb-5 text-muted-foreground text-sm'
+                        }
+                    >
+                        {knownWifiText}
+                    </p>
+                )}
+
+                <div className="space-y-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="wifiSsid">Network name</Label>
+                        {/* These are the grinder's WiFi credentials, not a login
+                            for this site — tell password managers to keep out so
+                            they don't offer to save the PSK as an account
+                            password. */}
+                        <Input
+                            id="wifiSsid"
+                            name="wifiSsid"
+                            type="text"
+                            maxLength={32}
+                            autoComplete="off"
+                            data-1p-ignore
+                            data-lpignore="true"
+                            placeholder="MyHomeWiFi"
+                            className="max-w-sm font-mono"
+                            value={ssid}
+                            onChange={(e) => setSsid(e.target.value)}
+                        />
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="wifiPassword">Password</Label>
+                        <Input
+                            id="wifiPassword"
+                            name="wifiPassword"
+                            type="password"
+                            maxLength={64}
+                            autoComplete="off"
+                            data-1p-ignore
+                            data-lpignore="true"
+                            className="max-w-sm font-mono"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                        />
+                    </div>
+
+                    <p className="text-xs">
+                        <span className="text-muted-foreground">Timezone </span>
+                        {tzError ? (
+                            <span className="text-caution">
+                                could not be detected — the clock will run in UTC
+                            </span>
+                        ) : tz ? (
+                            <span className="font-mono text-muted-foreground">
+                                {tz.zoneName} · {tz.rule}
+                            </span>
+                        ) : (
+                            <span className="text-muted-foreground">detecting…</span>
+                        )}
+                    </p>
                 </div>
-            )}
 
-            <div className="form-group">
-                <label htmlFor="wifiSsid">Network name (SSID)</label>
-                {/* These are the grinder's WiFi credentials, not a login for
-                    this site — tell password managers to keep out so they
-                    don't offer to save the PSK as an account password. */}
-                <input
-                    id="wifiSsid"
-                    name="wifiSsid"
-                    type="text"
-                    maxLength={32}
-                    autoComplete="off"
-                    data-1p-ignore
-                    data-lpignore="true"
-                    placeholder="MyHomeWiFi"
-                    value={ssid}
-                    onChange={(e) => setSsid(e.target.value)}
-                />
-            </div>
-
-            <div className="form-group">
-                <label htmlFor="wifiPassword">Password</label>
-                <input
-                    id="wifiPassword"
-                    name="wifiPassword"
-                    type="password"
-                    maxLength={64}
-                    autoComplete="off"
-                    data-1p-ignore
-                    data-lpignore="true"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                />
-            </div>
-
-            <div className="form-group">
-                <span className="check-line" style={{ marginBottom: 6, fontWeight: 600 }}>
-                    Timezone (from this browser)
-                </span>
-                <div className={`status ${tzError ? 'error' : 'info'}`}>
-                    {tzError
-                        ? 'Timezone detection failed — clock will sync in UTC'
-                        : tz
-                          ? `${tz.zoneName} — rule ${tz.rule}`
-                          : 'Detecting…'}
+                <div className="mt-5 flex flex-wrap gap-2">
+                    <Button disabled={wifiBusy} onClick={configureWifi}>
+                        <Wifi />
+                        {wifiBusy ? 'Sending…' : 'Send to grinder'}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={checkWifi}>
+                        Check status
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => setConfirmForgetWifi(true)}
+                    >
+                        Forget network
+                    </Button>
                 </div>
-            </div>
 
-            <div className="btn-row">
-                <button
-                    type="button"
-                    className="btn btn-accent"
-                    disabled={wifiBusy}
-                    onClick={configureWifi}
-                >
-                    Connect &amp; Send to Grinder
-                </button>
-                <button type="button" className="btn-ghost" onClick={checkWifi}>
-                    Check Status
-                </button>
-                <button type="button" className="btn-ghost danger" onClick={forgetWifi}>
-                    Forget WiFi
-                </button>
-            </div>
+                <div className="mt-5">
+                    <StatusRegion status={wifiStatus} />
+                </div>
+            </section>
 
-            <StatusBox status={wifiStatus} />
+            <section className="mt-10 border-t pt-8">
+                <h2 className="font-medium text-base">Cloud backup</h2>
+                <p className="mt-1 mb-5 text-muted-foreground text-sm">
+                    With WiFi set up, the grinder uploads each session to your own cloud store after
+                    the grind — your full history, beyond what fits on the device, readable in
+                    Analytics from any browser you sign in to.
+                </p>
 
-            <h2 style={{ marginTop: 36 }}>Cloud backup</h2>
-            <p className="lede-line">
-                After every grind, the grinder uploads the session to your cloud store over WiFi —
-                your full history, beyond the device&apos;s own storage, viewable in Analytics from
-                any device.
-            </p>
+                <div className="flex flex-wrap gap-2">
+                    <Button disabled={cloudBusy} onClick={setUpCloudBackup}>
+                        <Cloud />
+                        {cloudBusy ? 'Setting up…' : 'Set up cloud backup'}
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={checkCloud}>
+                        Check status
+                    </Button>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-muted-foreground hover:text-destructive"
+                        onClick={() => setConfirmForgetCloud(true)}
+                    >
+                        Forget sync
+                    </Button>
+                </div>
 
-            <div className="btn-row">
-                <button
-                    type="button"
-                    className="btn btn-accent"
-                    disabled={cloudBusy}
-                    onClick={setUpCloudBackup}
-                >
-                    Set Up Cloud Backup
-                </button>
-                <button type="button" className="btn-ghost" onClick={checkCloud}>
-                    Check Status
-                </button>
-                <button type="button" className="btn-ghost danger" onClick={forgetCloud}>
-                    Forget Sync
-                </button>
-            </div>
+                <div className="mt-5">
+                    <StatusRegion status={cloudStatus} />
+                </div>
+            </section>
 
-            <StatusBox status={cloudStatus} />
+            <ConfirmDialog
+                open={confirmForgetWifi}
+                onOpenChange={setConfirmForgetWifi}
+                title="Forget this network?"
+                description="The grinder drops the stored credentials and stops syncing its clock. Nothing else about the device changes, and you can set it up again any time."
+                confirmLabel="Forget network"
+                destructive
+                onConfirm={() => forgetWifi()}
+            />
+
+            <ConfirmDialog
+                open={confirmForgetCloud}
+                onOpenChange={setConfirmForgetCloud}
+                title="Stop backing up to the cloud?"
+                description="The grinder forgets its store keys and stops uploading. Sessions already uploaded stay in the store, and the grinder keeps its own copies."
+                confirmLabel="Forget sync"
+                destructive
+                onConfirm={() => forgetCloud()}
+            />
+
+            <ConfirmDialog
+                open={storeToDelete !== null}
+                onOpenChange={(open) => !open && setStoreToDelete(null)}
+                title="Also delete the cloud store?"
+                description="You own this store. Deleting it permanently removes every session it holds, for every browser and share link. This cannot be undone."
+                confirmLabel="Delete store"
+                cancelLabel="Keep it"
+                destructive
+                onConfirm={() => {
+                    if (storeToDelete) deleteCloudStore(storeToDelete);
+                    setStoreToDelete(null);
+                }}
+            />
         </div>
     );
 }
