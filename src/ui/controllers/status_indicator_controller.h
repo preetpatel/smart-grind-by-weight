@@ -25,7 +25,10 @@ private:
     // skipped by the flex layout, so the visible icons always sit shoulder to
     // shoulder instead of leaving a gap where a hidden icon used to be.
     lv_obj_t* create_status_row();
-    lv_obj_t* create_status_icon(const char* symbol, uint32_t color);
+
+    // Drawn icons rather than glyphs from the built-in symbol font - see ui_icons.h
+    enum class IconKind { WIFI, WARNING, BLUETOOTH };
+    lv_obj_t* create_status_icon(IconKind kind, uint32_t color);
 
     UIManager* ui_manager_;
     lv_obj_t* status_row_ = nullptr;

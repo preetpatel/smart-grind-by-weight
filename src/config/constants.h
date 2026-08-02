@@ -15,6 +15,7 @@
 #include "cloud_sync.h"
 #include "hardware.h"
 #include "theme.h"
+#include "ui_tokens.h"
 #include "debug.h"
 #include "grind_control.h"
 #include "system.h"

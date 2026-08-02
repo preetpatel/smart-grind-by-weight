@@ -23,7 +23,7 @@ void IdleScreen::create() {
 #if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)
     lv_obj_set_style_bg_color(screen, lv_color_hex(THEME_COLOR_BACKGROUND_MOCK), 0);
 #else
-    lv_obj_set_style_bg_color(screen, lv_color_hex(THEME_COLOR_BACKGROUND), 0);
+    lv_obj_set_style_bg_color(screen, lv_color_hex(UI_COLOR_BG), 0);
 #endif
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(screen, 0, 0);
@@ -47,18 +47,18 @@ void IdleScreen::create() {
 
     time_label = lv_label_create(content);
     lv_label_set_text(time_label, "");
-    lv_obj_set_style_text_font(time_label, &lv_font_montserrat_60, 0);
-    lv_obj_set_style_text_color(time_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_font(time_label, UI_FONT_HERO, 0);
+    lv_obj_set_style_text_color(time_label, lv_color_hex(UI_COLOR_INK), 0);
 
     meridiem_label = lv_label_create(content);
     lv_label_set_text(meridiem_label, "");
-    lv_obj_set_style_text_font(meridiem_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(meridiem_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_font(meridiem_label, UI_FONT_BODY, 0);
+    lv_obj_set_style_text_color(meridiem_label, lv_color_hex(UI_COLOR_DIM), 0);
     // Flex bottom-aligns the two boxes, which lines up their descenders rather than
     // their baselines. Lifting the small label by the difference in descent puts
     // "AM" on the same baseline as the digits.
     lv_obj_set_style_pad_bottom(meridiem_label,
-                                lv_font_montserrat_60.base_line - lv_font_montserrat_24.base_line, 0);
+                                lv_font_hero_88.base_line - lv_font_montserrat_24.base_line, 0);
 
     lv_obj_align(content, LV_ALIGN_CENTER, 0, 0);
 

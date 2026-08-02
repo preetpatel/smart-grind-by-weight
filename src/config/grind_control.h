@@ -8,19 +8,26 @@
 // pulse control algorithms.
 
 //------------------------------------------------------------------------------
-// GRINDER PURGE/PRIME
+// PRIMING
 //------------------------------------------------------------------------------
-// Grinder saturation modes
-enum class GrinderPurgeMode {
-    PRIME = 0,  // Saturate grinder, keep coffee, continue immediately
-    PURGE = 1   // Saturate grinder, prompt user to discard stale grinds
+// Every weight-mode grind opens by running a small amount through the burrs to
+// saturate them, which is what makes the latency detection honest. That run is
+// the PRIME DOSE, and it happens either way - the only choice is what becomes
+// of it. Hence Keep or Discard rather than the old Prime/Purge pair, which named
+// one option after the thing both options do.
+//
+// The stored values are unchanged (0 = keep, 1 = discard) and so are the NVS
+// keys, so existing grinders keep their setting across this rename.
+enum class PrimeDoseMode {
+    KEEP = 0,     // The prime dose lands in the cup; grinding continues immediately
+    DISCARD = 1   // Pause after priming so the stale grounds can be tipped out
 };
 
 // Grinder saturation defaults and ranges
-#define GRIND_PURGE_MODE_DEFAULT static_cast<int>(GrinderPurgeMode::PURGE)
-#define GRIND_PURGE_AMOUNT_DEFAULT_G 1.0f
-#define GRIND_PURGE_AMOUNT_MIN_G 0.1f
-#define GRIND_PURGE_AMOUNT_MAX_G 2.5f
+#define GRIND_PRIME_MODE_DEFAULT static_cast<int>(PrimeDoseMode::DISCARD)
+#define GRIND_PRIME_AMOUNT_DEFAULT_G 1.0f
+#define GRIND_PRIME_AMOUNT_MIN_G 0.1f
+#define GRIND_PRIME_AMOUNT_MAX_G 2.5f
 
 // Grind freshness tracking
 #define GRIND_FRESHNESS_DEFAULT_HOURS 8.0f

@@ -136,6 +136,12 @@ public:
     OtaDataExportController* get_ota_data_export_controller() { return ota_data_export_controller_.get(); }
     void set_current_tab(int tab) { current_tab = tab; }
     
+    // Why the ready screen is refusing to offer a grind, if it is. Set by the
+    // ready controller from live diagnostics; read by the grinding controller,
+    // which owns the action bar and has to relabel it.
+    enum class ReadyBlock { NONE, CALIBRATE, DIAGNOSE };
+    ReadyBlock ready_block = ReadyBlock::NONE;
+
     void set_background_active(bool active);
     void refresh_auto_action_settings();
     

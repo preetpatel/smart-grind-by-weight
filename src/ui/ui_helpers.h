@@ -5,8 +5,14 @@
 // Function declarations
 void style_as_button(lv_obj_t* object, int32_t width = 260, int32_t height = 80, const lv_font_t* font = &lv_font_montserrat_28);
 
+// Motion. Both are confirmations rather than decoration: a press that registers,
+// a screen that changed. Deliberately not used on the grinding screen, where the
+// control loop has better things to do than composite.
+void ui_add_press_feedback(lv_obj_t* object);
+void ui_fade_in(lv_obj_t* object);
+
 lv_obj_t* create_button(lv_obj_t* parent, const char* text,
-                       lv_color_t bg_color = lv_color_hex(THEME_COLOR_NEUTRAL),
+                       lv_color_t bg_color = lv_color_hex(UI_COLOR_SURFACE),
                        int32_t width = 260, int32_t height = 80, 
                        const lv_font_t* font = &lv_font_montserrat_28);
 
@@ -27,8 +33,8 @@ lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_ob
 
 lv_obj_t* create_dual_button_row(lv_obj_t* parent, lv_obj_t** left_button, lv_obj_t** right_button, 
                                 const char* left_name, const char* right_name, 
-                                lv_color_t left_color = lv_color_hex(THEME_COLOR_NEUTRAL), 
-                                lv_color_t right_color = lv_color_hex(THEME_COLOR_NEUTRAL), 
+                                lv_color_t left_color = lv_color_hex(UI_COLOR_SURFACE), 
+                                lv_color_t right_color = lv_color_hex(UI_COLOR_SURFACE), 
                                 int height = 80, const lv_font_t* font = &lv_font_montserrat_28);
 
 lv_obj_t* create_data_label(lv_obj_t* parent, const char* name, lv_obj_t** value_label, bool stacked = false);

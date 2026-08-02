@@ -26,7 +26,7 @@ void PurgeConfirmScreen::create() {
     title_label = lv_label_create(screen);
     lv_label_set_text(title_label, "Grinder Purged");
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_36, 0);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(THEME_COLOR_WARNING), 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(UI_COLOR_WARN), 0);
     lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(title_label, LV_PCT(100));
     lv_obj_set_flex_grow(title_label, 0);
@@ -45,9 +45,9 @@ void PurgeConfirmScreen::create() {
 
     // Message label
     message_label = lv_label_create(message_container);
-    lv_label_set_text(message_label, "Remove the purge grinds if desired.");
+    lv_label_set_text(message_label, "Tip out the prime dose if you want to.");
     lv_obj_set_style_text_font(message_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(message_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_color(message_label, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_set_style_text_align(message_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(message_label, LV_PCT(90));
     lv_label_set_long_mode(message_label, LV_LABEL_LONG_WRAP);
@@ -59,7 +59,7 @@ void PurgeConfirmScreen::create() {
     checkbox = lv_checkbox_create(screen);
     lv_checkbox_set_text(checkbox, "Always keep");
     lv_obj_set_style_text_font(checkbox, &lv_font_montserrat_32, 0);  // Larger font
-    lv_obj_set_style_text_color(checkbox, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_color(checkbox, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_set_width(checkbox, 260);  // Set max width to prevent overflow
 
     // Scale up the checkbox indicator to 2x size

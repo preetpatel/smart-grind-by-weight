@@ -24,20 +24,20 @@ void CalibrationScreen::create() {
     lv_obj_set_style_pad_all(screen, 0, 0);
     lv_obj_set_style_pad_ver(screen, 6, 0);
 
-    top_button_row = create_dual_button_row(screen, &ok_button, &cancel_button, LV_SYMBOL_OK, LV_SYMBOL_CLOSE, lv_color_hex(THEME_COLOR_SUCCESS), lv_color_hex(THEME_COLOR_NEUTRAL), 80, &lv_font_montserrat_32);
+    top_button_row = create_dual_button_row(screen, &ok_button, &cancel_button, LV_SYMBOL_OK, LV_SYMBOL_CLOSE, lv_color_hex(UI_COLOR_OK), lv_color_hex(UI_COLOR_SURFACE), 80, &lv_font_montserrat_32);
 
     // Title label (center top)
     title_label = lv_label_create(screen);
     lv_label_set_text(title_label, "CALIBRATION");
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_36, 0);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(THEME_COLOR_SECONDARY), 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(UI_COLOR_DIM), 0);
     lv_obj_align(title_label, LV_ALIGN_CENTER, 0, -90);
 
     // Instruction label (center)
     instruction_label = lv_label_create(screen);
     lv_label_set_text(instruction_label, "Remove all weight");
     lv_obj_set_style_text_font(instruction_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(instruction_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_color(instruction_label, lv_color_hex(UI_COLOR_DIM), 0);
     lv_obj_set_style_text_align(instruction_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(instruction_label, LV_ALIGN_CENTER, 0, -20);
 
@@ -45,14 +45,14 @@ void CalibrationScreen::create() {
     weight_label = lv_label_create(screen);
     lv_label_set_text(weight_label, "0");
     lv_obj_set_style_text_font(weight_label, &lv_font_montserrat_56, 0);
-    lv_obj_set_style_text_color(weight_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_color(weight_label, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_align(weight_label, LV_ALIGN_CENTER, 0, 55);
 
     // Noise check information labels (hidden by default)
     noise_status_label = lv_label_create(screen);
     lv_label_set_text(noise_status_label, "Status: Checking...");
     lv_obj_set_style_text_font(noise_status_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(noise_status_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_color(noise_status_label, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_set_style_text_align(noise_status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(noise_status_label, LV_ALIGN_CENTER, 0, 60);
     lv_obj_add_flag(noise_status_label, LV_OBJ_FLAG_HIDDEN);
@@ -60,12 +60,12 @@ void CalibrationScreen::create() {
     noise_metric_label = lv_label_create(screen);
     lv_label_set_text(noise_metric_label, "Std Dev: --");
     lv_obj_set_style_text_font(noise_metric_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(noise_metric_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_color(noise_metric_label, lv_color_hex(UI_COLOR_DIM), 0);
     lv_obj_set_style_text_align(noise_metric_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(noise_metric_label, LV_ALIGN_CENTER, 0, 105);
     lv_obj_add_flag(noise_metric_label, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t* bottom_button_row = create_dual_button_row(screen, &minus_btn, &plus_btn, LV_SYMBOL_MINUS, LV_SYMBOL_PLUS, lv_color_hex(THEME_COLOR_PRIMARY), lv_color_hex(THEME_COLOR_PRIMARY), 100, &lv_font_montserrat_32);
+    lv_obj_t* bottom_button_row = create_dual_button_row(screen, &minus_btn, &plus_btn, LV_SYMBOL_MINUS, LV_SYMBOL_PLUS, lv_color_hex(UI_COLOR_ACCENT), lv_color_hex(UI_COLOR_ACCENT), 100, &lv_font_montserrat_32);
     lv_obj_align(bottom_button_row, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_flag(minus_btn, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(plus_btn, LV_OBJ_FLAG_HIDDEN);
@@ -136,7 +136,7 @@ void CalibrationScreen::set_step(CalibrationStep step) {
             set_ok_button_text(LV_SYMBOL_OK);
             set_ok_button_enabled(false);
             set_noise_ui_visible(true);
-            update_noise_status("Status: Checking...", lv_color_hex(THEME_COLOR_TEXT_SECONDARY));
+            update_noise_status("Status: Checking...", lv_color_hex(UI_COLOR_DIM));
             update_noise_metric(std::numeric_limits<float>::quiet_NaN());
             break;
             

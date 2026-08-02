@@ -24,14 +24,14 @@ void OTAScreen::create() {
     title_label = lv_label_create(screen);
     lv_label_set_text(title_label, "Updating");
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_32, 0);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(THEME_COLOR_SECONDARY), 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(UI_COLOR_DIM), 0);
 
     // Progress arc
     progress_arc = lv_arc_create(screen);
     lv_obj_set_size(progress_arc, THEME_PROGRESS_ARC_DIAMETER_PX, THEME_PROGRESS_ARC_DIAMETER_PX);
     lv_arc_set_range(progress_arc, 0, 100);
     lv_arc_set_value(progress_arc, 0);
-    lv_obj_set_style_arc_color(progress_arc, lv_color_hex(THEME_COLOR_PRIMARY), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(progress_arc, lv_color_hex(UI_COLOR_ACCENT), LV_PART_INDICATOR);
     lv_obj_set_style_arc_width(progress_arc, 12, LV_PART_INDICATOR);
     lv_obj_set_style_arc_color(progress_arc, lv_color_hex(0x333333), LV_PART_MAIN);
     lv_obj_set_style_arc_width(progress_arc, 12, LV_PART_MAIN);
@@ -42,14 +42,14 @@ void OTAScreen::create() {
     percentage_label = lv_label_create(progress_arc);
     lv_label_set_text(percentage_label, "0%");
     lv_obj_set_style_text_font(percentage_label, &lv_font_montserrat_56, 0);
-    lv_obj_set_style_text_color(percentage_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_color(percentage_label, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_center(percentage_label);
     
     // Status label below the arc
     status_label = lv_label_create(screen);
     lv_label_set_text(status_label, "Receiving update....");
     lv_obj_set_style_text_font(status_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(status_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_color(status_label, lv_color_hex(UI_COLOR_DIM), 0);
     lv_obj_set_style_text_align(status_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(status_label, LV_PCT(100));
     

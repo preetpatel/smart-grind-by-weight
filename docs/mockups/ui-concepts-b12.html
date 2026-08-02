@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>B12 Informed — the contextual firmware UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@200;300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --page-bg: #0b0b0c; --panel: #141416; --rule: #242428;
+    --ink: #ededef; --ink-dim: #8e8e96; --ink-faint: #5c5c64;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; background: var(--page-bg); color: var(--ink);
+    font-family: "Montserrat", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(11,11,12,.94); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--rule); padding: 16px 30px 14px;
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0 0 3px; }
+  header p { font-size: 12px; color: var(--ink-faint); margin: 0; max-width: 800px; line-height: 1.55; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-top: 13px; }
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chips button {
+    font: inherit; font-size: 11.5px; font-weight: 500; color: var(--ink-dim);
+    background: transparent; border: 1px solid var(--rule); border-radius: 999px;
+    padding: 6px 12px; cursor: pointer;
+  }
+  .chips button:hover { color: var(--ink); }
+  .chips button[aria-pressed="true"] { background: var(--ink); color: #16161a; border-color: var(--ink); }
+
+  main { padding: 26px 30px 80px; }
+  .section { margin-bottom: 44px; }
+  .section.hidden { display: none; }
+  .shead { max-width: 800px; margin-bottom: 18px; }
+  .shead h2 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+  .shead p { font-size: 13px; line-height: 1.6; color: var(--ink-dim); margin: 0; }
+
+  .row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .item { width: 296px; }
+  .frame {
+    position: relative; display: flex; justify-content: center; padding: 18px 0;
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 14px;
+  }
+  .screen {
+    position: relative; width: 280px; height: 456px; border-radius: 26px; overflow: hidden;
+    box-shadow: 0 0 0 1px #26262a, 0 14px 34px rgba(0,0,0,.5);
+    transform-origin: top center; transition: transform .18s;
+  }
+  body.zoom .screen { transform: scale(1.4); }
+  body.zoom .frame { height: 660px; align-items: flex-start; }
+  body.dim .screen { filter: brightness(.4); }
+  .badge {
+    position: absolute; top: 10px; left: 13px; z-index: 3;
+    font-size: 10px; font-weight: 600; letter-spacing: .1em; color: #3d3d44; text-transform: uppercase;
+  }
+  .cap { margin-top: 11px; }
+  .cap h3 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+  .cap p { font-size: 11.5px; line-height: 1.55; color: var(--ink-dim); margin: 0; }
+  footer {
+    border-top: 1px solid var(--rule); margin-top: 20px; padding: 22px 30px 60px;
+    font-size: 12.5px; line-height: 1.7; color: var(--ink-dim); max-width: 880px;
+  }
+  footer b { color: var(--ink); font-weight: 600; }
+  footer code {
+    font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 5px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>B12 Informed — the contextual UI, worked through</h1>
+  <p>The whole flow in the B12 language, then the two questions that decide whether it works: what belongs under the hero, and what the screen says when it has nothing to say.</p>
+  <div class="bar">
+    <div class="chips" id="filters"></div>
+    <div class="chips">
+      <button id="btn-zoom" aria-pressed="false">Zoom 1.4×</button>
+      <button id="btn-dim" aria-pressed="false">Dimmed</button>
+    </div>
+  </div>
+</header>
+
+<main id="main"></main>
+
+<footer>
+  <p><b>The rule this direction lives by.</b> The context block is <em>one hairline and at most two rows</em>, always in the same place, always the same size. It never pushes the dose around and it never grows a third row. When there is nothing true to say, it disappears entirely and the screen is simply B1 — which is why the empty states below matter more than the full ones.</p>
+  <p><b>How a row is written.</b> Left is a noun, right is a value. The row has to survive being read as “Label: value” <em>and</em> read on its own. Never split a sentence across the two columns — “Then · restarts itself” and “Safe to · try again” read as broken English, because the eye takes the left column as a category and the right as data. Anything that is a sentence becomes a full-width note under the heading; anything that is an instruction goes in the action button’s subtitle. Values are numbers, states or times — never verbs.</p>
+  <p><b>Everything shown is data the firmware already has</b>, except bean bag and roast date (which need an entry point) — freshness comes from <code>freshness_hrs</code>, accuracy from <code>get_avg_accuracy_g()</code>, the backlog from <code>CloudSync</code>, warnings from <code>DiagnosticsController</code>, and the live weight from the load cell that is running anyway.</p>
+</footer>
+
+<script>
+(function () {
+"use strict";
+
+var P = {
+  bg: "#000000", ink: "#f7f7f5", dim: "#8b8b85", faint: "#57574f",
+  line: "#1c1c1a", surface: "#121211", accent: "#f0b429",
+  ok: "#4fae5f", warn: "#e0912f", bad: "#e0563f"
+};
+
+/* ---------- primitives ---------- */
+function lbl(text, o) {
+  o = o || {};
+  return '<span style="font-size:' + (o.size || 11) + "px;font-weight:" + (o.weight || 500) +
+    ";letter-spacing:" + (o.track || ".16em") + ";text-transform:" + (o.up === false ? "none" : "uppercase") +
+    ";color:" + (o.color || P.dim) + ";line-height:1;white-space:nowrap;" + (o.extra || "") + '">' + text + "</span>";
+}
+function num(text, size, o) {
+  o = o || {};
+  return '<span style="font-size:' + size + "px;font-weight:" + (o.weight || 300) +
+    ";letter-spacing:" + (o.track || "-.02em") + ";color:" + (o.color || P.ink) +
+    ";line-height:" + (o.lh || 1) + ";font-variant-numeric:tabular-nums;white-space:nowrap;" + (o.extra || "") + '">' + text + "</span>";
+}
+function unit(text, size, o) {
+  o = o || {};
+  return '<span style="font-size:' + size + "px;font-weight:400;color:" + (o.color || P.dim) + ';">' + text + "</span>";
+}
+function hr(o) {
+  o = o || {};
+  return '<div style="height:1px;background:' + (o.color || P.line) + ";" + (o.extra || "") + '"></div>';
+}
+function panel(inner) {
+  return '<div class="screen" style="background:' + P.bg + ";color:" + P.ink + '">' + inner + "</div>";
+}
+function status(o) {
+  o = o || {};
+  return '<div style="position:absolute;left:20px;right:20px;top:15px;display:flex;align-items:center;justify-content:space-between;z-index:2">' +
+    (o.clock === false ? '<span></span>' : num(o.clock || "9:41", 13, { color: P.faint, weight: 400 })) +
+    '<div style="display:flex;gap:5px">' +
+    (o.dots === false ? "" :
+      '<i style="width:4px;height:4px;border-radius:50%;background:' + (o.warn ? P.warn : P.faint) + ';display:block"></i>' +
+      '<i style="width:4px;height:4px;border-radius:50%;background:' + P.faint + ';display:block"></i>') + "</div></div>";
+}
+function dots(active) {
+  return '<div style="display:flex;gap:8px;margin-top:26px">' + [0, 1, 2].map(function (i) {
+    return '<i style="width:' + (i === active ? 20 : 6) + "px;height:6px;border-radius:3px;background:" +
+      (i === active ? P.accent : P.line) + ';display:block"></i>';
+  }).join("") + "</div>";
+}
+function bar(text, o) {
+  o = o || {};
+  var bg = o.disabled ? P.surface : (o.color || P.accent);
+  var ink = o.disabled ? P.faint : (o.ink || "#171206");
+  return '<div style="position:absolute;left:0;right:0;bottom:0;height:92px;background:' + bg +
+    ';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px">' +
+    lbl(text, { size: 15, weight: 600, track: ".18em", color: ink }) +
+    (o.sub ? lbl(o.sub, { size: 9.5, track: ".1em", color: o.disabled ? P.faint : "rgba(23,18,6,.62)" }) : "") + "</div>";
+}
+function ghostBar(text) {
+  return '<div style="position:absolute;left:0;right:0;bottom:0;height:92px;border-top:1px solid ' + P.line +
+    ';display:flex;align-items:center;justify-content:center">' +
+    lbl(text, { size: 15, weight: 600, track: ".18em", color: P.dim }) + "</div>";
+}
+
+/* the context block: one rule, at most two rows, always the same place */
+function ctx(rows) {
+  if (!rows || !rows.length) return "";
+  return '<div style="width:100%;margin-top:28px">' + hr({ extra: "margin-bottom:13px" }) +
+    rows.map(function (r, i) {
+      return '<div style="display:flex;justify-content:space-between;align-items:baseline;' +
+        (i ? "margin-top:9px" : "") + '">' +
+        lbl(r[0], { size: 9.5, color: P.faint }) +
+        num(r[1], 13, { color: r[2] || P.dim, weight: 400 }) + "</div>";
+    }).join("") + "</div>";
+}
+
+function hero(value, size, o) {
+  o = o || {};
+  return '<div style="display:flex;align-items:baseline;gap:6px">' +
+    num(value, size, { color: o.color }) + unit("g", Math.round(size * 0.22)) + "</div>";
+}
+function body(inner, o) {
+  o = o || {};
+  return '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;' +
+    'justify-content:center;padding:0 26px ' + (o.pb || 78) + 'px">' + inner + "</div>";
+}
+function curve(w, h, color, fill) {
+  var pts = [], n = 26;
+  for (var i = 0; i <= n; i++) {
+    var x = (i / n) * w, p = i / n;
+    pts.push(x.toFixed(1) + "," + (h - h * 0.85 * (1 - Math.exp(-3.1 * p))).toFixed(1));
+  }
+  var line = "M " + pts.join(" L ");
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + " " + h + '">' +
+    (fill ? '<path d="' + line + " L " + w + "," + h + " L 0," + h + ' Z" fill="' + fill + '"/>' : "") +
+    '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+}
+function check(size, color) {
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 20 20">' +
+    '<path d="M4 10.5 L8 14.5 L16 6" fill="none" stroke="' + color + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function mark(color, inner) {
+  return '<div style="width:38px;height:38px;border-radius:50%;border:1.5px solid ' + color +
+    ';display:flex;align-items:center;justify-content:center;margin-bottom:20px">' + inner + "</div>";
+}
+
+/* ---------- the flow ---------- */
+var FLOW = [
+  { badge: "Ready", name: "Ready", note: "Dose is the hero; two rows say what happened last and whether the grounds are still fresh. Dots make the other profiles visible without stealing space.",
+    render: function () {
+      return panel(status() + body(
+        lbl("Double", { size: 12, extra: "margin-bottom:18px" }) +
+        hero("21.5", 88) + dots(1) +
+        ctx([["Last", "21.6 g · 2 h ago"], ["Grounds", "fresh · 3 h left"]])
+      ) + bar("Grind"));
+    }},
+  { badge: "Grinding", name: "Grinding", note: "The flow curve the dashboard already draws, live. Below it the two facts the algorithm is working from: current flow and which pulse it's on.",
+    render: function () {
+      return panel(body(
+        hero("14.2", 70) +
+        lbl("of 21.5 g", { size: 10, color: P.faint, extra: "margin-top:13px" }) +
+        '<div style="width:100%;margin-top:24px;display:flex;justify-content:center">' +
+        curve(216, 84, P.accent, "rgba(240,180,41,.1)") + "</div>" +
+        ctx([["Flow", "1.8 g/s"], ["Pulse", "2 of 4"]])
+      , { pb: 70 }) + ghostBar("Stop"));
+    }},
+  { badge: "Complete", name: "Complete", note: "Not two numbers to subtract in your head — a verdict. The second row is what the machine learned, which is the argument for logging at all.",
+    render: function () {
+      return panel(status() + body(
+        mark(P.ok, check(17, P.ok)) + hero("21.6", 84) +
+        ctx([["Error", "+0.1 g", P.ok], ["Average", "±0.04 g"]])
+      ) +
+      '<div style="position:absolute;left:0;right:0;bottom:0;height:92px;display:flex">' +
+      '<div style="flex:1;display:flex;align-items:center;justify-content:center;border-top:1px solid ' + P.line + '">' +
+      lbl("+ Pulse", { size: 13, color: P.dim, track: ".14em" }) + "</div>" +
+      '<div style="flex:1.5;background:' + P.accent + ';display:flex;align-items:center;justify-content:center">' +
+      lbl("Done", { size: 13, weight: 600, color: "#171206", track: ".14em" }) + "</div></div>");
+    }},
+  { badge: "Edit", name: "Edit dose", note: "The context row turns the guess into a decision: what this profile has actually been landing lately, while you nudge its target.",
+    render: function () {
+      function step(sign) {
+        return '<div style="flex:0 0 auto;width:54px;height:54px;border-radius:50%;border:1px solid ' + P.line +
+          ';display:flex;align-items:center;justify-content:center">' +
+          '<span style="font-size:28px;font-weight:300;color:' + P.ink + ';line-height:1">' + sign + "</span></div>";
+      }
+      return panel(body(
+        lbl("Double", { size: 12, extra: "margin-bottom:24px" }) +
+        '<div style="display:flex;align-items:center;gap:10px">' + step("−") +
+        '<div style="width:126px;display:flex;align-items:baseline;gap:4px;justify-content:center">' +
+        num("21.5", 50) + unit("g", 15) + "</div>" + step("+") + "</div>" +
+        ctx([["Last 5", "21.6 g avg"], ["Spread", "±0.05 g"]])
+      ) +
+      '<div style="position:absolute;left:0;right:0;bottom:0;height:88px;display:flex;border-top:1px solid ' + P.line + '">' +
+      '<div style="flex:1;display:flex;align-items:center;justify-content:center;border-right:1px solid ' + P.line + '">' +
+      lbl("Cancel", { size: 12, color: P.faint, track: ".14em" }) + "</div>" +
+      '<div style="flex:1;background:' + P.accent + ';display:flex;align-items:center;justify-content:center">' +
+      lbl("Save", { size: 12, weight: 600, color: "#171206", track: ".14em" }) + "</div></div>");
+    }},
+  { badge: "Menu", name: "Menu", note: "Every row carries its own state, so the menu answers most questions without being entered. Thirteen destinations become six, with the rest behind “All settings”.",
+    render: function () {
+      var rows = [["Scale", "0.0 g"], ["Calibrate", "12 June"], ["Grind", "weight · double"],
+                  ["Grounds", "fresh · 3 h left"], ["Network", "Wi-Fi · synced 9:12"], ["Health", "all good"]];
+      return panel(
+        '<div style="position:absolute;left:0;right:0;top:26px">' +
+        '<div style="padding:0 22px 14px">' + lbl("Menu", { color: P.faint }) + "</div>" +
+        rows.map(function (r, i) {
+          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 22px;' +
+            (i < rows.length - 1 ? "border-bottom:1px solid " + P.line + ";" : "") + '">' +
+            '<span style="font-size:15px;font-weight:500;color:' + P.ink + '">' + r[0] + "</span>" +
+            num(r[1], 12, { color: P.faint, weight: 400 }) + "</div>";
+        }).join("") +
+        '<div style="padding:15px 22px;display:flex;justify-content:space-between;align-items:center">' +
+        lbl("All settings", { size: 11, color: P.dim }) +
+        '<svg width="7" height="12" viewBox="0 0 7 12"><path d="M1 1 L6 6 L1 11" fill="none" stroke="' + P.faint + '" stroke-width="1.5" stroke-linecap="round"/></svg></div></div>' +
+        ghostBar("Back"));
+    }},
+  { badge: "Settings", name: "Grind settings", note: "Help text is replaced by live state: each row says what it is currently doing rather than explaining what it would do.",
+    render: function () {
+      function toggle(on) {
+        return '<div style="width:42px;height:24px;border-radius:13px;background:' + (on ? P.accent : P.line) +
+          ';position:relative"><i style="position:absolute;top:3px;' + (on ? "right:3px" : "left:3px") +
+          ';width:18px;height:18px;border-radius:50%;background:' + (on ? "#171206" : P.dim) + ';display:block"></i></div>';
+      }
+      function row(name, sub, control) {
+        return '<div style="padding:13px 0;border-bottom:1px solid ' + P.line + '">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+          '<span style="font-size:14px;font-weight:500;color:' + P.ink + '">' + name + "</span>" + control + "</div>" +
+          '<div style="margin-top:6px">' + lbl(sub, { size: 9.5, track: ".05em", color: P.faint }) + "</div></div>";
+      }
+      return panel(
+        '<div style="position:absolute;left:24px;right:24px;top:26px">' +
+        lbl("Grind", { color: P.faint, extra: "display:block;margin-bottom:16px" }) +
+        '<div style="display:flex;gap:8px;margin-bottom:14px">' +
+        ["Weight", "Time"].map(function (m, i) {
+          var on = i === 0;
+          return '<div style="flex:1;height:40px;border-radius:10px;background:' + (on ? "rgba(240,180,41,.14)" : "transparent") +
+            ";border:1px solid " + (on ? "rgba(240,180,41,.5)" : P.line) + ';display:flex;align-items:center;justify-content:center">' +
+            lbl(m, { size: 11, color: on ? P.accent : P.faint }) + "</div>";
+        }).join("") + "</div>" +
+        row("Start on cup", "armed · last fired 2 h ago", toggle(true)) +
+        row("Purge", "1.0 g · ran 2 h ago", toggle(true)) +
+        row("Freshness", "purges after 8 h idle · 3 h left", toggle(true)) +
+        "</div>" + ghostBar("Back"));
+    }},
+  { badge: "Idle", name: "Clock face", note: "The idle face is the same block with the clock as its hero — so waking the grinder is a change of scale, not a change of language.",
+    render: function () {
+      return panel(body(
+        '<div style="display:flex;align-items:baseline;gap:8px">' + num("9:41", 84) +
+        '<span style="font-size:19px;color:' + P.dim + '">AM</span></div>' +
+        ctx([["Last", "21.6 g · 2 h ago"], ["Grounds", "fresh · 3 h left"]])
+      , { pb: 0 }));
+    }}
+];
+
+/* ---------- what goes under the hero ---------- */
+function readyWith(rows, o) {
+  o = o || {};
+  return panel(status(o.status || {}) + body(
+    lbl(o.kicker || "Double", { size: 12, extra: "margin-bottom:18px" }) +
+    hero(o.dose || "21.5", 88, { color: o.heroColor }) + dots(1) + ctx(rows)
+  ) + (o.bar || bar("Grind", o.barOpts || {})));
+}
+
+var CONTEXTS = [
+  { name: "Nothing", note: "The pure version. If the block is off, B12 collapses back to B1 — which is the safety net for every state below.",
+    render: function () { return readyWith(null); } },
+  { name: "Last + grounds", note: "The default. Did the last one land, and will this one open with a purge. Two questions you actually have, answered before you touch it.",
+    render: function () { return readyWith([["Last", "21.6 g · 2 h ago"], ["Grounds", "fresh · 3 h left"]]); } },
+  { name: "Bag", note: "Bean, days rested, grams remaining. Needs an entry point the firmware doesn't have yet — but the annotations already carry bean and roast date on the server side.",
+    render: function () { return readyWith([["Beans", "Guji · 9 days rested"], ["Remaining", "612 g"]]); } },
+  { name: "Form", note: "How the machine has been performing lately, not what it did once. The strongest argument for all that pulse-correction work.",
+    render: function () { return readyWith([["Average", "±0.04 g", P.ok], ["Today", "3 grinds · 54.2 g"]]); } },
+  { name: "What happens next", note: "Predictive rather than historical: the block describes the grind you are about to start. Reads as the machine thinking ahead.",
+    render: function () { return readyWith([["Purge", "1.0 g"], ["Estimate", "12.1 s"]]); } },
+  { name: "Live scale", note: "The load cell is running anyway. With a cup on the platform the block becomes a scale, and the button says it is armed.",
+    render: function () {
+      return readyWith([["On scale", "142.6 g"], ["Auto-start", "armed", P.accent]],
+        { barOpts: { sub: "starts when the cup settles" } });
+    }},
+  { name: "Device", note: "Network and backup state. The least interesting to a person making coffee, which is exactly why it belongs behind a setting rather than on by default.",
+    render: function () { return readyWith([["Wi-Fi", "synced 9:12"], ["Backup", "up to date"]]); } },
+  { name: "Three rows", note: "What happens if the rule bends: the block grows and the hero shrinks to fit. Included so you can see why the two-row cap exists.",
+    render: function () {
+      return panel(status() + body(
+        lbl("Double", { size: 12, extra: "margin-bottom:16px" }) + hero("21.5", 70) + dots(1) +
+        ctx([["Last", "21.6 g · 2 h ago"], ["Grounds", "fresh · 3 h left"], ["Average", "±0.04 g"]])
+      ) + bar("Grind"));
+    }}
+];
+
+/* ---------- states ---------- */
+var STATES = [
+  { name: "Fresh out of the box", note: "No clock, no history, no calibration. The block says the one thing that is true and actionable instead of showing empty rows.",
+    render: function () {
+      return panel(status({ clock: false, dots: false }) + body(
+        lbl("Double", { size: 12, extra: "margin-bottom:18px" }) + hero("21.5", 88) + dots(1) +
+        ctx([["Calibration", "needed", P.warn], ["Clock", "not set"]])
+      ) + bar("Calibrate"));
+    }},
+  { name: "Not calibrated", note: "A live diagnostic outranks everything. Weight grinds are already blocked in start_grind() — the screen should say so before you press, not after.",
+    render: function () {
+      return panel(status({ warn: true }) + body(
+        mark(P.warn, '<span style="font-size:20px;font-weight:600;color:' + P.warn + '">!</span>') +
+        '<span style="font-size:19px;font-weight:500;color:' + P.ink + ';text-align:center;line-height:1.45">Scale not calibrated</span>' +
+        '<span style="font-size:12px;color:' + P.dim + ';text-align:center;line-height:1.5;margin-top:12px;max-width:200px">Weight grinds are disabled until it is</span>' +
+        ctx([["Time mode", "available"]])
+      ) + bar("Calibrate"));
+    }},
+  { name: "Stale grounds", note: "Past the freshness window the block warns and the button tells you what pressing it will actually do. No popup needed after the fact.",
+    render: function () {
+      return readyWith([["Grounds", "stale · 11 h", P.warn], ["Last", "21.6 g yesterday"]],
+        { barOpts: { sub: "purges 1.0 g first" } });
+    }},
+  { name: "First of the day", note: "Before the day's first grind the kicker greets you; after it, this is an ordinary ready screen. A face that changes once a day is one you keep noticing.",
+    render: function () {
+      return panel(status() + body(
+        lbl("Good morning", { size: 12, up: false, track: ".02em", weight: 400, extra: "margin-bottom:18px" }) +
+        hero("21.5", 88) + dots(1) +
+        ctx([["Grounds", "stale · overnight", P.warn], ["Ready in", "14 s"]])
+      ) + bar("Grind", { sub: "purges 1.0 g first" }));
+    }},
+  { name: "Backup behind", note: "Cloud sync is silent by design, so a router change can quietly strand a month of grinds. This is the only place that failure is ever visible.",
+    render: function () { return readyWith([["Backup", "12 grinds waiting", P.warn], ["Last sync", "3 days ago"]]); } },
+  { name: "Offline, no clock", note: "Never synced: no clock in the status bar, no “2 h ago” anywhere. Relative time is dropped rather than faked — the block falls back to what is knowable.",
+    render: function () { return readyWith([["Last", "21.6 g"], ["Grounds", "fresh"]], { status: { clock: false } }); } },
+  { name: "Mid-purge", note: "The purge phase, named. The nine-phase state machine currently runs invisibly; giving the pause a screen is what makes the confirm popup unnecessary.",
+    render: function () {
+      return panel(body(
+        lbl("Purging", { size: 12, extra: "margin-bottom:18px" }) + hero("0.8", 70) +
+        lbl("of 1.0 g", { size: 10, color: P.faint, extra: "margin-top:13px" }) +
+        ctx([["Next", "double · 21.5 g"], ["Grounds", "11 h old"]])
+      , { pb: 70 }) + ghostBar("Stop"));
+    }},
+  { name: "Timed out", note: "Thirty seconds with no result. Says what it saw rather than just failing — the flow reading is the diagnostic that matters here.",
+    render: function () {
+      return panel(status() + body(
+        mark(P.bad, '<span style="font-size:19px;font-weight:600;color:' + P.bad + '">!</span>') +
+        '<span style="font-size:19px;font-weight:500;color:' + P.ink + '">Timed out</span>' +
+        '<span style="font-size:12px;color:' + P.dim + ';margin-top:11px;text-align:center;line-height:1.55;max-width:210px">Only 6.4 g came through in 30 seconds. Check the hopper.</span>' +
+        ctx([["Expected", "21.5 g"], ["Flow", "0.2 g/s", P.warn]])
+      ) + bar("Done", { color: P.surface, ink: P.ink }));
+    }}
+];
+
+/* ---------- build ---------- */
+var main = document.getElementById("main");
+function section(id, title, blurb, items) {
+  return '<section class="section" data-f="' + id + '">' +
+    '<div class="shead"><h2>' + title + "</h2><p>" + blurb + "</p></div><div class=\"row\">" +
+    items.map(function (it, i) {
+      return '<div class="item"><div class="frame"><span class="badge">' + (it.badge || String(i + 1).padStart(2, "0")) + "</span>" +
+        it.render() + '</div><div class="cap"><h3>' + it.name + "</h3><p>" + it.note + "</p></div></div>";
+    }).join("") + "</div></section>";
+}
+
+main.innerHTML =
+  section("flow", "The flow", "Seven screens in one language. The context block sits in the same place at the same size on every one of them, including the idle clock face — so the grinder reads as one thing from asleep to complete.", FLOW) +
+  section("context", "What goes under the hero", "Same screen, eight different second thoughts. The block is capped at two rows; the last panel shows what happens when that cap is broken.", CONTEXTS) +
+  section("states", "When context is missing or urgent", "A contextual UI is only as good as its empty states. Eight moments where there is no history, no clock, or something more important to say than the dose.", STATES);
+
+var filters = document.getElementById("filters");
+filters.innerHTML = [["all", "Everything"], ["flow", "The flow"], ["context", "Context options"], ["states", "States"]]
+  .map(function (f, i) {
+    return '<button data-f="' + f[0] + '"' + (i === 0 ? ' aria-pressed="true"' : "") + ">" + f[1] + "</button>";
+  }).join("");
+filters.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-f]");
+  if (!b) return;
+  filters.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+  document.querySelectorAll(".section").forEach(function (s) {
+    s.classList.toggle("hidden", b.dataset.f !== "all" && s.dataset.f !== b.dataset.f);
+  });
+});
+var urlF = new URLSearchParams(location.search).get("filter");
+if (urlF) { var t = filters.querySelector('[data-f="' + urlF + '"]'); if (t) t.click(); }
+
+["btn-zoom:zoom", "btn-dim:dim"].forEach(function (pair) {
+  var p = pair.split(":"), b = document.getElementById(p[0]);
+  b.addEventListener("click", function () {
+    var on = b.getAttribute("aria-pressed") !== "true";
+    b.setAttribute("aria-pressed", String(on));
+    document.body.classList.toggle(p[1], on);
+  });
+});
+
+})();
+</script>
+</body>
+</html>

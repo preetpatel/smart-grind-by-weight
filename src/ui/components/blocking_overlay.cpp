@@ -10,7 +10,7 @@ void BlockingOperationOverlay::init() {
     // Create overlay (initially hidden)
     overlay = lv_obj_create(lv_scr_act());
     lv_obj_set_size(overlay, LV_PCT(100), LV_PCT(100));
-    lv_obj_set_style_bg_color(overlay, lv_color_hex(THEME_COLOR_BACKGROUND), 0);
+    lv_obj_set_style_bg_color(overlay, lv_color_hex(UI_COLOR_BG), 0);
     lv_obj_set_style_bg_opa(overlay, THEME_OPACITY_OVERLAY, 0);
     lv_obj_set_style_border_width(overlay, 0, 0);
     lv_obj_set_style_pad_all(overlay, 0, 0);
@@ -34,13 +34,13 @@ void BlockingOperationOverlay::init() {
     // Create main label
     label = lv_label_create(content);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
 
     wait_label = lv_label_create(content);
     lv_label_set_text(wait_label, "Please Wait...");
     lv_obj_set_style_text_font(wait_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(wait_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_color(wait_label, lv_color_hex(UI_COLOR_DIM), 0);
     lv_obj_set_style_text_align(wait_label, LV_TEXT_ALIGN_CENTER, 0);
 
     // Hide initially
@@ -53,7 +53,7 @@ void BlockingOperationOverlay::init() {
 // Restores the in-progress presentation, undoing anything show_message() changed.
 void BlockingOperationOverlay::apply_blocking_style() {
     lv_obj_set_style_text_font(label, &lv_font_montserrat_32, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_clear_flag(wait_label, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -172,7 +172,7 @@ void BlockingOperationOverlay::show_message(const char* text, uint32_t duration_
 
     lv_obj_add_flag(wait_label, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_style_text_font(label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(label, lv_color_hex(THEME_COLOR_ERROR), 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_BAD), 0);
     lv_label_set_text(label, text);
     lv_label_set_long_mode(label, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(label, 240);

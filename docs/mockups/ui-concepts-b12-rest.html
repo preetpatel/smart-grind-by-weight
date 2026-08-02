@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>B12 — the rest of the UI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@200;300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --page-bg: #0b0b0c; --panel: #141416; --rule: #242428;
+    --ink: #ededef; --ink-dim: #8e8e96; --ink-faint: #5c5c64;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; background: var(--page-bg); color: var(--ink);
+    font-family: "Montserrat", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    position: sticky; top: 0; z-index: 20; background: rgba(11,11,12,.94);
+    backdrop-filter: blur(12px); border-bottom: 1px solid var(--rule); padding: 16px 30px 14px;
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0 0 3px; }
+  header p { font-size: 12px; color: var(--ink-faint); margin: 0; max-width: 820px; line-height: 1.55; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-top: 13px; }
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chips button {
+    font: inherit; font-size: 11.5px; font-weight: 500; color: var(--ink-dim);
+    background: transparent; border: 1px solid var(--rule); border-radius: 999px; padding: 6px 12px; cursor: pointer;
+  }
+  .chips button:hover { color: var(--ink); }
+  .chips button[aria-pressed="true"] { background: var(--ink); color: #16161a; border-color: var(--ink); }
+
+  main { padding: 26px 30px 80px; }
+  .section { margin-bottom: 44px; }
+  .section.hidden { display: none; }
+  .shead { max-width: 820px; margin-bottom: 18px; }
+  .shead h2 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+  .shead p { font-size: 13px; line-height: 1.6; color: var(--ink-dim); margin: 0; }
+  .row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .item { width: 296px; }
+  .frame {
+    position: relative; display: flex; justify-content: center; padding: 18px 0;
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 14px;
+  }
+  .screen {
+    position: relative; width: 280px; height: 456px; border-radius: 26px; overflow: hidden;
+    box-shadow: 0 0 0 1px #26262a, 0 14px 34px rgba(0,0,0,.5);
+    transform-origin: top center; transition: transform .18s;
+  }
+  body.zoom .screen { transform: scale(1.4); }
+  body.zoom .frame { height: 660px; align-items: flex-start; }
+  body.dim .screen { filter: brightness(.4); }
+  .badge {
+    position: absolute; top: 10px; left: 13px; z-index: 3; font-size: 10px; font-weight: 600;
+    letter-spacing: .1em; color: #3d3d44; text-transform: uppercase;
+  }
+  .cap { margin-top: 11px; }
+  .cap h3 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+  .cap p { font-size: 11.5px; line-height: 1.55; color: var(--ink-dim); margin: 0; }
+  footer {
+    border-top: 1px solid var(--rule); margin-top: 20px; padding: 22px 30px 60px;
+    font-size: 12.5px; line-height: 1.7; color: var(--ink-dim); max-width: 880px;
+  }
+  footer b { color: var(--ink); font-weight: 600; }
+  footer code {
+    font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 4px; padding: 1px 5px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>B12 — the rest of the UI</h1>
+  <p>Fifteen screens beyond the primary flow: tools, health, settings and the system screens. Same rules — one hero, a two-row context block, one action, live state instead of help text.</p>
+  <div class="bar">
+    <div class="chips" id="filters"></div>
+    <div class="chips">
+      <button id="btn-zoom" aria-pressed="false">Zoom 1.4×</button>
+      <button id="btn-dim" aria-pressed="false">Dimmed</button>
+    </div>
+  </div>
+</header>
+
+<main id="main"></main>
+
+<footer>
+  <p><b>What changed structurally.</b> Diagnostics stops being fourteen rows of numbers and becomes a verdict with the numbers underneath. Calibration becomes one instruction per screen instead of a step counter. Confirmations become sheets over the screen you were on, rather than <code>UIState::CONFIRM</code> — which is what lets the destructive actions stop looking like ordinary buttons.</p>
+  <p><b>How a row is written.</b> Left is a noun, right is a value, and neither half is half a sentence. “Then · restarts itself” and “Release · to stop” were both wrong for the same reason: the eye reads the left column as a category, so a verb on the right jars. Sentences move to a full-width note under the heading, instructions move into the action button’s subtitle, and rows keep only numbers, states and times.</p>
+  <p><b>Still honest about the data.</b> Everything shown exists: noise stats and motor latency from <code>WeightSensor</code>/<code>DiagnosticsController</code>, storage from the LittleFS partition, sync state from <code>CloudSync</code>, lifetime figures from <code>StatisticsManager</code>. The OTA screens mirror the real staging phases — PSRAM staging, CRC verify, apply — because those are the ones where telling someone not to unplug it actually matters.</p>
+</footer>
+
+<script>
+(function () {
+"use strict";
+
+var P = {
+  bg: "#000000", ink: "#f7f7f5", dim: "#8b8b85", faint: "#57574f",
+  line: "#1c1c1a", surface: "#121211", accent: "#f0b429",
+  ok: "#4fae5f", warn: "#e0912f", bad: "#e0563f"
+};
+
+/* ---------- primitives ---------- */
+function lbl(text, o) {
+  o = o || {};
+  return '<span style="font-size:' + (o.size || 11) + "px;font-weight:" + (o.weight || 500) +
+    ";letter-spacing:" + (o.track || ".16em") + ";text-transform:" + (o.up === false ? "none" : "uppercase") +
+    ";color:" + (o.color || P.dim) + ";line-height:1;white-space:nowrap;" + (o.extra || "") + '">' + text + "</span>";
+}
+function num(text, size, o) {
+  o = o || {};
+  return '<span style="font-size:' + size + "px;font-weight:" + (o.weight || 300) +
+    ";letter-spacing:" + (o.track || "-.02em") + ";color:" + (o.color || P.ink) +
+    ";line-height:" + (o.lh || 1) + ";font-variant-numeric:tabular-nums;white-space:nowrap;" + (o.extra || "") + '">' + text + "</span>";
+}
+function unit(text, size, o) {
+  o = o || {};
+  return '<span style="font-size:' + size + "px;font-weight:400;color:" + ((o || {}).color || P.dim) + ';">' + text + "</span>";
+}
+function hr(o) {
+  o = o || {};
+  return '<div style="height:1px;background:' + (o.color || P.line) + ";" + (o.extra || "") + '"></div>';
+}
+function panel(inner) { return '<div class="screen" style="background:' + P.bg + ";color:" + P.ink + '">' + inner + "</div>"; }
+
+function title(text, o) {
+  o = o || {};
+  return '<div style="position:absolute;left:24px;right:24px;top:' + (o.top || 26) + 'px">' +
+    lbl(text, { color: P.faint }) + "</div>";
+}
+function body(inner, o) {
+  o = o || {};
+  return '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:' +
+    (o.items || "center") + ';justify-content:center;padding:' + (o.pt || 0) + "px 26px " + (o.pb || 78) + 'px">' + inner + "</div>";
+}
+function ctx(rows) {
+  if (!rows || !rows.length) return "";
+  return '<div style="width:100%;margin-top:26px">' + hr({ extra: "margin-bottom:13px" }) +
+    rows.map(function (r, i) {
+      return '<div style="display:flex;justify-content:space-between;align-items:baseline;' + (i ? "margin-top:9px" : "") + '">' +
+        lbl(r[0], { size: 9.5, color: P.faint }) + num(r[1], 13, { color: r[2] || P.dim, weight: 400 }) + "</div>";
+    }).join("") + "</div>";
+}
+function hero(value, size, o) {
+  o = o || {};
+  return '<div style="display:flex;align-items:baseline;gap:6px">' +
+    num(value, size, { color: o.color, weight: o.weight }) +
+    (o.unit === false ? "" : unit(o.unit || "g", Math.round(size * 0.22))) + "</div>";
+}
+function bar(text, o) {
+  o = o || {};
+  var bg = o.disabled ? P.surface : (o.color || P.accent);
+  var ink = o.disabled ? P.faint : (o.ink || "#171206");
+  return '<div style="position:absolute;left:0;right:0;bottom:0;height:92px;background:' + bg +
+    ';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px">' +
+    lbl(text, { size: 15, weight: 600, track: ".18em", color: ink }) +
+    (o.sub ? lbl(o.sub, { size: 9.5, track: ".1em", color: o.disabled ? P.faint : "rgba(23,18,6,.6)" }) : "") + "</div>";
+}
+function ghostBar(text, o) {
+  o = o || {};
+  return '<div style="position:absolute;left:0;right:0;bottom:0;height:' + (o.h || 92) +
+    'px;border-top:1px solid ' + P.line + ';display:flex;align-items:center;justify-content:center">' +
+    lbl(text, { size: 15, weight: 600, track: ".18em", color: o.color || P.dim }) + "</div>";
+}
+function rows(list, o) {
+  o = o || {};
+  return list.map(function (r, i) {
+    return '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:' +
+      (o.pad || 12) + "px 0;" + (i < list.length - 1 ? "border-bottom:1px solid " + P.line + ";" : "") + '">' +
+      lbl(r[0], { size: 10, color: P.faint }) +
+      num(r[1], o.size || 14, { color: r[2] || P.dim, weight: 400 }) + "</div>";
+  }).join("");
+}
+function toggle(on) {
+  return '<div style="width:42px;height:24px;border-radius:13px;background:' + (on ? P.accent : P.line) +
+    ';position:relative;flex:0 0 auto"><i style="position:absolute;top:3px;' + (on ? "right:3px" : "left:3px") +
+    ';width:18px;height:18px;border-radius:50%;background:' + (on ? "#171206" : P.dim) + ';display:block"></i></div>';
+}
+function slider(pct, w) {
+  return '<div style="width:' + (w || 108) + 'px;height:4px;border-radius:2px;background:' + P.line + ';position:relative;flex:0 0 auto">' +
+    '<div style="position:absolute;left:0;top:0;height:4px;border-radius:2px;width:' + pct + '%;background:' + P.accent + '"></div>' +
+    '<i style="position:absolute;left:calc(' + pct + '% - 7px);top:-5px;width:14px;height:14px;border-radius:50%;background:' + P.ink + ';display:block"></i></div>';
+}
+function settingRow(name, sub, control, last) {
+  return '<div style="padding:13px 0;' + (last ? "" : "border-bottom:1px solid " + P.line + ";") + '">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px">' +
+    '<span style="font-size:14px;font-weight:500;color:' + P.ink + '">' + name + "</span>" + control + "</div>" +
+    (sub ? '<div style="margin-top:6px">' + lbl(sub, { size: 9.5, track: ".05em", color: P.faint }) + "</div>" : "") + "</div>";
+}
+function mark(color, glyph, size) {
+  size = size || 38;
+  return '<div style="width:' + size + "px;height:" + size + 'px;border-radius:50%;border:1.5px solid ' + color +
+    ';display:flex;align-items:center;justify-content:center;margin-bottom:20px">' + glyph + "</div>";
+}
+function check(size, color) {
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 20 20">' +
+    '<path d="M4 10.5 L8 14.5 L16 6" fill="none" stroke="' + color + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function bang(color, size) {
+  return '<span style="font-size:' + (size || 19) + "px;font-weight:600;color:" + color + '">!</span>';
+}
+function ring(frac, size, w, color) {
+  var r = size / 2 - w, len = 2 * Math.PI * r;
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + " " + size + '">' +
+    '<circle cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" fill="none" stroke="' + P.line + '" stroke-width="' + w + '"/>' +
+    '<circle cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" fill="none" stroke="' + (color || P.accent) +
+    '" stroke-width="' + w + '" stroke-linecap="round" transform="rotate(-90 ' + size / 2 + " " + size / 2 +
+    ')" stroke-dasharray="' + len.toFixed(1) + '" stroke-dashoffset="' + (len * (1 - frac)).toFixed(1) + '"/></svg>';
+}
+function meter(pct, color) {
+  return '<div style="width:100%;height:5px;border-radius:3px;background:' + P.line + ';overflow:hidden">' +
+    '<div style="width:' + pct + '%;height:100%;background:' + (color || P.accent) + '"></div></div>';
+}
+/* a sheet rising over whatever screen you were on */
+function sheet(under, inner) {
+  return '<div style="position:absolute;inset:0;filter:brightness(.32)">' + under + "</div>" +
+    '<div style="position:absolute;left:0;right:0;bottom:0;background:' + P.surface +
+    ';border-top:1px solid ' + P.line + ';border-radius:22px 22px 0 0;padding:26px 24px 0">' + inner + "</div>";
+}
+/* stand-in for the ready screen when something is layered over it */
+function readyUnder() {
+  return '<div style="position:absolute;inset:0;background:' + P.bg + '">' +
+    '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:78px">' +
+    lbl("Double", { size: 12, extra: "margin-bottom:18px" }) + hero("21.5", 88) + "</div>" +
+    '<div style="position:absolute;left:0;right:0;bottom:0;height:92px;background:' + P.accent + '"></div></div>';
+}
+
+/* ---------- TOOLS ---------- */
+var TOOLS = [
+  { badge: "Scale", name: "Scale", note: "The live weight, full size, with the stability the algorithm cares about stated rather than implied. Tare is the whole bottom of the screen because it is the only thing you came here to do.",
+    render: function () {
+      return panel(title("Scale") + body(
+        hero("142.6", 76) + ctx([["Reading", "stable", P.ok], ["Noise", "±0.01 g"]])
+      ) + bar("Tare"));
+    }},
+  { badge: "Calibrate", name: "Calibrate · empty",
+    note: "One instruction per screen, no step counter. The live reading is shown because watching it settle is how you know when to press.",
+    render: function () {
+      return panel(title("Calibrate") + body(
+        '<span style="font-size:20px;font-weight:500;color:' + P.ink + ';text-align:center;line-height:1.4;margin-bottom:26px">Take everything<br>off the scale</span>' +
+        hero("0.2", 62, { color: P.dim }) + ctx([["Reading", "settling…"], ["Last calibrated", "12 June"]])
+      ) + bar("Continue", { disabled: true, sub: "waiting for it to settle" }));
+    }},
+  { badge: "Calibrate", name: "Calibrate · weight",
+    note: "The target weight is editable in place, and the button only wakes up when the reading is stable within tolerance. No way to calibrate against a wobbling scale.",
+    render: function () {
+      return panel(title("Calibrate") + body(
+        '<span style="font-size:20px;font-weight:500;color:' + P.ink + ';text-align:center;line-height:1.4;margin-bottom:24px">Place the<br>100 g weight</span>' +
+        hero("99.8", 62) + ctx([["Reading", "stable", P.ok], ["Target", "100.0 g"]])
+      ) + bar("Calibrate"));
+    }},
+  { badge: "Calibrate", name: "Calibrate · done",
+    note: "Ends with a verdict, not a factor. The number is there for anyone who wants it, but the sentence is what tells you the machine is fit to grind.",
+    render: function () {
+      return panel(body(
+        mark(P.ok, check(17, P.ok)) +
+        '<span style="font-size:20px;font-weight:500;color:' + P.ink + '">Calibrated</span>' +
+        '<span style="font-size:12px;color:' + P.dim + ';margin-top:10px;text-align:center;line-height:1.5">Resolution is 0.01 g and holding steady</span>' +
+        ctx([["Factor", "2144.86"], ["Drift", "+0.3% since June"]])
+      ) + bar("Done"));
+    }},
+  { badge: "Tune", name: "Tune pulses",
+    note: "Autotune currently runs as a bar and a number. Showing each pulse landing against prediction makes it legible — and makes the cross-session gain it is learning mean something.",
+    render: function () {
+      var dots = [1, 1, 1, 0, 0, 0, 0, 0, 0, 0].map(function (done, i) {
+        return '<div style="width:16px;height:16px;border-radius:50%;background:' +
+          (done ? P.accent : "transparent") + ";border:1px solid " + (done ? P.accent : P.line) + '"></div>';
+      }).join("");
+      return panel(title("Tune pulses") + body(
+        hero("0.14", 62, { unit: "g" }) +
+        lbl("this pulse", { size: 10, color: P.faint, extra: "margin-top:12px" }) +
+        '<div style="display:flex;gap:6px;justify-content:center;width:100%;margin-top:26px">' + dots + "</div>" +
+        ctx([["Pulse", "3 of 10"], ["Gain", "0.98 → 1.02"]])
+      ) + ghostBar("Stop"));
+    }},
+  { badge: "Motor", name: "Motor test",
+    note: "Hold to run, release to stop — the safety is the interaction, not a confirmation. The runtime counter is the thing being tested, so it is the hero.",
+    render: function () {
+      return panel(title("Motor test") + body(
+        '<div style="position:relative;display:flex;align-items:center;justify-content:center;margin-bottom:22px">' +
+        ring(0.34, 176, 4) +
+        '<div style="position:absolute;display:flex;flex-direction:column;align-items:center">' +
+        hero("1.4", 54, { unit: "s" }) + lbl("running", { size: 10, color: P.accent, extra: "margin-top:10px" }) + "</div></div>" +
+        ctx([["Motor", "running", P.accent], ["Total runtime", "3 h 51 m"]])
+      , { pb: 92 }) + bar("Hold", { sub: "keep your finger down" }));
+    }}
+];
+
+/* ---------- HEALTH & INFO ---------- */
+var INFO = [
+  { badge: "Health", name: "Health",
+    note: "Fourteen diagnostic rows become a verdict plus the three numbers behind it. Everything else moves to the report the dashboard already renders over BLE.",
+    render: function () {
+      return panel(title("Health") + body(
+        mark(P.ok, check(17, P.ok)) +
+        '<span style="font-size:20px;font-weight:500;color:' + P.ink + '">All good</span>' +
+        '<span style="font-size:12px;color:' + P.dim + ';margin-top:9px">Nothing needs attention</span>' +
+        '<div style="width:100%;margin-top:26px">' + hr() +
+        rows([["Calibration", "0.01 g steps", P.ok], ["Noise", "±0.01 g · 1 step", P.ok], ["Motor latency", "220 ms"]]) + "</div>"
+      ) + ghostBar("Run noise test"));
+    }},
+  { badge: "Health", name: "Health · warning",
+    note: "When something is wrong the verdict says what to do about it, in the sentence, before any numbers. Same layout, different temperature.",
+    render: function () {
+      return panel(title("Health") + body(
+        mark(P.warn, bang(P.warn)) +
+        '<span style="font-size:20px;font-weight:500;color:' + P.ink + ';text-align:center;line-height:1.4">Scale is noisy</span>' +
+        '<span style="font-size:12px;color:' + P.dim + ';margin-top:9px;text-align:center;line-height:1.5;max-width:210px">Move it off the drainer or away from the fridge</span>' +
+        '<div style="width:100%;margin-top:24px">' + hr() +
+        rows([["Noise", "±0.06 g · 6 steps", P.warn], ["Last week", "±0.01 g"], ["Impact", "overshooting pulses"]]) + "</div>"
+      ) + ghostBar("Run noise test"));
+    }},
+  { badge: "Noise", name: "Noise test",
+    note: "A thirty-second capture that demands stillness, so the screen does one job: count down and say hands off. The result replaces the countdown in place.",
+    render: function () {
+      return panel(title("Noise test") + body(
+        '<div style="position:relative;display:flex;align-items:center;justify-content:center;margin-bottom:24px">' +
+        ring(0.68, 200, 4) +
+        '<div style="position:absolute;display:flex;flex-direction:column;align-items:center">' +
+        hero("21", 66, { unit: "s" }) + lbl("remaining", { size: 10, color: P.faint, extra: "margin-top:11px" }) + "</div></div>" +
+        '<span style="font-size:13px;color:' + P.dim + ';text-align:center;line-height:1.5">Hands off the grinder<br>and the bench</span>'
+      , { pb: 92 }) + ghostBar("Cancel"));
+    }},
+  { badge: "Stats", name: "Lifetime",
+    note: "The odometer, readable. One hero, three supporting figures, and a note that means something to an owner rather than to a developer.",
+    render: function () {
+      return panel(title("Lifetime") + body(
+        hero("1,284", 78, { unit: false }) +
+        lbl("grinds", { size: 11, color: P.faint, extra: "margin-top:12px" }) +
+        '<div style="width:100%;margin-top:24px">' + hr() +
+        rows([["Coffee", "23.1 kg"], ["Motor", "3 h 51 m"], ["Accuracy", "±0.04 g", P.ok], ["Burrs", "9% of 250 kg"]]) + "</div>"
+      ) + ghostBar("Back"));
+    }},
+  { badge: "Data", name: "Logs & data",
+    note: "Storage as a bar rather than three counts, because “how full is it” is the only question. Both destructive actions sit under a rule, in the serious colour, away from the thumb.",
+    render: function () {
+      return panel(title("Logs & data") + body(
+        hero("142", 74, { unit: false }) +
+        lbl("sessions on the grinder", { size: 10, color: P.faint, extra: "margin-top:12px" }) +
+        '<div style="width:100%;margin-top:24px">' + meter(70) +
+        '<div style="display:flex;justify-content:space-between;margin-top:10px">' +
+        lbl("2.1 of 3.0 MB", { size: 9.5, color: P.faint }) +
+        lbl("oldest purge automatically", { size: 9.5, color: P.faint }) + "</div>" +
+        '<div style="margin-top:20px">' + hr() + "</div>" +
+        '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-bottom:1px solid ' + P.line + '">' +
+        '<span style="font-size:14px;font-weight:500;color:' + P.ink + '">Logging</span>' + toggle(true) + "</div>" +
+        '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 0">' +
+        lbl("Erase all logs", { size: 12, color: P.bad, track: ".06em", up: false, weight: 500 }) +
+        lbl("Factory reset", { size: 12, color: P.bad, track: ".06em", up: false, weight: 500 }) + "</div></div>"
+      , { pb: 92 }) + ghostBar("Back"));
+    }},
+  { badge: "Info", name: "System info",
+    note: "The nameplate. Version is the hero because it is the only line anyone ever reads out loud — usually to me, in a bug report.",
+    render: function () {
+      return panel(title("System") + body(
+        hero("v1.4.2", 56, { unit: false }) +
+        lbl("build #1284", { size: 10, color: P.faint, extra: "margin-top:12px" }) +
+        '<div style="width:100%;margin-top:24px">' + hr() +
+        rows([["Uptime", "12 d 4 h"], ["Memory", "184 kB free"], ["Clock", "synced 9:12"], ["Device", "A4:C1:38:9F"]]) + "</div>"
+      ) + ghostBar("Back"));
+    }}
+];
+
+/* ---------- SETTINGS ---------- */
+var SETTINGS = [
+  { badge: "Network", name: "Network",
+    note: "Bluetooth, Wi-Fi and backup were three pages saying similar things. One page, three rows, each carrying its own live state — and only the row that needs an action gets one.",
+    render: function () {
+      return panel(title("Network") + '<div style="position:absolute;left:24px;right:24px;top:60px">' +
+        settingRow("Bluetooth", "connected · web app", toggle(true)) +
+        settingRow("Wi-Fi", "Kitchen · synced 9:12", toggle(true)) +
+        settingRow("Backup", "up to date · 1,284 grinds", toggle(true), true) +
+        '<div style="margin-top:22px">' + hr({ extra: "margin-bottom:14px" }) + "</div>" +
+        '<div style="display:flex;justify-content:space-between">' +
+        lbl("Forget network", { size: 11, color: P.dim, up: false, track: ".04em" }) +
+        lbl("Forget backup", { size: 11, color: P.dim, up: false, track: ".04em" }) + "</div></div>" +
+        ghostBar("Back"));
+    }},
+  { badge: "Network", name: "Network · not set up",
+    note: "Unprovisioned, the page stops pretending to be a settings list and becomes an instruction. This is the state most new owners actually meet.",
+    render: function () {
+      return panel(title("Network") + body(
+        mark(P.dim, '<span style="font-size:17px;color:' + P.dim + '">?</span>') +
+        '<span style="font-size:18px;font-weight:500;color:' + P.ink + ';text-align:center;line-height:1.45">Wi-Fi isn\'t set up</span>' +
+        '<span style="font-size:12px;color:' + P.dim + ';margin-top:11px;text-align:center;line-height:1.55;max-width:212px">Connect from the web app over Bluetooth — the grinder has no keyboard</span>' +
+        ctx([["Bluetooth", "advertising", P.ok], ["Wi-Fi", "not set up"]])
+      ) + ghostBar("Back"));
+    }},
+  { badge: "Display", name: "Display",
+    note: "Sliders show the value they are setting; the clock-face toggle says when it will actually appear rather than describing what it is.",
+    render: function () {
+      return panel(title("Display") + '<div style="position:absolute;left:24px;right:24px;top:60px">' +
+        settingRow("Brightness", "70%", slider(70)) +
+        settingRow("Screensaver", "dims to 15% after 5 min", slider(15)) +
+        settingRow("Clock face", "fills the screen after 5 min idle", toggle(true)) +
+        settingRow("24-hour", "9:41 PM", toggle(false), true) + "</div>" +
+        ghostBar("Back"));
+    }},
+  { badge: "Settings", name: "All settings",
+    note: "The overflow list for everything that isn't a daily concern. Rows still carry state, so it stays scannable rather than becoming the old thirteen-item inventory.",
+    render: function () {
+      var list = [["Grind", "weight · double"], ["Purging", "1.0 g · after 8 h"], ["Automation", "start on cup"],
+                  ["Display", "70%"], ["Network", "Wi-Fi · Bluetooth"], ["Logs & data", "142 sessions"],
+                  ["Health", "all good"], ["System", "v1.4.2"]];
+      return panel(title("All settings") +
+        '<div style="position:absolute;left:0;right:0;top:58px">' +
+        list.map(function (r, i) {
+          return '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 24px;' +
+            (i < list.length - 1 ? "border-bottom:1px solid " + P.line + ";" : "") + '">' +
+            '<span style="font-size:14px;font-weight:500;color:' + P.ink + '">' + r[0] + "</span>" +
+            num(r[1], 11.5, { color: P.faint, weight: 400 }) + "</div>";
+        }).join("") + "</div>" + ghostBar("Back"));
+    }}
+];
+
+/* ---------- SYSTEM ---------- */
+var SYSTEM = [
+  { badge: "Update", name: "Update · receiving",
+    note: "The transfer, named. Percentage plus what it is doing, because the interesting failure is a dropped link halfway — and that is survivable, so the screen shouldn't look fatal.",
+    render: function () {
+      return panel(body(
+        '<div style="position:relative;display:flex;align-items:center;justify-content:center;margin-bottom:26px">' +
+        ring(0.42, 206, 5) +
+        '<div style="position:absolute;display:flex;flex-direction:column;align-items:center">' +
+        hero("42", 62, { unit: "%" }) + lbl("receiving", { size: 10, color: P.faint, extra: "margin-top:11px" }) + "</div></div>" +
+        '<span style="font-size:13px;color:' + P.dim + ';text-align:center;line-height:1.5">Keep the web app open<br>and the grinder plugged in</span>'
+      , { pb: 40 }));
+    }},
+  { badge: "Update", name: "Update · applying",
+    note: "The phase where power loss is genuinely dangerous gets a different colour and drops the percentage — because it is not linear, and a stalled bar reads as a crash.",
+    render: function () {
+      return panel(body(
+        mark(P.warn, bang(P.warn), 44) +
+        '<span style="font-size:20px;font-weight:500;color:' + P.ink + '">Applying update</span>' +
+        '<span style="font-size:13px;color:' + P.warn + ';margin-top:12px;text-align:center;line-height:1.5">Do not unplug. It restarts<br>itself when finished.</span>' +
+        ctx([["Checksum", "verified", P.ok], ["Remaining", "about 60 s"]])
+      , { pb: 40 }));
+    }},
+  { badge: "Update", name: "Update · failed",
+    note: "Says which stage failed and that the old firmware is still there — the boot guard and the untouched OTA slot are the reassuring part, so they belong on screen.",
+    render: function () {
+      return panel(body(
+        mark(P.bad, bang(P.bad)) +
+        '<span style="font-size:20px;font-weight:500;color:' + P.ink + '">Update failed</span>' +
+        '<span style="font-size:12px;color:' + P.dim + ';margin-top:11px;text-align:center;line-height:1.55;max-width:210px">The transfer stopped partway. Nothing was written — v1.4.2 is still running.</span>' +
+        ctx([["Stage", "receiving · 61%", P.bad], ["Running", "v1.4.2 · unchanged"]])
+      ) + bar("Done", { color: P.surface, ink: P.ink }));
+    }},
+  { badge: "Confirm", name: "Destructive confirm",
+    note: "A sheet over the screen you were on rather than a whole UIState. It names the cost in the sentence — 142 sessions — and the dangerous button is the one that isn't amber.",
+    render: function () {
+      return panel(sheet(readyUnder(),
+        '<span style="font-size:19px;font-weight:600;color:' + P.ink + ';display:block;margin-bottom:12px">Factory reset?</span>' +
+        '<span style="font-size:13px;color:' + P.dim + ';line-height:1.55;display:block">Erases 142 sessions, your three profiles and the calibration. The grinder restarts as new.</span>' +
+        '<div style="display:flex;gap:10px;margin-top:24px;margin-bottom:24px">' +
+        '<div style="flex:1;height:52px;border-radius:14px;background:' + P.accent + ';display:flex;align-items:center;justify-content:center">' +
+        lbl("Cancel", { size: 12, weight: 600, color: "#171206", track: ".12em" }) + "</div>" +
+        '<div style="flex:1;height:52px;border-radius:14px;border:1px solid ' + P.bad + ';display:flex;align-items:center;justify-content:center">' +
+        lbl("Reset", { size: 12, weight: 600, color: P.bad, track: ".12em" }) + "</div></div>"));
+    }},
+  { badge: "Busy", name: "Busy overlay",
+    note: "For the blocking operations that already exist. It says what it is doing and roughly how long, because an unexplained frozen screen is how a working grinder gets unplugged.",
+    render: function () {
+      return panel('<div style="position:absolute;inset:0;filter:brightness(.3)">' + readyUnder() + "</div>" +
+        '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">' +
+        ring(0.3, 74, 3) +
+        '<span style="font-size:15px;font-weight:500;color:' + P.ink + ';margin-top:22px">Saving profiles</span>' +
+        '<span style="font-size:11.5px;color:' + P.dim + ';margin-top:9px">a moment</span></div>');
+    }}
+];
+
+/* ---------- build ---------- */
+var main = document.getElementById("main");
+function section(id, title2, blurb, items) {
+  return '<section class="section" data-f="' + id + '">' +
+    '<div class="shead"><h2>' + title2 + "</h2><p>" + blurb + "</p></div><div class=\"row\">" +
+    items.map(function (it) {
+      return '<div class="item"><div class="frame"><span class="badge">' + it.badge + "</span>" + it.render() +
+        '</div><div class="cap"><h3>' + it.name + "</h3><p>" + it.note + "</p></div></div>";
+    }).join("") + "</div></section>";
+}
+
+main.innerHTML =
+  section("tools", "Tools", "Scale, calibration, pulse tuning, motor test. These are the screens you meet rarely and need to get right first time, so each one carries a single instruction and refuses to advance until the reading justifies it.", TOOLS) +
+  section("info", "Health &amp; information", "The diagnostics page is currently fourteen rows of numbers with no verdict. These lead with the verdict and keep the numbers as evidence.", INFO) +
+  section("settings", "Settings", "Bluetooth, Wi-Fi and Cloud Sync were three near-identical pages; they collapse into one Network page. Everything not a daily concern moves behind “All settings”.", SETTINGS) +
+  section("system", "System moments", "Updates, confirmations and blocking work — the screens where being clear about what is happening is the whole job.", SYSTEM);
+
+var filters = document.getElementById("filters");
+filters.innerHTML = [["all", "Everything"], ["tools", "Tools"], ["info", "Health & info"], ["settings", "Settings"], ["system", "System"]]
+  .map(function (f, i) { return '<button data-f="' + f[0] + '"' + (i === 0 ? ' aria-pressed="true"' : "") + ">" + f[1] + "</button>"; }).join("");
+filters.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-f]");
+  if (!b) return;
+  filters.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+  document.querySelectorAll(".section").forEach(function (s) {
+    s.classList.toggle("hidden", b.dataset.f !== "all" && s.dataset.f !== b.dataset.f);
+  });
+});
+var urlF = new URLSearchParams(location.search).get("filter");
+if (urlF) { var t = filters.querySelector('[data-f="' + urlF + '"]'); if (t) t.click(); }
+
+["btn-zoom:zoom", "btn-dim:dim"].forEach(function (pair) {
+  var p = pair.split(":"), b = document.getElementById(p[0]);
+  b.addEventListener("click", function () {
+    var on = b.getAttribute("aria-pressed") !== "true";
+    b.setAttribute("aria-pressed", String(on));
+    document.body.classList.toggle(p[1], on);
+  });
+});
+
+})();
+</script>
+</body>
+</html>

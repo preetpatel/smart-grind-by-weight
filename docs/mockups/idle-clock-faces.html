@@ -1,0 +1,1715 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Idle clock face — options &amp; configurator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@200;300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --page-bg: #0b0b0c;
+    --panel: #141416;
+    --panel-2: #1a1a1d;
+    --rule: #242428;
+    --ink: #ededef;
+    --ink-dim: #8e8e96;
+    --ink-faint: #5c5c64;
+    --star: #e8b44a;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--ink);
+    font-family: "Montserrat", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ============ layout ============ */
+  .app { display: flex; align-items: flex-start; }
+
+  aside {
+    position: sticky;
+    top: 0;
+    flex: 0 0 292px;
+    height: 100vh;
+    overflow-y: auto;
+    border-right: 1px solid var(--rule);
+    background: #0e0e10;
+    padding: 20px 20px 60px;
+  }
+  aside::-webkit-scrollbar { width: 8px; }
+  aside::-webkit-scrollbar-thumb { background: #26262b; border-radius: 4px; }
+
+  .brand { margin-bottom: 4px; }
+  .brand h1 { font-size: 15px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .brand p { font-size: 11.5px; color: var(--ink-faint); margin: 0; line-height: 1.5; }
+
+  .grp {
+    margin-top: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+  }
+  .grp:first-of-type { border-top: 0; }
+  .grp > h3 {
+    font-size: 10px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 600;
+    margin: 0 0 12px;
+  }
+
+  .field { margin-bottom: 14px; }
+  .field > label {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 11.5px;
+    color: var(--ink-dim);
+    margin-bottom: 7px;
+    font-weight: 500;
+  }
+  .field > label b {
+    color: var(--ink);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    font-size: 11px;
+  }
+
+  .seg { display: flex; gap: 4px; flex-wrap: wrap; }
+  .seg button {
+    flex: 1 1 auto;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--ink-dim);
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 6px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .12s, background .12s, border-color .12s;
+  }
+  .seg button:hover { color: var(--ink); border-color: #34343a; }
+  .seg button[aria-pressed="true"] { background: var(--ink); color: #16161a; border-color: var(--ink); }
+
+  input[type=range] {
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 3px;
+    background: #2a2a2f;
+    border-radius: 2px;
+    outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--ink);
+    cursor: pointer;
+    border: 0;
+  }
+
+  .swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+  .swatch {
+    width: 30px; height: 30px;
+    border-radius: 7px;
+    border: 1px solid var(--rule);
+    cursor: pointer;
+    padding: 0;
+    position: relative;
+  }
+  .swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); border-color: transparent; }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--ink-dim);
+    padding: 7px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .toggle-row:hover { color: var(--ink); }
+  .sw {
+    width: 34px; height: 19px;
+    border-radius: 10px;
+    background: #2a2a2f;
+    position: relative;
+    transition: background .15s;
+    flex: 0 0 auto;
+  }
+  .sw::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: #77777f;
+    transition: transform .15s, background .15s;
+  }
+  .toggle-row[aria-pressed="true"] .sw { background: #3d6b45; }
+  .toggle-row[aria-pressed="true"] .sw::after { transform: translateX(15px); background: #b9f0c4; }
+
+  .btn-row { display: flex; gap: 6px; margin-top: 10px; }
+  .btn {
+    font: inherit; font-size: 11.5px; font-weight: 500;
+    color: var(--ink-dim);
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    flex: 1;
+  }
+  .btn:hover { color: var(--ink); border-color: #34343a; }
+
+  /* ============ grid ============ */
+  main { flex: 1 1 auto; padding: 26px 30px 100px; min-width: 0; }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  .count { font-size: 12px; color: var(--ink-faint); }
+  .filters { display: flex; gap: 5px; flex-wrap: wrap; }
+  .filters button {
+    font: inherit; font-size: 11.5px; font-weight: 500;
+    color: var(--ink-dim);
+    background: transparent;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .filters button:hover { color: var(--ink); }
+  .filters button[aria-pressed="true"] { background: var(--ink); color: #16161a; border-color: var(--ink); }
+
+  .section-head {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 12px 0 -6px;
+  }
+  .section-head h2 {
+    font-size: 11px;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    font-weight: 600;
+    margin: 0;
+  }
+  .section-head .line { flex: 1; height: 1px; background: var(--rule); }
+
+  #grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(316px, 1fr));
+    gap: 30px 24px;
+    align-items: start;
+  }
+
+  .option { display: flex; flex-direction: column; gap: 12px; }
+  .option.hidden { display: none; }
+
+  .frame-wrap {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    padding: 20px 0;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    transition: border-color .12s;
+  }
+  .frame-wrap:hover { border-color: #3a3a41; }
+
+  .star {
+    position: absolute;
+    top: 10px; right: 10px;
+    width: 28px; height: 28px;
+    border-radius: 7px;
+    border: 0;
+    background: transparent;
+    color: #3d3d44;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    z-index: 3;
+  }
+  .star:hover { color: #6e6e78; background: var(--panel-2); }
+  .option.starred .star { color: var(--star); }
+
+  .idx {
+    position: absolute;
+    top: 12px; left: 14px;
+    font-size: 10.5px;
+    color: #3d3d44;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    letter-spacing: .08em;
+    z-index: 3;
+  }
+
+  /* the real panel: 280 x 456 */
+  .screen {
+    position: relative;
+    width: 280px;
+    height: 456px;
+    background: #000;
+    border-radius: 26px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px #26262a, 0 16px 40px rgba(0,0,0,.55);
+    cursor: zoom-in;
+    transform-origin: top center;
+    transition: transform .18s ease, filter .2s;
+  }
+
+  .shift {
+    position: absolute;
+    inset: 0;
+    transition: transform .6s cubic-bezier(.2,.8,.2,1);
+  }
+
+  .caption h4 {
+    font-size: 13.5px; font-weight: 600; margin: 0 0 5px; letter-spacing: -0.005em;
+  }
+  .caption p { font-size: 12px; line-height: 1.55; color: var(--ink-dim); margin: 0 0 7px; }
+  .tags { display: flex; gap: 5px; flex-wrap: wrap; }
+  .tag {
+    font-size: 10px; font-weight: 500; letter-spacing: .05em; text-transform: uppercase;
+    color: var(--ink-faint); border: 1px solid var(--rule); border-radius: 5px; padding: 3px 6px;
+  }
+  .tag.warn { color: #c9903f; border-color: #382c1a; }
+  .tag.ok { color: #6fae7d; border-color: #1e3123; }
+
+  /* ============ solo overlay ============ */
+  #solo {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(6,6,7,.9);
+    backdrop-filter: blur(10px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 54px;
+    padding: 40px;
+  }
+  #solo.on { display: flex; }
+  #solo .screen { cursor: default; transform: scale(1.7); }
+  #solo .stage { width: 280px; height: 780px; display: flex; align-items: center; }
+  #solo .meta { max-width: 340px; }
+  #solo .meta h3 { font-size: 20px; margin: 0 0 10px; font-weight: 600; }
+  #solo .meta p { font-size: 13.5px; line-height: 1.6; color: var(--ink-dim); }
+  #solo .hint { font-size: 11.5px; color: var(--ink-faint); margin-top: 22px; }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    margin-top: 50px;
+    padding: 22px 2px 40px;
+    color: var(--ink-dim);
+    font-size: 12.5px;
+    line-height: 1.7;
+    max-width: 840px;
+  }
+  footer b { color: var(--ink); font-weight: 600; }
+  footer code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--rule);
+    border-radius: 4px; padding: 1px 5px;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+<aside>
+  <div class="brand">
+    <h1>Idle clock face</h1>
+    <p><b id="total-a">–</b> options for the grinder's standby screen. Every panel is the real 280 × 456 at 1:1, in Montserrat, on true black.</p>
+  </div>
+
+  <div class="grp">
+    <h3>Clock</h3>
+    <div class="field">
+      <label>Hour format</label>
+      <div class="seg" data-seg="h24">
+        <button data-val="0">12-hour</button>
+        <button data-val="1">24-hour</button>
+      </div>
+    </div>
+    <div class="toggle-row" data-toggle="leadingZero"><span>Leading zero on hour</span><i class="sw"></i></div>
+    <div class="toggle-row" data-toggle="seconds"><span>Show seconds</span><i class="sw"></i></div>
+    <div class="toggle-row" data-toggle="blink"><span>Blinking colon</span><i class="sw"></i></div>
+  </div>
+
+  <div class="grp">
+    <h3>Type</h3>
+    <div class="field">
+      <label>Size <b data-out="scale">100%</b></label>
+      <input type="range" min="60" max="145" value="100" data-range="scale" />
+    </div>
+    <div class="field">
+      <label>Weight <b data-out="weight">300</b></label>
+      <input type="range" min="200" max="600" step="100" value="300" data-range="weight" />
+    </div>
+    <div class="field">
+      <label>Letter spacing <b data-out="tracking">-2%</b></label>
+      <input type="range" min="-60" max="40" value="-20" data-range="tracking" />
+    </div>
+  </div>
+
+  <div class="grp">
+    <h3>Colour</h3>
+    <div class="field">
+      <label>Ink</label>
+      <div class="swatches" data-swatch="ink"></div>
+    </div>
+    <div class="field">
+      <label>Accent</label>
+      <div class="swatches" data-swatch="accent"></div>
+    </div>
+    <div class="field">
+      <label>Secondary contrast <b data-out="dimLevel">40%</b></label>
+      <input type="range" min="15" max="85" value="40" data-range="dimLevel" />
+    </div>
+  </div>
+
+  <div class="grp">
+    <h3>Layout</h3>
+    <div class="field">
+      <label>Vertical position</label>
+      <div class="seg" data-seg="align">
+        <button data-val="top">Top</button>
+        <button data-val="center">Centre</button>
+        <button data-val="bottom">Bottom</button>
+      </div>
+    </div>
+    <div class="field">
+      <label>Second line</label>
+      <div class="seg" data-seg="extra">
+        <button data-val="none">None</button>
+        <button data-val="date">Date</button>
+        <button data-val="grind">Last grind</button>
+      </div>
+      <div class="seg" data-seg="extra" style="margin-top:4px">
+        <button data-val="status">Status</button>
+        <button data-val="beans">Beans</button>
+        <button data-val="today">Today</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="grp">
+    <h3>Panel</h3>
+    <div class="field">
+      <label>Backlight <b data-out="bright">100%</b></label>
+      <input type="range" min="15" max="100" value="100" data-range="bright" />
+    </div>
+    <div class="field">
+      <label>Pixel-shift radius <b data-out="shiftPx">8 px</b></label>
+      <input type="range" min="0" max="24" value="8" data-range="shiftPx" />
+    </div>
+    <div class="toggle-row" data-toggle="shift"><span>Animate pixel-shift</span><i class="sw"></i></div>
+    <div class="toggle-row" data-toggle="fast"><span>Fast clock (1 min/s)</span><i class="sw"></i></div>
+    <div class="toggle-row" data-toggle="zoom"><span>Zoom panels 1.45×</span><i class="sw"></i></div>
+  </div>
+
+  <div class="grp">
+    <h3>Session</h3>
+    <div class="btn-row">
+      <button class="btn" id="btn-copy">Copy starred</button>
+      <button class="btn" id="btn-reset">Reset</button>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="btn-export">Copy settings JSON</button>
+    </div>
+  </div>
+</aside>
+
+<main>
+  <div class="topbar">
+    <div class="filters" id="filters"></div>
+    <div class="count"><span id="count">44</span> options · <span id="starcount">0</span> starred</div>
+  </div>
+  <div id="grid"></div>
+
+  <footer>
+    <p><b>How to use this.</b> The sidebar retunes every panel at once, so you can judge a size, a weight or a colour across the whole set rather than one at a time. Click any panel to see it at 1.7×. Star the ones worth pursuing and hit <em>Copy starred</em> — paste the result back to me and I'll build them properly.</p>
+    <p><b>Font reality.</b> <code>lv_conf.h</code> compiles Montserrat 14/16/24/28/32/36/48/56/60 today. Anything larger needs a generated font next to the existing custom 56/60 declarations; a digits-only subset costs a few KB rather than the ~40 KB of a full face. The size slider tells you which options survive being pulled back under 60 px.</p>
+    <p><b>Burn-in.</b> Large fixed shapes — rings, rails, frames — are riskier than small centred type, because the ±8 px shift is small relative to the shape. Options in <em>Minimal</em> are designed as a second stage after <code>USER_IDLE_CLOCK_DIM_DELAY_MS</code> rather than as faces in their own right. Seconds and a blinking colon both mean a redraw every second — cheap for the CPU, worse for a panel that sits lit for hours.</p>
+  </footer>
+</main>
+</div>
+
+<div id="solo">
+  <div class="stage"><div class="screen" id="solo-screen"><div class="shift" id="solo-shift"></div></div></div>
+  <div class="meta">
+    <h3 id="solo-title"></h3>
+    <p id="solo-note"></p>
+    <div class="tags" id="solo-tags"></div>
+    <p class="hint">Click anywhere or press Esc to close. The sidebar still drives this panel.</p>
+  </div>
+</div>
+
+<script>
+(function () {
+"use strict";
+
+/* ================= config ================= */
+var DEFAULTS = {
+  h24: 0, leadingZero: false, seconds: false, blink: false,
+  scale: 100, weight: 300, tracking: -20,
+  ink: "#ffffff", accent: "#ff3d00", dimLevel: 40,
+  align: "center", extra: "none",
+  bright: 100, shiftPx: 8, shift: false, fast: false, zoom: false
+};
+var cfg = Object.assign({}, DEFAULTS);
+
+var INKS = ["#ffffff", "#f2e7d5", "#ffb45c", "#ff3d00", "#00aaff", "#8fd18f"];
+var ACCENTS = ["#ff3d00", "#ffb45c", "#00aaff", "#00aa00", "#cc8800", "#ffffff"];
+
+/* ================= helpers ================= */
+function hexToRgb(h) {
+  return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+}
+function mix(hex, f) {                       // f 0..1 toward black
+  var c = hexToRgb(hex);
+  return "rgb(" + c.map(function (v) { return Math.round(v * f); }).join(",") + ")";
+}
+function ink() { return cfg.ink; }
+function sec() { return mix(cfg.ink, cfg.dimLevel / 100); }
+function faint() { return mix(cfg.ink, cfg.dimLevel / 260); }
+function ghost() { return mix(cfg.ink, 0.07); }
+function acc() { return cfg.accent; }
+function fs(n) { return Math.round(n * cfg.scale / 100); }
+function tr() { return (cfg.tracking / 1000) + "em"; }
+function wt() { return cfg.weight; }
+
+/* Base style for a digit run */
+function num(size, opts) {
+  opts = opts || {};
+  return "font-size:" + fs(size) + "px;font-weight:" + (opts.weight || wt()) +
+         ";letter-spacing:" + (opts.tracking || tr()) +
+         ";line-height:" + (opts.lh || 1) +
+         ";color:" + (opts.color || ink()) +
+         ";font-variant-numeric:tabular-nums;" + (opts.extra || "");
+}
+function lbl(size, opts) {
+  opts = opts || {};
+  return "font-size:" + fs(size) + "px;font-weight:500;letter-spacing:" + (opts.tracking || ".18em") +
+         ";text-transform:uppercase;color:" + (opts.color || faint()) + ";line-height:1;" + (opts.extra || "");
+}
+
+function align(pad) {
+  pad = pad === undefined ? 46 : pad;
+  if (cfg.align === "top") return "justify-content:flex-start;padding-top:" + pad + "px;";
+  if (cfg.align === "bottom") return "justify-content:flex-end;padding-bottom:" + pad + "px;";
+  return "justify-content:center;";
+}
+function box(inner, opts) {
+  opts = opts || {};
+  return '<div style="position:absolute;inset:0;display:flex;flex-direction:column;' +
+         "align-items:" + (opts.items || "center") + ";" + align(opts.pad) +
+         (opts.pl ? "padding-left:" + opts.pl + "px;" : "") +
+         (opts.pr ? "padding-right:" + opts.pr + "px;" : "") +
+         '">' + inner + "</div>";
+}
+
+/* the shared, configurable second line */
+function extraLine(s) {
+  var e = cfg.extra;
+  if (e === "none") return "";
+  var body = "";
+  if (e === "date") {
+    body = '<span style="' + lbl(14) + '">' + s.weekdayShort + " " + s.day + " " + s.monthShort + "</span>";
+  } else if (e === "grind") {
+    body = '<span style="' + lbl(13) + '">Last</span>' +
+           '<span style="' + num(20, { color: sec(), weight: 400 }) + '">18.2<span style="font-size:' + fs(13) + 'px;color:' + faint() + '">g</span></span>' +
+           '<span style="' + lbl(13) + '">2 h ago</span>';
+  } else if (e === "status") {
+    body = chip("#4fae5f", "Wi-Fi") + chip(acc(), "BLE") + chip(mix(cfg.ink, .22), "Synced 9:12");
+  } else if (e === "beans") {
+    body = '<span style="' + lbl(13) + '">Beans</span>' +
+           '<div style="flex:1;height:3px;border-radius:2px;background:' + ghost() + ';overflow:hidden">' +
+           '<div style="width:62%;height:100%;background:' + sec() + '"></div></div>' +
+           '<span style="' + num(14, { color: sec(), weight: 500 }) + '">62%</span>';
+  } else if (e === "today") {
+    body = '<span style="' + lbl(13) + '">Today</span>' +
+           '<span style="' + num(18, { color: sec(), weight: 400 }) + '">3 grinds · 54.2 g</span>';
+  }
+  return '<div style="position:absolute;left:26px;right:26px;bottom:32px;">' +
+         '<div style="height:1px;background:' + ghost() + ';margin-bottom:13px"></div>' +
+         '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px">' + body + "</div></div>";
+}
+function chip(color, text) {
+  return '<span style="display:flex;align-items:center;gap:6px;' + lbl(12, { tracking: ".08em" }) + '">' +
+         '<i style="width:5px;height:5px;border-radius:50%;background:' + color + ';display:block"></i>' + text + "</span>";
+}
+
+/* ================= time state ================= */
+var fastMinutes = 0;
+var WD = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+var MO = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+function state() {
+  var d = new Date();
+  if (cfg.fast) d = new Date(d.getTime() + fastMinutes * 60000);
+  var h24 = d.getHours(), m = d.getMinutes(), sc = d.getSeconds();
+  var h12 = h24 % 12 || 12;
+  var hRaw = cfg.h24 ? h24 : h12;
+  var hh = (cfg.h24 || cfg.leadingZero) ? String(hRaw).padStart(2, "0") : String(hRaw);
+  var mm = String(m).padStart(2, "0");
+  var ss = String(sc).padStart(2, "0");
+  var colon = (cfg.blink && sc % 2 === 1) ? " " : ":";
+  return {
+    d: d, h24: h24, h12: h12, m: m, s: sc,
+    hh: hh, mm: mm, ss: ss, colon: colon,
+    time: hh + colon + mm + (cfg.seconds ? ":" + ss : ""),
+    timeNoSec: hh + colon + mm,
+    mer: cfg.h24 ? "" : (h24 < 12 ? "AM" : "PM"),
+    weekday: WD[d.getDay()].toUpperCase(),
+    weekdayShort: WD[d.getDay()].slice(0, 3).toUpperCase(),
+    day: d.getDate(),
+    month: MO[d.getMonth()],
+    monthShort: MO[d.getMonth()].slice(0, 3).toUpperCase(),
+    minFrac: (m + sc / 60) / 60,
+    hourFrac: ((h24 % 12) + m / 60) / 12,
+    dayFrac: (h24 * 60 + m) / 1440
+  };
+}
+
+/* ================= drawing helpers ================= */
+function svg(w, h, body, style) {
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + " " + h + '" style="' + (style || "") + '">' + body + "</svg>";
+}
+function ring(cx, cy, r, frac, color, width, track) {
+  var len = 2 * Math.PI * r;
+  var out = "";
+  if (track) out += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + track + '" stroke-width="' + width + '"/>';
+  out += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="' + width +
+         '" stroke-linecap="round" transform="rotate(-90 ' + cx + " " + cy + ')" stroke-dasharray="' + len.toFixed(1) +
+         '" stroke-dashoffset="' + (len * (1 - frac)).toFixed(1) + '"/>';
+  return out;
+}
+function hand(cx, cy, angleDeg, length, width, color) {
+  return '<line x1="' + cx + '" y1="' + cy + '" x2="' + cx + '" y2="' + (cy - length) + '" stroke="' + color +
+         '" stroke-width="' + width + '" stroke-linecap="round" transform="rotate(' + angleDeg.toFixed(2) + " " + cx + " " + cy + ')"/>';
+}
+function dots12(cx, cy, r, big, small) {
+  var out = "";
+  for (var i = 0; i < 12; i++) {
+    var a = (i / 12) * Math.PI * 2;
+    var x = cx + Math.sin(a) * r, y = cy - Math.cos(a) * r;
+    var q = i % 3 === 0;
+    out += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + (q ? 3 : 1.6) + '" fill="' + (q ? big : small) + '"/>';
+  }
+  return out;
+}
+
+/* 5x7 dot-matrix digits */
+var MATRIX = {
+  "0": ["01110","10001","10011","10101","11001","10001","01110"],
+  "1": ["00100","01100","00100","00100","00100","00100","01110"],
+  "2": ["01110","10001","00001","00010","00100","01000","11111"],
+  "3": ["11111","00010","00100","00010","00001","10001","01110"],
+  "4": ["00010","00110","01010","10010","11111","00010","00010"],
+  "5": ["11111","10000","11110","00001","00001","10001","01110"],
+  "6": ["00110","01000","10000","11110","10001","10001","01110"],
+  "7": ["11111","00001","00010","00100","01000","01000","01000"],
+  "8": ["01110","10001","10001","01110","10001","10001","01110"],
+  "9": ["01110","10001","10001","01111","00001","00010","01100"]
+};
+function matrixTime(text, unit, litColor, offColor) {
+  var gap = unit * 1.55, x = 0, body = "";
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (ch === ":" || ch === " ") {
+      if (ch === ":") {
+        [2, 4].forEach(function (row) {
+          body += '<circle cx="' + (x + unit / 2) + '" cy="' + (row * gap + unit / 2) + '" r="' + (unit / 2) + '" fill="' + litColor + '"/>';
+        });
+      }
+      x += gap * 1.6;
+      continue;
+    }
+    var pat = MATRIX[ch];
+    for (var r = 0; r < 7; r++) for (var c = 0; c < 5; c++) {
+      var on = pat[r][c] === "1";
+      if (!on && offColor === null) continue;
+      body += '<circle cx="' + (x + c * gap + unit / 2).toFixed(1) + '" cy="' + (r * gap + unit / 2).toFixed(1) +
+              '" r="' + (unit / 2) + '" fill="' + (on ? litColor : offColor) + '"/>';
+    }
+    x += gap * 5.9;
+  }
+  return { body: body, w: x, h: 6 * gap + unit };
+}
+
+/* seven-segment */
+var SEG = { "0":"abcdef","1":"bc","2":"abdeg","3":"abcdg","4":"bcfg","5":"acdfg","6":"acdefg","7":"abc","8":"abcdefg","9":"abcdfg" };
+function segmentTime(text, scale, litColor, offColor) {
+  var w = 44 * scale, h = 84 * scale, t = 8 * scale, g = 2.5 * scale, x = 0, body = "";
+  for (var i = 0; i < text.length; i++) {
+    var ch = text[i];
+    if (ch === ":" || ch === " ") {
+      if (ch === ":") {
+        [h * 0.28, h * 0.66].forEach(function (cy) {
+          body += '<rect x="' + (x + 2) + '" y="' + cy + '" width="' + t + '" height="' + t + '" rx="1" fill="' + litColor + '"/>';
+        });
+      }
+      x += t * 2.4;
+      continue;
+    }
+    var on = SEG[ch] || "";
+    var p = {
+      a: [x + t / 2 + g, 0, w - t - 2 * g, t],
+      b: [x + w - t, t / 2 + g, t, h / 2 - t / 2 - 2 * g],
+      c: [x + w - t, h / 2 + t / 2 + g, t, h / 2 - t / 2 - 2 * g],
+      d: [x + t / 2 + g, h - t, w - t - 2 * g, t],
+      e: [x, h / 2 + t / 2 + g, t, h / 2 - t / 2 - 2 * g],
+      f: [x, t / 2 + g, t, h / 2 - t / 2 - 2 * g],
+      g: [x + t / 2 + g, h / 2 - t / 2, w - t - 2 * g, t]
+    };
+    Object.keys(p).forEach(function (k) {
+      var lit = on.indexOf(k) !== -1;
+      if (!lit && offColor === null) return;
+      body += '<rect x="' + p[k][0].toFixed(1) + '" y="' + p[k][1].toFixed(1) + '" width="' + p[k][2].toFixed(1) +
+              '" height="' + p[k][3].toFixed(1) + '" rx="1.5" fill="' + (lit ? litColor : offColor) + '"/>';
+    });
+    x += w * 1.22;
+  }
+  return { body: body, w: x, h: h };
+}
+
+/* word clock */
+var UNITS = ["TWELVE","ONE","TWO","THREE","FOUR","FIVE","SIX","SEVEN","EIGHT","NINE","TEN","ELEVEN"];
+var MINW = { 0:null, 5:["FIVE","PAST"], 10:["TEN","PAST"], 15:["QUARTER","PAST"], 20:["TWENTY","PAST"],
+             25:["TWENTY FIVE","PAST"], 30:["HALF","PAST"], 35:["TWENTY FIVE","TO"], 40:["TWENTY","TO"],
+             45:["QUARTER","TO"], 50:["TEN","TO"], 55:["FIVE","TO"] };
+function words(s) {
+  var m = Math.round(s.m / 5) * 5, h = s.h24;
+  if (m >= 60) { m = 0; h += 1; }
+  if (m > 30) h += 1;
+  var name = UNITS[h % 12];
+  if (m === 0) return [name, "O’CLOCK"];
+  return [MINW[m][0], MINW[m][1], name];
+}
+
+/* ================= faces ================= */
+var GROUPS = [
+  { id: "type", name: "Typographic" },
+  { id: "geo", name: "Geometric" },
+  { id: "analog", name: "Analog" },
+  { id: "ctx", name: "Contextual" },
+  { id: "min", name: "Minimal / deep idle" }
+];
+
+var FACES = [];
+function face(o) { FACES.push(o); }
+
+/* ---------- Typographic ---------- */
+face({ id: "current", g: "type", name: "Current — 60 px centred",
+  note: "What ships today. Correct and calm, but it fills about a fifth of a 456 px panel, so it reads as a screensaver that forgot to finish.",
+  tags: [["ok","Shipping"],["","No new font"]], extra: true,
+  render: function (s) {
+    return box('<div style="display:flex;align-items:baseline;gap:8px">' +
+      '<span style="' + num(60, { weight: 400 }) + '">' + s.time + "</span>" +
+      (s.mer ? '<span style="' + num(24, { color: sec(), weight: 400 }) + '">' + s.mer + "</span>" : "") + "</div>");
+  }});
+
+face({ id: "monolith", g: "type", name: "Monolith — stacked, 128 px",
+  note: "Hours over minutes turns the awkward portrait ratio into the point. Minutes drop to grey so the glance lands on the hour first.",
+  tags: [["warn","128 px font"],["","~2× lit pixels"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + num(128, { lh: .92 }) + '">' + s.hh + "</span>" +
+      '<span style="' + num(128, { lh: .92, color: sec() }) + '">' + s.mm + "</span>" +
+      (cfg.seconds ? '<span style="' + num(34, { color: faint(), lh: 1.6 }) + '">' + s.ss + "</span>" : "") +
+      (s.mer ? '<span style="' + lbl(14, { extra: "margin-top:14px" }) + '">' + s.mer + "</span>" : ""));
+  }});
+
+face({ id: "monolith-left", g: "type", name: "Monolith, flush left",
+  note: "Same stack pushed to the left edge and cropped by it. Asymmetry is what stops a big clock looking like a default.",
+  tags: [["warn","120 px font"],["","Strong posture"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + num(120, { lh: .9 }) + '">' + s.hh + "</span>" +
+      '<span style="' + num(120, { lh: .9, color: sec() }) + '">' + s.mm + "</span>",
+      { items: "flex-start", pl: 24 });
+  }});
+
+face({ id: "dated", g: "type", name: "Dated — day, time, date",
+  note: "Three lines with a hairline between the fact you asked for and the one you didn't. The device knows the real date once SNTP or a BLE client has synced.",
+  tags: [["warn","84 px font"],["ok","Data exists"]],
+  render: function (s) {
+    return box('<span style="' + lbl(16, { tracking: ".22em" }) + '">' + s.weekday + "</span>" +
+      '<span style="' + num(84, { extra: "margin:18px 0 16px" }) + '">' + s.time + "</span>" +
+      '<div style="width:96px;height:1px;background:' + ghost() + ';margin-bottom:16px"></div>' +
+      '<span style="' + num(20, { color: sec(), weight: 400 }) + '">' + s.day + " " + s.month + "</span>");
+  }});
+
+face({ id: "oneline", g: "type", name: "One line, edge to edge",
+  note: "A single 96 px line tightened until it just clears both margins. The most conventional way to be bigger, and the easiest to get right.",
+  tags: [["warn","96 px font"],["","Breaks with seconds"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + num(96, { tracking: "-.05em" }) + '">' + s.timeNoSec + "</span>" +
+      (s.mer ? '<span style="' + lbl(14, { extra: "margin-top:18px" }) + '">' + s.mer + "</span>" : ""));
+  }});
+
+face({ id: "outline", g: "type", name: "Outline",
+  note: "Huge but hollow: a 104 px numeral lit only along its edge costs fewer pixels than today's 60 px solid one.",
+  tags: [["warn","Outline font needed"],["ok","Very low lit-pixel count"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + num(104, { weight: 200 }) + ";color:transparent;-webkit-text-stroke:1.5px " + ink() + '">' + s.timeNoSec + "</span>" +
+      (s.mer ? '<span style="' + lbl(13, { extra: "margin-top:22px" }) + '">' + s.mer + "</span>" : ""));
+  }});
+
+face({ id: "hollow-mix", g: "type", name: "Solid hour, hollow minutes",
+  note: "The hierarchy done with weight of light rather than size: the hour is the thing you read, the minutes are there if you look.",
+  tags: [["warn","Outline font needed"],["","Distinctive"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + num(112, { lh: .95 }) + '">' + s.hh + "</span>" +
+      '<span style="' + num(112, { lh: .95, weight: 200 }) + ";color:transparent;-webkit-text-stroke:1.4px " + sec() + '">' + s.mm + "</span>");
+  }});
+
+face({ id: "spaced", g: "type", name: "No colon, wide set",
+  note: "Drop the colon, open the tracking. Reads as an object rather than a readout — the trick a lot of watch faces use to look expensive.",
+  tags: [["warn","104 px font"],["ok","Fewer glyphs"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + num(104, { tracking: ".02em" }) + '">' + s.hh + '<span style="color:' + ghost() + '">·</span>' + s.mm + "</span>");
+  }});
+
+face({ id: "vertical", g: "type", name: "Rotated 90°",
+  note: "Time set along the tall axis. Genuinely unusual on a 280 × 456 panel, and a nod to the fact this is a machine you look down at.",
+  tags: [["warn","Needs transform/canvas"],["","Polarising"]],
+  render: function (s) {
+    return box('<span style="' + num(88) + ";transform:rotate(90deg);white-space:nowrap" + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "superscript", g: "type", name: "Hour with raised minutes",
+  note: "One dominant numeral, minutes tucked up on the shoulder like a footnote. Fastest read in the set if you only care what hour it is.",
+  tags: [["warn","140 px font"],["ok","Low pixel count"]], extra: true,
+  render: function (s) {
+    return box('<div style="display:flex;align-items:flex-start;gap:6px">' +
+      '<span style="' + num(140, { lh: .85 }) + '">' + s.hh + "</span>" +
+      '<span style="' + num(44, { color: sec(), weight: 400, lh: 1.1 }) + '">' + s.mm + "</span></div>");
+  }});
+
+face({ id: "rightrail", g: "type", name: "Flush right with rail",
+  note: "Time hard against the right margin, a vertical hairline holding the left. Turns dead space into structure instead of padding.",
+  tags: [["warn","84 px font"],["","Static rail — burn-in"]], extra: true,
+  render: function (s) {
+    return '<div style="position:absolute;left:34px;top:70px;bottom:70px;width:1px;background:' + ghost() + '"></div>' +
+      box('<span style="' + num(84) + '">' + s.timeNoSec + "</span>" +
+        (s.mer ? '<span style="' + lbl(13, { extra: "margin-top:14px" }) + '">' + s.mer + "</span>" : ""),
+        { items: "flex-end", pr: 26 });
+  }});
+
+face({ id: "divided", g: "type", name: "Rule between hours and minutes",
+  note: "The stack with a hairline doing the work the colon used to. Quiet, editorial, and it survives being scaled down.",
+  tags: [["warn","100 px font"],["ok","Scales down well"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + num(100, { lh: 1 }) + '">' + s.hh + "</span>" +
+      '<div style="width:130px;height:1px;background:' + ghost() + ';margin:14px 0"></div>' +
+      '<span style="' + num(100, { lh: 1, color: sec() }) + '">' + s.mm + "</span>");
+  }});
+
+face({ id: "twotone", g: "type", name: "Accent minutes",
+  note: "Minutes carry the accent colour — the only place on the idle screen the brand hue appears. Try it against each swatch in the sidebar.",
+  tags: [["warn","112 px font"],["","Colour on idle"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + num(112, { lh: .95 }) + '">' + s.hh + "</span>" +
+      '<span style="' + num(112, { lh: .95, color: acc() }) + '">' + s.mm + "</span>");
+  }});
+
+face({ id: "spellhour", g: "type", name: "Spelled hour, numeric minutes",
+  note: "Half word clock, half readout: the hour reads as language, the minutes stay exact. Keeps precision the word clock throws away.",
+  tags: [["ok","Existing fonts"],["","Locale-bound"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + lbl(30, { tracking: ".08em", color: sec() }) + '">' + UNITS[s.h12 % 12] + "</span>" +
+      '<span style="' + num(96, { extra: "margin-top:10px" }) + '">' + s.mm + "</span>");
+  }});
+
+face({ id: "frame", g: "type", name: "Framed",
+  note: "A hairline rectangle inset from the bezel with the time inside. Makes the panel feel intentionally composed rather than centred by default.",
+  tags: [["ok","No new font"],["warn","Static frame — burn-in"]],
+  render: function (s) {
+    return '<div style="position:absolute;inset:26px;border:1px solid ' + ghost() + ';border-radius:18px"></div>' +
+      box('<span style="' + num(64, { weight: 400 }) + '">' + s.time + "</span>" +
+        (s.mer ? '<span style="' + lbl(13, { extra: "margin-top:14px" }) + '">' + s.mer + "</span>" : ""));
+  }});
+
+face({ id: "kicker", g: "type", name: "Kicker over time",
+  note: "A small line of language above the numerals — the grinder saying what it is, not just when it is. Change the word per state later.",
+  tags: [["ok","Existing fonts"],["","Voice"]], extra: true,
+  render: function (s) {
+    return box('<span style="' + lbl(14, { tracking: ".3em", extra: "margin-bottom:16px" }) + '">Ready to grind</span>' +
+      '<span style="' + num(78) + '">' + s.time + "</span>");
+  }});
+
+/* ---------- Geometric ---------- */
+face({ id: "minutering", g: "geo", name: "Minute ring",
+  note: "The grind screen's arc, repurposed: the ring fills across the hour. Something visibly moves without paying for a seconds digit.",
+  tags: [["ok","Native lv_arc"],["warn","Static ring — burn-in"]], extra: true,
+  render: function (s) {
+    return '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">' +
+      svg(236, 236, ring(118, 118, 112, s.minFrac, ink(), 2, ghost())) + "</div>" +
+      box('<span style="' + num(60, { weight: 400 }) + '">' + s.timeNoSec + "</span>" +
+        (s.mer ? '<span style="' + lbl(13, { extra: "margin-top:12px" }) + '">' + s.mer + "</span>" : ""));
+  }});
+
+face({ id: "dualarc", g: "geo", name: "Two arcs, no digits",
+  note: "Outer arc is the hour of twelve, inner is the minute of sixty. You read it like a gauge. Beautiful, and useless the first three times.",
+  tags: [["ok","Two lv_arcs"],["warn","Learning curve"]],
+  render: function (s) {
+    return '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">' +
+      svg(240, 240,
+        ring(120, 120, 114, s.hourFrac, ink(), 3, ghost()) +
+        ring(120, 120, 92, s.minFrac, sec(), 3, ghost())) + "</div>";
+  }});
+
+face({ id: "arcdigits", g: "geo", name: "Arc with small time",
+  note: "The gauge with a get-out clause: a small exact time in the middle for when you actually need the number.",
+  tags: [["ok","Native lv_arc"],["ok","Readable"]],
+  render: function (s) {
+    return '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">' +
+      svg(240, 240, ring(120, 120, 114, s.hourFrac, sec(), 3, ghost()) + ring(120, 120, 96, s.minFrac, ink(), 3, "transparent")) + "</div>" +
+      box('<span style="' + num(40, { weight: 400 }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "barclock", g: "geo", name: "Two bars",
+  note: "Hour and minute as horizontal fills with the numbers on their ends. Reads instantly at a glance and costs almost no lit area.",
+  tags: [["ok","Native bars"],["ok","Low pixels"]], extra: true,
+  render: function (s) {
+    function bar(labelText, frac, valueText, color) {
+      return '<div style="width:212px;margin-bottom:26px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px">' +
+        '<span style="' + lbl(12) + '">' + labelText + "</span>" +
+        '<span style="' + num(24, { weight: 400, color: color }) + '">' + valueText + "</span></div>" +
+        '<div style="height:4px;border-radius:2px;background:' + ghost() + ';overflow:hidden">' +
+        '<div style="width:' + (frac * 100).toFixed(1) + '%;height:100%;background:' + color + '"></div></div></div>';
+    }
+    return box(bar("Hour", s.hourFrac, s.hh, ink()) + bar("Minute", s.minFrac, s.mm, sec()));
+  }});
+
+face({ id: "columns", g: "geo", name: "Twin columns",
+  note: "Two full-height columns filling with the hour and the minute. Architectural, and the tall panel is finally being used as a tall panel.",
+  tags: [["ok","Native bars"],["warn","Large lit area"]],
+  render: function (s) {
+    function col(frac, valueText, color) {
+      return '<div style="position:relative;width:74px;height:330px;border-radius:8px;background:' + ghost() + ';overflow:hidden">' +
+        '<div style="position:absolute;left:0;right:0;bottom:0;height:' + (frac * 100).toFixed(1) + '%;background:' + color + '"></div>' +
+        '<span style="position:absolute;left:0;right:0;top:12px;text-align:center;' + num(26, { weight: 500, color: ink() }) + '">' + valueText + "</span></div>";
+    }
+    return box('<div style="display:flex;gap:16px">' + col(s.hourFrac, s.hh, mix(cfg.ink, .22)) + col(s.minFrac, s.mm, mix(cfg.ink, .35)) + "</div>");
+  }});
+
+face({ id: "matrix", g: "geo", name: "Dot matrix",
+  note: "5 × 7 dots with the unlit ones left faintly visible, so it reads as a physical display. Very machine, very legible, zero font cost.",
+  tags: [["ok","Drawn, no font"],["","Retro"]], extra: true,
+  render: function (s) {
+    var mt = matrixTime(s.timeNoSec, 7, ink(), ghost());
+    return box(svg(Math.ceil(mt.w), Math.ceil(mt.h), mt.body) +
+      (s.mer ? '<span style="' + lbl(13, { extra: "margin-top:24px" }) + '">' + s.mer + "</span>" : ""));
+  }});
+
+face({ id: "matrix-big", g: "geo", name: "Dot matrix, stacked",
+  note: "The same grid stacked two-up so the dots can get big enough to see across the room. This is the one that looks like hardware.",
+  tags: [["ok","Drawn, no font"],["","Bold"]],
+  render: function (s) {
+    var a = matrixTime(s.hh, 11, ink(), ghost());
+    var b = matrixTime(s.mm, 11, sec(), ghost());
+    return box(svg(Math.ceil(a.w), Math.ceil(a.h), a.body) +
+      '<div style="height:20px"></div>' + svg(Math.ceil(b.w), Math.ceil(b.h), b.body));
+  }});
+
+face({ id: "segment", g: "geo", name: "Seven-segment",
+  note: "Ghost segments left visible so it reads as a real appliance display rather than a font choice. The one option nobody mistakes for a phone.",
+  tags: [["ok","Drawn, no font"],["","Divisive"]], extra: true,
+  render: function (s) {
+    var g = segmentTime(s.timeNoSec, 1.0, ink(), ghost());
+    return box(svg(Math.ceil(g.w), Math.ceil(g.h), g.body) +
+      (s.mer ? '<span style="' + lbl(13, { extra: "margin-top:26px" }) + '">' + s.mer + "</span>" : ""));
+  }});
+
+face({ id: "segment-stack", g: "geo", name: "Seven-segment, stacked",
+  note: "Segments at nearly double size, hours over minutes. Unmissable from the doorway; unmistakably an appliance.",
+  tags: [["ok","Drawn, no font"],["warn","Large lit area"]],
+  render: function (s) {
+    var a = segmentTime(s.hh, 1.5, ink(), ghost());
+    var b = segmentTime(s.mm, 1.5, sec(), ghost());
+    return box(svg(Math.ceil(a.w), Math.ceil(a.h), a.body) + '<div style="height:18px"></div>' +
+      svg(Math.ceil(b.w), Math.ceil(b.h), b.body));
+  }});
+
+face({ id: "ticksweep", g: "geo", name: "Minute sweep",
+  note: "Sixty ticks; elapsed minutes lit dim, the current one bright. The face changes every minute in a way you can catch out of the corner of your eye.",
+  tags: [["ok","Drawn"],["warn","Many lit pixels"]],
+  render: function (s) {
+    var body = "";
+    for (var i = 0; i < 60; i++) {
+      var a = (i / 60) * Math.PI * 2;
+      var inner = i === s.m ? 96 : 106, outer = 118;
+      var x1 = 124 + Math.sin(a) * inner, y1 = 124 - Math.cos(a) * inner;
+      var x2 = 124 + Math.sin(a) * outer, y2 = 124 - Math.cos(a) * outer;
+      var color = i === s.m ? ink() : (i < s.m ? mix(cfg.ink, .28) : ghost());
+      body += '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) +
+              '" stroke="' + color + '" stroke-width="' + (i === s.m ? 2.5 : 1.5) + '" stroke-linecap="round"/>';
+    }
+    return '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">' + svg(248, 248, body) + "</div>" +
+      box('<span style="' + num(44, { weight: 400 }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "dayarc", g: "geo", name: "Day arc",
+  note: "A dot travelling a horizon from midnight to midnight. Tells you roughly where you are in the day before it tells you the time — which is often the real question.",
+  tags: [["ok","Drawn"],["","Ambient"]],
+  render: function (s) {
+    var th = Math.PI * (1 - s.dayFrac);
+    var x = 140 + 110 * Math.cos(th), y = 210 - 110 * Math.sin(th);
+    var body = '<path d="M 30 210 A 110 110 0 0 1 250 210" fill="none" stroke="' + ghost() + '" stroke-width="1.5"/>' +
+      '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="6" fill="' + acc() + '"/>' +
+      '<line x1="20" y1="210" x2="260" y2="210" stroke="' + ghost() + '" stroke-width="1"/>';
+    return '<div style="position:absolute;left:0;right:0;top:56px;display:flex;justify-content:center">' + svg(280, 226, body) + "</div>" +
+      '<div style="position:absolute;left:0;right:0;bottom:66px;display:flex;flex-direction:column;align-items:center">' +
+      '<span style="' + num(58, { weight: 400 }) + '">' + s.timeNoSec + "</span>" +
+      (s.mer ? '<span style="' + lbl(13, { extra: "margin-top:12px" }) + '">' + s.mer + "</span>" : "") + "</div>";
+  }});
+
+face({ id: "binary", g: "geo", name: "Binary dots",
+  note: "Four columns of bits, read bottom-up. Nobody needs this and some people will love it. Costs almost nothing to light.",
+  tags: [["ok","Lowest pixels"],["warn","Not a clock, a puzzle"]],
+  render: function (s) {
+    var cols = [s.hh[0] | 0, s.hh[1] | 0, s.mm[0] | 0, s.mm[1] | 0];
+    var body = "";
+    cols.forEach(function (v, ci) {
+      for (var b = 0; b < 4; b++) {
+        var on = (v >> b) & 1;
+        body += '<circle cx="' + (24 + ci * 44) + '" cy="' + (140 - b * 40) + '" r="' + (on ? 9 : 5) + '" fill="' + (on ? ink() : ghost()) + '"/>';
+      }
+    });
+    return box(svg(190, 170, body));
+  }});
+
+face({ id: "splitflap", g: "geo", name: "Split-flap",
+  note: "Two cards with the hairline seam of a departures board. Skeuomorphic on purpose — it makes the panel feel like a mechanism.",
+  tags: [["warn","Large lit area"],["","Charming"]],
+  render: function (s) {
+    function card(text) {
+      return '<div style="position:relative;width:180px;height:120px;border-radius:12px;background:' + mix(cfg.ink, .05) +
+        ';display:flex;align-items:center;justify-content:center;overflow:hidden">' +
+        '<span style="' + num(84, { weight: 400 }) + '">' + text + "</span>" +
+        '<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:#000"></div></div>';
+    }
+    return box(card(s.hh) + '<div style="height:14px"></div>' + card(s.mm));
+  }});
+
+/* ---------- Analog ---------- */
+face({ id: "analog-dots", g: "analog", name: "Analog hairline",
+  note: "Twelve dots and two hands — around 2% of pixels lit, which is what a panel that stays on for hours wants. Looks like a machine at rest.",
+  tags: [["ok","Lowest burn-in"],["warn","Hands need canvas"]], extra: true,
+  render: function (s) {
+    var body = dots12(130, 130, 116, sec(), ghost()) +
+      hand(130, 130, s.hourFrac * 360, 64, 3.5, ink()) +
+      hand(130, 130, s.minFrac * 360, 96, 2, sec()) +
+      (cfg.seconds ? hand(130, 130, (s.s / 60) * 360, 104, 1, acc()) : "") +
+      '<circle cx="130" cy="130" r="3.5" fill="' + ink() + '"/>';
+    return '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">' + svg(260, 260, body) + "</div>";
+  }});
+
+face({ id: "analog-braun", g: "analog", name: "Analog — one marker",
+  note: "No ticks at all except twelve, in the accent colour. The most reduced thing here that still reads instantly as a clock.",
+  tags: [["ok","Very low pixels"],["ok","Timeless"]], extra: true,
+  render: function (s) {
+    var body = '<circle cx="130" cy="16" r="4" fill="' + acc() + '"/>' +
+      hand(130, 130, s.hourFrac * 360, 68, 5, ink()) +
+      hand(130, 130, s.minFrac * 360, 100, 3, sec()) +
+      '<circle cx="130" cy="130" r="4" fill="#000" stroke="' + ink() + '" stroke-width="2"/>';
+    return '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">' + svg(260, 260, body) + "</div>";
+  }});
+
+face({ id: "analog-ring", g: "analog", name: "Analog in a ring",
+  note: "Hands inside a full hairline circle. The ring is a static lit shape, so pair it with a shorter dim delay or a bigger shift radius.",
+  tags: [["warn","Static ring — burn-in"],["ok","Classic"]],
+  render: function (s) {
+    var body = '<circle cx="130" cy="130" r="118" fill="none" stroke="' + ghost() + '" stroke-width="1.5"/>' +
+      dots12(130, 130, 100, sec(), ghost()) +
+      hand(130, 130, s.hourFrac * 360, 58, 4, ink()) +
+      hand(130, 130, s.minFrac * 360, 88, 2.5, sec()) +
+      '<circle cx="130" cy="130" r="3" fill="' + ink() + '"/>';
+    return '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">' + svg(262, 262, body) + "</div>";
+  }});
+
+face({ id: "analog-num", g: "analog", name: "Analog with quarters",
+  note: "12, 3, 6, 9 spelled out in numerals so it can be read by someone who has never seen this grinder before. The friendliest analog option.",
+  tags: [["ok","Existing 24 px font"],["","Busiest analog"]],
+  render: function (s) {
+    var body = "";
+    [[130, 38, "12"], [222, 138, "3"], [130, 238, "6"], [40, 138, "9"]].forEach(function (p) {
+      body += '<text x="' + p[0] + '" y="' + p[1] + '" text-anchor="middle" fill="' + sec() +
+        '" font-family="Montserrat" font-size="' + fs(22) + '" font-weight="500">' + p[2] + "</text>";
+    });
+    body += hand(130, 130, s.hourFrac * 360, 62, 4, ink()) +
+      hand(130, 130, s.minFrac * 360, 92, 2.5, sec()) +
+      '<circle cx="130" cy="130" r="3.5" fill="' + ink() + '"/>';
+    return '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">' + svg(260, 264, body) + "</div>";
+  }});
+
+face({ id: "analog-digital", g: "analog", name: "Analog over digital",
+  note: "Small analog on top, exact time beneath. Belt and braces — and it fills the tall panel with two things that agree with each other.",
+  tags: [["ok","Existing fonts"],["","Two ideas"]],
+  render: function (s) {
+    var body = dots12(90, 90, 80, sec(), ghost()) +
+      hand(90, 90, s.hourFrac * 360, 44, 3, ink()) +
+      hand(90, 90, s.minFrac * 360, 66, 2, sec()) +
+      '<circle cx="90" cy="90" r="2.5" fill="' + ink() + '"/>';
+    return box(svg(180, 180, body) +
+      '<span style="' + num(52, { weight: 400, extra: "margin-top:34px" }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+/* ---------- Contextual ---------- */
+face({ id: "lastgrind", g: "ctx", name: "Last grind",
+  note: "The question you actually have walking up to a sleeping grinder: did the last one land? Time keeps the top two-thirds; the result sits below a rule.",
+  tags: [["ok","Data exists"],["ok","Earns its keep"]],
+  render: function (s) {
+    return '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:104px">' +
+      '<span style="' + num(76) + '">' + s.timeNoSec + "</span>" +
+      (s.mer ? '<span style="' + lbl(15, { extra: "margin-top:10px" }) + '">' + s.mer + "</span>" : "") + "</div>" +
+      '<div style="position:absolute;left:32px;right:32px;bottom:44px">' +
+      '<div style="height:1px;background:' + ghost() + ';margin-bottom:14px"></div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">' +
+      '<span style="' + lbl(13) + '">Last grind</span><span style="' + lbl(13, { tracking: ".04em" }) + '">2 h ago</span></div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
+      '<span style="' + num(28, { weight: 400 }) + '">18.2<span style="font-size:' + fs(15) + "px;color:" + faint() + '">g</span></span>' +
+      '<span style="' + lbl(13, { tracking: ".04em" }) + '">target 18.0 g</span></div></div>';
+  }});
+
+face({ id: "status", g: "ctx", name: "Standby status",
+  note: "Clock plus the three things silently either working or not: network, radio, last cloud sync. Answers “is it online?” without waking it.",
+  tags: [["ok","Data exists"],["","Colour on idle"]],
+  render: function (s) {
+    return '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:88px">' +
+      '<span style="' + num(70) + '">' + s.timeNoSec + "</span>" +
+      (s.mer ? '<span style="' + lbl(14, { extra: "margin-top:10px" }) + '">' + s.mer + "</span>" : "") + "</div>" +
+      '<div style="position:absolute;left:28px;right:28px;bottom:40px">' +
+      '<div style="height:1px;background:' + ghost() + ';margin-bottom:14px"></div>' +
+      '<div style="display:flex;justify-content:space-between">' +
+      chip("#4fae5f", "Wi-Fi") + chip(acc(), "BLE") + chip(mix(cfg.ink, .2), "Synced 9:12") + "</div></div>";
+  }});
+
+face({ id: "hopper", g: "ctx", name: "Hopper rail",
+  note: "The bean-level readout this face was built to host, as a full-height rail with the clock set against it. Left-aligned type changes the posture entirely.",
+  tags: [["warn","Needs bean sensing"],["warn","72 px font"]],
+  render: function (s) {
+    return '<div style="position:absolute;left:28px;top:80px;bottom:80px;width:8px;border-radius:4px;background:' + ghost() + ';overflow:hidden">' +
+      '<div style="position:absolute;left:0;right:0;bottom:0;height:62%;background:' + sec() + '"></div></div>' +
+      '<div style="position:absolute;left:60px;right:24px;top:0;bottom:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:center">' +
+      '<span style="' + num(72) + '">' + s.timeNoSec + "</span>" +
+      (s.mer ? '<span style="' + lbl(14, { extra: "margin-top:8px" }) + '">' + s.mer + "</span>" : "") +
+      '<span style="' + lbl(15, { extra: "margin-top:30px" }) + '">Beans <b style="color:' + sec() + ';font-weight:500">~62%</b></span></div>';
+  }});
+
+face({ id: "today", g: "ctx", name: "Today's tally",
+  note: "Grinds and grams since midnight. Turns a dead screen into the one number a person who cares about coffee actually enjoys seeing.",
+  tags: [["ok","Data exists"],["","Needs daily reset"]],
+  render: function (s) {
+    return box('<span style="' + lbl(14, { tracking: ".26em", extra: "margin-bottom:14px" }) + '">Today</span>' +
+      '<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:26px">' +
+      '<span style="' + num(72) + '">3</span>' +
+      '<span style="' + lbl(16, { tracking: ".1em", color: sec() }) + '">grinds</span></div>' +
+      '<span style="' + num(30, { weight: 400, color: sec() }) + '">54.2 g</span>' +
+      '<div style="width:80px;height:1px;background:' + ghost() + ';margin:24px 0 18px"></div>' +
+      '<span style="' + num(34, { weight: 400 }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "since", g: "ctx", name: "Since last grind",
+  note: "An elapsed counter instead of a clock. Oddly compelling on a coffee machine — it is the number that tells you whether you're allowed another.",
+  tags: [["ok","Data exists"],["","Time still needed"]],
+  render: function (s) {
+    return box('<span style="' + lbl(14, { tracking: ".26em", extra: "margin-bottom:18px" }) + '">Since last grind</span>' +
+      '<div style="display:flex;align-items:baseline;gap:4px">' +
+      '<span style="' + num(88) + '">2</span><span style="' + lbl(24, { tracking: ".02em", color: sec() }) + '">h</span>' +
+      '<span style="' + num(88, { extra: "margin-left:10px" }) + '">14</span><span style="' + lbl(24, { tracking: ".02em", color: sec() }) + '">m</span></div>' +
+      '<span style="' + num(28, { weight: 400, color: sec(), extra: "margin-top:34px" }) + '">' + s.time + "</span>");
+  }});
+
+face({ id: "nextdose", g: "ctx", name: "Next dose",
+  note: "The profile it will grind when you touch it, waiting on the idle screen. Removes a step: you can see you're set to 18.0 g before waking anything.",
+  tags: [["ok","Data exists"],["ok","Genuinely useful"]],
+  render: function (s) {
+    return box('<span style="' + num(56, { weight: 400, color: sec() }) + '">' + s.timeNoSec + "</span>" +
+      '<div style="width:110px;height:1px;background:' + ghost() + ';margin:28px 0 24px"></div>' +
+      '<span style="' + lbl(14, { tracking: ".26em", extra: "margin-bottom:14px" }) + '">Next</span>' +
+      '<div style="display:flex;align-items:baseline;gap:6px">' +
+      '<span style="' + num(76) + '">18.0</span><span style="' + lbl(22, { tracking: ".02em", color: sec() }) + '">g</span></div>' +
+      '<span style="' + lbl(14, { extra: "margin-top:16px" }) + '">Single</span>');
+  }});
+
+face({ id: "scaleidle", g: "ctx", name: "Live scale",
+  note: "The load cell is running anyway. Show it: put a cup down and the panel is already a scale before the auto-start fires.",
+  tags: [["ok","Data exists"],["warn","Redraws constantly"]],
+  render: function (s) {
+    return box('<span style="' + num(52, { weight: 400, color: sec() }) + '">' + s.timeNoSec + "</span>" +
+      '<div style="width:110px;height:1px;background:' + ghost() + ';margin:30px 0 26px"></div>' +
+      '<div style="display:flex;align-items:baseline;gap:8px">' +
+      '<span style="' + num(84) + '">0.0</span><span style="' + lbl(24, { tracking: ".02em", color: sec() }) + '">g</span></div>' +
+      '<span style="' + lbl(13, { extra: "margin-top:18px" }) + '">Place a cup</span>');
+  }});
+
+face({ id: "lifetime", g: "ctx", name: "Lifetime",
+  note: "Total grinds and kilos, small, under the time. A slow-moving number that rewards owning the thing — the odometer argument.",
+  tags: [["ok","Data exists"],["","Vanity"]],
+  render: function (s) {
+    return '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:80px">' +
+      '<span style="' + num(80) + '">' + s.timeNoSec + "</span></div>" +
+      '<div style="position:absolute;left:30px;right:30px;bottom:42px">' +
+      '<div style="height:1px;background:' + ghost() + ';margin-bottom:13px"></div>' +
+      '<span style="' + lbl(12, { extra: "display:block;margin-bottom:9px" }) + '">Lifetime</span>' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;white-space:nowrap">' +
+      '<span style="' + num(22, { weight: 400 }) + '">1,284<span style="font-size:' + fs(12) + "px;color:" + faint() + ';margin-left:5px">grinds</span></span>' +
+      '<span style="' + num(22, { weight: 400, color: sec() }) + '">23.1<span style="font-size:' + fs(12) + "px;color:" + faint() + ';margin-left:4px">kg</span></span></div></div>';
+  }});
+
+face({ id: "wordclock", g: "ctx", name: "Word clock",
+  note: "Reads as a sentence, rounded to five minutes. Strong personality and it fills the tall panel honestly; the cost is that you can't check you have four minutes.",
+  tags: [["ok","Existing 36–48 px fonts"],["warn","5-minute resolution"]],
+  render: function (s) {
+    var lines = words(s);
+    var out = '<span style="' + lbl(24, { tracking: ".02em", color: faint(), extra: "margin-bottom:6px" }) + '">It’s</span>';
+    lines.forEach(function (w2) {
+      out += '<span style="' + num(38, { weight: 500, lh: 1.2, tracking: ".01em" }) + '">' + w2 + "</span>";
+    });
+    return box(out, { items: "flex-start", pl: 30 });
+  }});
+
+/* ---------- Contextual, second batch ---------- */
+var WARN = "#cc8800";     // THEME_COLOR_WARNING
+var BAD = "#ff3d00";      // THEME_COLOR_PRIMARY, used as the serious colour
+
+face({ id: "stale", g: "ctx", name: "Stale grounds",
+  note: "The grinder already tracks this: past the freshness window (freshhours, default 8 h) the next grind opens with a purge. Say so on the idle screen instead of ambushing you with a popup.",
+  tags: [["ok","Logic exists"],["ok","Prevents a surprise"]],
+  render: function (s) {
+    return box('<span style="' + num(64, { weight: 400, color: sec() }) + '">' + s.timeNoSec + "</span>" +
+      '<div style="width:120px;height:1px;background:' + ghost() + ';margin:30px 0 26px"></div>' +
+      '<span style="' + lbl(15, { tracking: ".2em", color: WARN, extra: "margin-bottom:12px" }) + '">Grounds are stale</span>' +
+      '<span style="' + num(19, { weight: 400, color: sec(), extra: "text-align:center;line-height:1.5;max-width:200px" }) + '">Next grind purges 1.0 g first</span>');
+  }});
+
+face({ id: "freshring", g: "ctx", name: "Freshness ring",
+  note: "The same fact as a ring draining across the freshness window. Full means grind straight away; empty means the chute is stale and a purge is coming.",
+  tags: [["ok","Native lv_arc"],["ok","Ambient"]],
+  render: function (s) {
+    var left = 0.42;
+    return '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center">' +
+      svg(232, 232, ring(116, 116, 110, left, left > .2 ? ink() : WARN, 3, ghost())) + "</div>" +
+      box('<span style="' + num(54, { weight: 400, lh: 1.1 }) + '">' + s.timeNoSec + "</span>" +
+        '<span style="' + lbl(13, { extra: "margin-top:22px" }) + '">Fresh for 3 h 20 m</span>');
+  }});
+
+face({ id: "profiles", g: "ctx", name: "The three profiles",
+  note: "All three doses with the armed one lit. You can see the grinder is set to the double before you touch it — the profile tabs are the first thing you'd otherwise go and check.",
+  tags: [["ok","Data exists"],["ok","Removes a step"]],
+  render: function (s) {
+    var rows = [["Single", "18.0"], ["Double", "21.5"], ["Custom", "14.0"]];
+    var out = '<span style="' + num(52, { weight: 400, color: sec(), extra: "margin-bottom:34px" }) + '">' + s.timeNoSec + "</span>";
+    rows.forEach(function (r, i) {
+      var on = i === 1;
+      out += '<div style="display:flex;align-items:baseline;justify-content:space-between;width:200px;padding:11px 0;' +
+        (i < 2 ? "border-bottom:1px solid " + ghost() + ";" : "") + '">' +
+        '<span style="' + lbl(14, { color: on ? ink() : faint() }) + '">' + r[0] + "</span>" +
+        '<span style="' + num(on ? 30 : 22, { weight: 400, color: on ? ink() : faint() }) + '">' + r[1] +
+        '<span style="font-size:' + fs(13) + "px;color:" + faint() + ';margin-left:3px">g</span></span></div>';
+    });
+    return box(out);
+  }});
+
+face({ id: "accuracy", g: "ctx", name: "Accuracy badge",
+  note: "The number this whole machine exists to earn, sitting on the screen doing nothing else. Straight out of get_avg_accuracy_g() over every grind it has done.",
+  tags: [["ok","Data exists"],["ok","The brag"]],
+  render: function (s) {
+    return box('<span style="' + lbl(14, { tracking: ".26em", extra: "margin-bottom:16px" }) + '">Average accuracy</span>' +
+      '<div style="display:flex;align-items:baseline;gap:6px">' +
+      '<span style="' + num(86) + '">±0.04</span>' +
+      '<span style="' + lbl(22, { tracking: ".02em", color: sec() }) + '">g</span></div>' +
+      '<span style="' + lbl(13, { extra: "margin-top:18px" }) + '">over 1,284 grinds</span>' +
+      '<div style="width:90px;height:1px;background:' + ghost() + ';margin:26px 0 20px"></div>' +
+      '<span style="' + num(32, { weight: 400, color: sec() }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "burrs", g: "ctx", name: "Burr mileage",
+  note: "Kilos through the burrs against a service life, from total_weight_kg. An odometer that eventually tells you something worth acting on rather than just accumulating.",
+  tags: [["ok","Data exists"],["","Life figure is a guess"]],
+  render: function (s) {
+    return box('<span style="' + num(56, { weight: 400, color: sec(), extra: "margin-bottom:36px" }) + '">' + s.timeNoSec + "</span>" +
+      '<div style="width:212px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">' +
+      '<span style="' + lbl(13) + '">Through the burrs</span>' +
+      '<span style="' + num(24, { weight: 400 }) + '">23.1<span style="font-size:' + fs(13) + "px;color:" + faint() + ';margin-left:3px">kg</span></span></div>' +
+      '<div style="height:4px;border-radius:2px;background:' + ghost() + ';overflow:hidden">' +
+      '<div style="width:9%;height:100%;background:' + sec() + '"></div></div>' +
+      '<div style="' + lbl(12, { extra: "margin-top:11px" }) + '">9% of a 250 kg set</div></div>');
+  }});
+
+face({ id: "warning", g: "ctx", name: "Warning takeover",
+  note: "Not a face you choose — the one the others become when a diagnostic is live. A grinder that cannot weigh should say so while it sits idle, not wait to be woken.",
+  tags: [["ok","Diagnostics exist"],["ok","Should exist regardless"]],
+  render: function (s) {
+    return box('<div style="width:44px;height:44px;border-radius:50%;border:2px solid ' + WARN +
+      ';display:flex;align-items:center;justify-content:center;margin-bottom:26px">' +
+      '<span style="' + num(26, { weight: 600, color: WARN, tracking: "0" }) + '">!</span></div>' +
+      '<span style="' + lbl(15, { tracking: ".2em", color: WARN, extra: "margin-bottom:14px" }) + '">Not calibrated</span>' +
+      '<span style="' + num(18, { weight: 400, color: sec(), extra: "text-align:center;line-height:1.55;max-width:210px" }) + '">Weight grinds are disabled until the scale is calibrated</span>' +
+      '<div style="width:90px;height:1px;background:' + ghost() + ';margin:28px 0 20px"></div>' +
+      '<span style="' + num(30, { weight: 400, color: sec() }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "syncpending", g: "ctx", name: "Sync backlog",
+  note: "Cloud sync is silent by design, which means a router change can quietly strand a month of grinds. A count on the idle screen is the cheapest possible alarm.",
+  tags: [["ok","Data exists"],["ok","Catches silent failure"]],
+  render: function (s) {
+    return '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:92px">' +
+      '<span style="' + num(68) + '">' + s.timeNoSec + "</span></div>" +
+      '<div style="position:absolute;left:30px;right:30px;bottom:42px">' +
+      '<div style="height:1px;background:' + ghost() + ';margin-bottom:14px"></div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
+      '<span style="' + lbl(13, { color: WARN }) + '">Waiting to upload</span>' +
+      '<span style="' + num(22, { weight: 400, color: WARN }) + '">12</span></div>' +
+      '<div style="' + lbl(12, { extra: "margin-top:9px" }) + '">Last sync 3 days ago</div></div>';
+  }});
+
+face({ id: "week", g: "ctx", name: "This week",
+  note: "Seven bars, one per day, today lit. Sessions are already on flash with timestamps, so this is a read over data the device is holding anyway.",
+  tags: [["ok","Derivable from flash"],["","Needs a daily rollup"]],
+  render: function (s) {
+    var days = [2, 3, 1, 4, 3, 0, 2], names = ["M","T","W","T","F","S","S"], today = 4;
+    var out = "";
+    days.forEach(function (v, i) {
+      var h = 8 + v * 26;
+      out += '<div style="display:flex;flex-direction:column;align-items:center;gap:10px">' +
+        '<div style="width:16px;height:' + h + "px;border-radius:3px;background:" + (i === today ? ink() : mix(cfg.ink, .2)) + '"></div>' +
+        '<span style="' + lbl(11, { tracking: ".06em", color: i === today ? sec() : faint() }) + '">' + names[i] + "</span></div>";
+    });
+    return box('<span style="' + lbl(14, { tracking: ".26em", extra: "margin-bottom:28px" }) + '">This week</span>' +
+      '<div style="display:flex;align-items:flex-end;gap:14px;height:120px">' + out + "</div>" +
+      '<span style="' + num(40, { weight: 400, extra: "margin-top:34px" }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "rhythm", g: "ctx", name: "Daily rhythm",
+  note: "A 24-hour histogram of when you actually grind, with a marker on now. Ambient and a bit flattering — it shows you the shape of your own mornings.",
+  tags: [["ok","Derivable from flash"],["","Slow to become useful"]],
+  render: function (s) {
+    var hours = [0,0,0,0,0,1,3,7,9,5,2,1,1,2,3,2,1,1,0,0,0,0,0,0];
+    var out = "";
+    hours.forEach(function (v, i) {
+      var h = 3 + v * 9;
+      var on = i === s.h24;
+      out += '<div style="width:6px;height:' + h + "px;border-radius:2px;background:" + (on ? acc() : mix(cfg.ink, v ? .26 : .1)) + '"></div>';
+    });
+    return box('<span style="' + num(62, { extra: "margin-bottom:34px" }) + '">' + s.timeNoSec + "</span>" +
+      '<div style="display:flex;align-items:flex-end;gap:3px;height:92px">' + out + "</div>" +
+      '<div style="display:flex;justify-content:space-between;width:224px;margin-top:12px">' +
+      '<span style="' + lbl(11) + '">12a</span><span style="' + lbl(11) + '">noon</span><span style="' + lbl(11) + '">12a</span></div>');
+  }});
+
+face({ id: "consistency", g: "ctx", name: "Consistency strip",
+  note: "The last ten grinds as deviation from target around a centre line. One glance tells you whether the grinder is drifting — which is exactly what the pulse algorithm is fighting.",
+  tags: [["ok","Derivable from flash"],["ok","Actually diagnostic"]],
+  render: function (s) {
+    var dev = [0.05, -0.02, 0.01, 0.08, -0.04, 0.02, 0.0, 0.03, -0.01, 0.02];
+    var body = '<line x1="0" y1="60" x2="220" y2="60" stroke="' + ghost() + '" stroke-width="1"/>';
+    dev.forEach(function (d, i) {
+      var x = 12 + i * 22, y = 60 - d * 420;
+      body += '<circle cx="' + x + '" cy="' + y.toFixed(1) + '" r="4" fill="' + (Math.abs(d) > .05 ? WARN : ink()) + '"/>';
+    });
+    return box('<span style="' + num(58, { weight: 400, extra: "margin-bottom:30px" }) + '">' + s.timeNoSec + "</span>" +
+      svg(220, 120, body) +
+      '<span style="' + lbl(13, { extra: "margin-top:18px" }) + '">Last 10 · ±0.05 g</span>');
+  }});
+
+face({ id: "streak", g: "ctx", name: "Streak",
+  note: "Consecutive days with at least one grind. Shameless, effective, and the sort of thing that makes a machine feel like it is paying attention to you.",
+  tags: [["ok","Derivable from flash"],["","Gamified"]],
+  render: function (s) {
+    return box('<span style="' + lbl(14, { tracking: ".28em", extra: "margin-bottom:14px" }) + '">Day</span>' +
+      '<span style="' + num(120, { lh: 1 }) + '">12</span>' +
+      '<span style="' + lbl(14, { extra: "margin-top:16px" }) + '">in a row</span>' +
+      '<div style="width:90px;height:1px;background:' + ghost() + ';margin:28px 0 20px"></div>' +
+      '<span style="' + num(32, { weight: 400, color: sec() }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "morning", g: "ctx", name: "First of the day",
+  note: "Before the first grind of the day the face greets you and names the dose it is holding; after it, this reverts to a plain clock. A face that changes once a day is a face you keep noticing.",
+  tags: [["ok","Data exists"],["ok","Time-aware"]],
+  render: function (s) {
+    var greet = s.h24 < 12 ? "Good morning" : (s.h24 < 18 ? "Good afternoon" : "Good evening");
+    return box('<span style="' + num(30, { weight: 400, color: sec(), extra: "margin-bottom:22px" }) + '">' + greet + "</span>" +
+      '<span style="' + num(80) + '">' + s.timeNoSec + "</span>" +
+      '<div style="width:100px;height:1px;background:' + ghost() + ';margin:30px 0 20px"></div>' +
+      '<span style="' + lbl(14) + '">Double · 21.5 g ready</span>');
+  }});
+
+face({ id: "bag", g: "ctx", name: "Bag remaining",
+  note: "Grams left in the current bag, counted down by each grind from a weight you set when you open it. The annotations already carry bean and roast date, so the bag is a real object to the system.",
+  tags: [["warn","Needs a bag entry"],["ok","Genuinely wanted"]],
+  render: function (s) {
+    return box('<span style="' + num(52, { weight: 400, color: sec(), extra: "margin-bottom:32px" }) + '">' + s.timeNoSec + "</span>" +
+      '<div style="display:flex;align-items:baseline;gap:6px">' +
+      '<span style="' + num(78) + '">612</span><span style="' + lbl(20, { tracking: ".02em", color: sec() }) + '">g left</span></div>' +
+      '<div style="width:200px;height:4px;border-radius:2px;background:' + ghost() + ';overflow:hidden;margin:22px 0 14px">' +
+      '<div style="width:61%;height:100%;background:' + sec() + '"></div></div>' +
+      '<span style="' + lbl(13) + '">Ethiopia Guji · 9 days rested</span>');
+  }});
+
+face({ id: "resting", g: "ctx", name: "Rested since roast",
+  note: "Days off roast from the annotation on the current bag, with the window where it drinks best called out. The one number a coffee person checks that a grinder is uniquely placed to show.",
+  tags: [["warn","Needs annotation on device"],["","Enthusiast-only"]],
+  render: function (s) {
+    return box('<span style="' + lbl(14, { tracking: ".26em", extra: "margin-bottom:16px" }) + '">Rested</span>' +
+      '<div style="display:flex;align-items:baseline;gap:8px">' +
+      '<span style="' + num(96) + '">9</span><span style="' + lbl(22, { tracking: ".02em", color: sec() }) + '">days</span></div>' +
+      '<span style="' + lbl(13, { color: WARN, extra: "margin-top:18px" }) + '">Peak window · days 7–21</span>' +
+      '<div style="width:90px;height:1px;background:' + ghost() + ';margin:26px 0 18px"></div>' +
+      '<span style="' + num(30, { weight: 400, color: sec() }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "recap", g: "ctx", name: "Last grind, scored",
+  note: "The last result as a deviation bar rather than two numbers to subtract in your head: a tick at target and a mark where it landed. Same data as the plain last-grind face, read faster.",
+  tags: [["ok","Data exists"],["ok","Fast read"]],
+  render: function (s) {
+    var body = '<line x1="0" y1="30" x2="212" y2="30" stroke="' + ghost() + '" stroke-width="1"/>' +
+      '<line x1="106" y1="16" x2="106" y2="44" stroke="' + sec() + '" stroke-width="1.5"/>' +
+      '<circle cx="130" cy="30" r="6" fill="' + ink() + '"/>';
+    return box('<span style="' + num(56, { weight: 400, color: sec(), extra: "margin-bottom:34px" }) + '">' + s.timeNoSec + "</span>" +
+      '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:20px">' +
+      '<span style="' + num(64) + '">18.2</span><span style="' + lbl(18, { tracking: ".02em", color: sec() }) + '">g</span></div>' +
+      svg(212, 60, body) +
+      '<span style="' + lbl(13, { extra: "margin-top:10px" }) + '">+0.2 g over 18.0 target</span>');
+  }});
+
+face({ id: "device", g: "ctx", name: "Device plate",
+  note: "Firmware, uptime and network as a quiet nameplate under the clock. The face for someone who runs a grinder with an OTA channel and likes knowing what is on it.",
+  tags: [["ok","Data exists"],["","Nerd-facing"]],
+  render: function (s) {
+    function row(k, v) {
+      return '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:9px 0;border-bottom:1px solid ' + ghost() + '">' +
+        '<span style="' + lbl(12) + '">' + k + "</span>" +
+        '<span style="' + num(16, { weight: 400, color: sec() }) + '">' + v + "</span></div>";
+    }
+    return box('<span style="' + num(62, { extra: "margin-bottom:34px" }) + '">' + s.timeNoSec + "</span>" +
+      '<div style="width:212px">' + row("Firmware", "v1.4.2") + row("Uptime", "12 d 4 h") + row("Motor", "3 h 51 m") + "</div>");
+  }});
+
+/* ---------- Minimal ---------- */
+face({ id: "whisper", g: "min", name: "Whisper",
+  note: "Not a competitor so much as a second stage: after the dim delay, shrink to this instead of dropping the backlight. Still tells the time, looks off from across the room.",
+  tags: [["ok","Pairs with any option"],["ok","No new font"]],
+  render: function (s) {
+    return box('<span style="' + num(30, { weight: 300, color: mix(cfg.ink, .42) }) + '">' + s.timeNoSec + "</span>" +
+      '<div style="width:3px;height:3px;border-radius:50%;background:' + ghost() + ';margin-top:20px"></div>');
+  }});
+
+face({ id: "ghosttime", g: "min", name: "Ghost",
+  note: "Full size, a quarter of the brightness. Present in the room without lighting it — the option to try if the big faces feel shouty at night.",
+  tags: [["ok","No new logic"],["","Needs a dark kitchen"]],
+  render: function (s) {
+    return box('<span style="' + num(104, { weight: 200, color: mix(cfg.ink, .22) }) + '">' + s.timeNoSec + "</span>");
+  }});
+
+face({ id: "corner", g: "min", name: "Corner",
+  note: "Small, in a corner, moving corner every hour rather than 8 px every minute. The most burn-in-proof way to keep a readable time on screen.",
+  tags: [["ok","Best burn-in story"],["","Deliberately off-centre"]],
+  render: function (s) {
+    var corners = [[26, 26, "flex-start", "flex-start"], [26, 26, "flex-end", "flex-start"], [26, 26, "flex-end", "flex-end"], [26, 26, "flex-start", "flex-end"]];
+    var c = corners[s.h24 % 4];
+    return '<div style="position:absolute;inset:26px;display:flex;align-items:' + c[3] + ";justify-content:" + c[2] + '">' +
+      '<span style="' + num(34, { weight: 400, color: mix(cfg.ink, .6) }) + '">' + s.timeNoSec + "</span></div>";
+  }});
+
+face({ id: "pinline", g: "min", name: "Hairline",
+  note: "One rule across the panel with the time riding it. Almost nothing lit, but the line gives the eye something to land on so it doesn't look broken.",
+  tags: [["ok","Very low pixels"],["","Quiet"]],
+  render: function (s) {
+    return '<div style="position:absolute;left:0;right:0;top:50%;height:1px;background:' + ghost() + '"></div>' +
+      '<div style="position:absolute;left:0;right:0;top:50%;display:flex;justify-content:center;transform:translateY(-100%)">' +
+      '<span style="' + num(34, { weight: 300, color: mix(cfg.ink, .7), extra: "background:#000;padding:0 14px 6px" }) + '">' + s.timeNoSec + "</span></div>";
+  }});
+
+face({ id: "breath", g: "min", name: "Single dot",
+  note: "No time at all until you touch it — just proof the grinder is awake. The honest end of the spectrum: a screensaver that admits it is one.",
+  tags: [["ok","Effectively zero burn-in"],["warn","No time shown"]],
+  render: function () {
+    return box('<div style="width:6px;height:6px;border-radius:50%;background:' + mix(cfg.ink, .5) + '"></div>');
+  }});
+
+/* ================= render ================= */
+var grid = document.getElementById("grid");
+var starred = JSON.parse(localStorage.getItem("faceStars") || "[]");
+var filter = "all";
+var soloId = null;
+var shiftIndex = 0;
+var SHIFT = [[0,-1],[1,-1],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1]];
+var lastHtml = {};
+
+function buildGrid() {
+  var html = "";
+  GROUPS.forEach(function (g) {
+    var members = FACES.filter(function (f) { return f.g === g.id; });
+    if (!members.length) return;
+    html += '<div class="section-head" data-group="' + g.id + '"><h2>' + g.name + '</h2><div class="line"></div></div>';
+    members.forEach(function (f) {
+      var i = FACES.indexOf(f) + 1;
+      html += '<section class="option' + (starred.indexOf(f.id) !== -1 ? " starred" : "") + '" data-id="' + f.id + '" data-group="' + f.g + '">' +
+        '<div class="frame-wrap">' +
+          '<span class="idx">' + String(i).padStart(2, "0") + "</span>" +
+          '<button class="star" data-star="' + f.id + '" title="Star this option">★</button>' +
+          '<div class="screen" data-screen="' + f.id + '"><div class="shift" data-shift="' + f.id + '"></div></div>' +
+        "</div>" +
+        '<div class="caption"><h4>' + f.name + "</h4><p>" + f.note + "</p><div class=\"tags\">" +
+          f.tags.map(function (t) { return '<span class="tag ' + t[0] + '">' + t[1] + "</span>"; }).join("") +
+        "</div></div></section>";
+    });
+  });
+  grid.innerHTML = html;
+}
+
+function paint() {
+  var s = state();
+  FACES.forEach(function (f) {
+    var host = grid.querySelector('[data-shift="' + f.id + '"]');
+    if (!host || host.closest(".option").classList.contains("hidden")) return;
+    var html = f.render(s) + (f.extra ? extraLine(s) : "");
+    if (lastHtml[f.id] !== html) { host.innerHTML = html; lastHtml[f.id] = html; }
+  });
+  if (soloId) {
+    var sf = FACES.filter(function (f) { return f.id === soloId; })[0];
+    document.getElementById("solo-shift").innerHTML = sf.render(s) + (sf.extra ? extraLine(s) : "");
+  }
+  document.querySelectorAll(".screen").forEach(function (el) {
+    el.style.filter = "brightness(" + (cfg.bright / 100) + ")";
+  });
+}
+
+function applyShift() {
+  var o = cfg.shift ? SHIFT[shiftIndex] : [0, 0];
+  document.querySelectorAll(".shift").forEach(function (el) {
+    el.style.transform = "translate(" + (o[0] * cfg.shiftPx) + "px," + (o[1] * cfg.shiftPx) + "px)";
+  });
+}
+
+function applyFilter() {
+  var shown = 0;
+  document.querySelectorAll(".option").forEach(function (el) {
+    var ok = filter === "all" ? true
+           : filter === "star" ? el.classList.contains("starred")
+           : el.dataset.group === filter;
+    el.classList.toggle("hidden", !ok);
+    if (ok) shown++;
+  });
+  document.querySelectorAll(".section-head").forEach(function (el) {
+    var any = grid.querySelector('.option[data-group="' + el.dataset.group + '"]:not(.hidden)');
+    el.style.display = any ? "flex" : "none";
+  });
+  document.getElementById("count").textContent = shown;
+  document.getElementById("starcount").textContent = starred.length;
+  lastHtml = {};
+  paint();
+}
+
+/* ================= controls ================= */
+function syncControls() {
+  document.querySelectorAll("[data-seg]").forEach(function (seg) {
+    var key = seg.dataset.seg;
+    seg.querySelectorAll("button").forEach(function (b) {
+      var v = b.dataset.val;
+      var on = String(cfg[key]) === v || (key === "h24" && String(cfg.h24 ? 1 : 0) === v);
+      b.setAttribute("aria-pressed", String(on));
+    });
+  });
+  document.querySelectorAll("[data-toggle]").forEach(function (t) {
+    t.setAttribute("aria-pressed", String(!!cfg[t.dataset.toggle]));
+  });
+  document.querySelectorAll("[data-range]").forEach(function (r) { r.value = cfg[r.dataset.range]; });
+  document.querySelectorAll("[data-swatch]").forEach(function (holder) {
+    holder.querySelectorAll("button").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b.dataset.color === cfg[holder.dataset.swatch]));
+    });
+  });
+  document.querySelector('[data-out="scale"]').textContent = cfg.scale + "%";
+  document.querySelector('[data-out="weight"]').textContent = cfg.weight;
+  document.querySelector('[data-out="tracking"]').textContent = (cfg.tracking / 10).toFixed(1) + "%";
+  document.querySelector('[data-out="dimLevel"]').textContent = cfg.dimLevel + "%";
+  document.querySelector('[data-out="bright"]').textContent = cfg.bright + "%";
+  document.querySelector('[data-out="shiftPx"]').textContent = cfg.shiftPx + " px";
+  document.body.classList.toggle("zoomed", cfg.zoom);
+  document.querySelectorAll(".screen").forEach(function (el) {
+    if (el.id === "solo-screen") return;
+    el.style.transform = cfg.zoom ? "scale(1.45)" : "";
+  });
+  document.querySelectorAll(".frame-wrap").forEach(function (el) {
+    el.style.height = cfg.zoom ? "700px" : "";
+    el.style.alignItems = cfg.zoom ? "flex-start" : "";
+  });
+}
+
+function buildSwatches() {
+  document.querySelectorAll("[data-swatch]").forEach(function (holder) {
+    var list = holder.dataset.swatch === "ink" ? INKS : ACCENTS;
+    holder.innerHTML = list.map(function (c) {
+      return '<button class="swatch" data-color="' + c + '" style="background:' + c + '"></button>';
+    }).join("");
+  });
+}
+
+function buildFilters() {
+  var f = document.getElementById("filters");
+  document.getElementById("total-a").textContent = FACES.length;
+  var items = [["all", "All " + FACES.length]].concat(GROUPS.map(function (g) { return [g.id, g.name]; })).concat([["star", "Starred"]]);
+  f.innerHTML = items.map(function (i) {
+    return '<button data-filter="' + i[0] + '"' + (i[0] === "all" ? ' aria-pressed="true"' : "") + ">" + i[1] + "</button>";
+  }).join("");
+}
+
+document.addEventListener("click", function (e) {
+  var t = e.target;
+
+  var segBtn = t.closest("[data-seg] button");
+  if (segBtn) {
+    var key = segBtn.closest("[data-seg]").dataset.seg;
+    cfg[key] = key === "h24" ? Number(segBtn.dataset.val) : segBtn.dataset.val;
+    syncControls(); lastHtml = {}; paint(); return;
+  }
+
+  var tog = t.closest("[data-toggle]");
+  if (tog) {
+    var k = tog.dataset.toggle;
+    cfg[k] = !cfg[k];
+    if (k === "fast" && !cfg.fast) fastMinutes = 0;
+    if (k === "shift" && !cfg.shift) { shiftIndex = 0; applyShift(); }
+    syncControls(); lastHtml = {}; paint(); return;
+  }
+
+  var sw = t.closest("[data-swatch] button");
+  if (sw) {
+    cfg[sw.closest("[data-swatch]").dataset.swatch] = sw.dataset.color;
+    syncControls(); lastHtml = {}; paint(); return;
+  }
+
+  var fl = t.closest("[data-filter]");
+  if (fl) {
+    filter = fl.dataset.filter;
+    document.querySelectorAll("[data-filter]").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b === fl));
+    });
+    applyFilter(); return;
+  }
+
+  var st = t.closest("[data-star]");
+  if (st) {
+    var id = st.dataset.star;
+    var ix = starred.indexOf(id);
+    if (ix === -1) starred.push(id); else starred.splice(ix, 1);
+    localStorage.setItem("faceStars", JSON.stringify(starred));
+    st.closest(".option").classList.toggle("starred", ix === -1);
+    document.getElementById("starcount").textContent = starred.length;
+    if (filter === "star") applyFilter();
+    return;
+  }
+
+  var scr = t.closest("[data-screen]");
+  if (scr) { openSolo(scr.dataset.screen); return; }
+
+  if (t.closest("#solo")) closeSolo();
+}, false);
+
+document.addEventListener("input", function (e) {
+  var r = e.target.closest("[data-range]");
+  if (!r) return;
+  cfg[r.dataset.range] = Number(r.value);
+  syncControls();
+  if (r.dataset.range === "shiftPx") applyShift();
+  lastHtml = {}; paint();
+});
+
+document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeSolo(); });
+
+function openSolo(id) {
+  var f = FACES.filter(function (x) { return x.id === id; })[0];
+  soloId = id;
+  document.getElementById("solo-title").textContent = f.name;
+  document.getElementById("solo-note").textContent = f.note;
+  document.getElementById("solo-tags").innerHTML = f.tags.map(function (t) {
+    return '<span class="tag ' + t[0] + '">' + t[1] + "</span>";
+  }).join("");
+  document.getElementById("solo").classList.add("on");
+  document.getElementById("solo-screen").style.filter = "brightness(" + (cfg.bright / 100) + ")";
+  paint();
+}
+function closeSolo() { soloId = null; document.getElementById("solo").classList.remove("on"); }
+
+document.getElementById("btn-copy").addEventListener("click", function () {
+  var names = starred.map(function (id) {
+    var f = FACES.filter(function (x) { return x.id === id; })[0];
+    return f ? (String(FACES.indexOf(f) + 1).padStart(2, "0") + " " + f.name + " [" + f.id + "]") : id;
+  });
+  navigator.clipboard.writeText(names.length ? names.join("\n") : "(nothing starred)");
+  this.textContent = names.length ? "Copied " + names.length : "None starred";
+  var self = this;
+  setTimeout(function () { self.textContent = "Copy starred"; }, 1400);
+});
+
+document.getElementById("btn-export").addEventListener("click", function () {
+  navigator.clipboard.writeText(JSON.stringify(cfg, null, 2));
+  this.textContent = "Copied";
+  var self = this;
+  setTimeout(function () { self.textContent = "Copy settings JSON"; }, 1400);
+});
+
+document.getElementById("btn-reset").addEventListener("click", function () {
+  cfg = Object.assign({}, DEFAULTS);
+  syncControls(); applyShift(); lastHtml = {}; paint();
+});
+
+/* ================= boot ================= */
+buildSwatches();
+buildFilters();
+buildGrid();
+syncControls();
+
+var urlFilter = new URLSearchParams(location.search).get("filter");
+if (urlFilter) {
+  var target = document.querySelector('[data-filter="' + urlFilter + '"]');
+  if (target) {
+    filter = urlFilter;
+    document.querySelectorAll("[data-filter]").forEach(function (b) {
+      b.setAttribute("aria-pressed", String(b === target));
+    });
+  }
+}
+applyFilter();
+applyShift();
+
+setInterval(function () {
+  if (cfg.fast) fastMinutes += 1;
+  paint();
+}, 1000);
+
+setInterval(function () {
+  if (!cfg.shift) return;
+  shiftIndex = (shiftIndex + 1) % SHIFT.length;
+  applyShift();
+}, 2000);
+
+})();
+</script>
+</body>
+</html>

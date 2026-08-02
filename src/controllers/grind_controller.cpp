@@ -30,8 +30,8 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
     target_time_ms = 0;
     time_grind_start_ms = 0;
     mode = GrindMode::WEIGHT;
-    grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
-    grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
+    prime_dose_mode_for_session = static_cast<PrimeDoseMode>(GRIND_PRIME_MODE_DEFAULT);
+    grinder_purge_amount_g_for_session = GRIND_PRIME_AMOUNT_DEFAULT_G;
     last_error_message[0] = '\0';
     last_session_result_ = GrindSessionResult::UNKNOWN;
     control_loop_paused_ = false;
@@ -128,13 +128,13 @@ void GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     mode = grind_mode;
 
     // Read grinder purge settings from preferences (always run for weight mode)
-    grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
-    grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
+    prime_dose_mode_for_session = static_cast<PrimeDoseMode>(GRIND_PRIME_MODE_DEFAULT);
+    grinder_purge_amount_g_for_session = GRIND_PRIME_AMOUNT_DEFAULT_G;
     if (preferences) {
-        int purge_mode_int = preferences->getInt(PREF_KEY_GRINDER_MODE, GRIND_PURGE_MODE_DEFAULT);
-        grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(purge_mode_int);
-        float configured_amount = preferences->getFloat(PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
-        configured_amount = std::clamp(configured_amount, GRIND_PURGE_AMOUNT_MIN_G, GRIND_PURGE_AMOUNT_MAX_G);
+        int purge_mode_int = preferences->getInt(PREF_KEY_GRINDER_MODE, GRIND_PRIME_MODE_DEFAULT);
+        prime_dose_mode_for_session = static_cast<PrimeDoseMode>(purge_mode_int);
+        float configured_amount = preferences->getFloat(PREF_KEY_GRINDER_AMOUNT_G, GRIND_PRIME_AMOUNT_DEFAULT_G);
+        configured_amount = std::clamp(configured_amount, GRIND_PRIME_AMOUNT_MIN_G, GRIND_PRIME_AMOUNT_MAX_G);
         grinder_purge_amount_g_for_session = configured_amount;
     }
 
@@ -227,8 +227,8 @@ void GrindController::return_to_idle() {
         LOG_BLE("[%lums CONTROLLER] UI acknowledged completion/timeout, returning to IDLE.\n", millis());
         time_grind_start_ms = 0;
         target_time_ms = 0;
-        grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
-        grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
+        prime_dose_mode_for_session = static_cast<PrimeDoseMode>(GRIND_PRIME_MODE_DEFAULT);
+        grinder_purge_amount_g_for_session = GRIND_PRIME_AMOUNT_DEFAULT_G;
         last_error_message[0] = '\0';
         if (active_strategy) {
             active_strategy->on_exit(session_descriptor, strategy_context);
@@ -251,8 +251,8 @@ void GrindController::stop_grind() {
 
     time_grind_start_ms = 0;
     target_time_ms = 0;
-    grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
-    grinder_purge_amount_g_for_session = GRIND_PURGE_AMOUNT_DEFAULT_G;
+    prime_dose_mode_for_session = static_cast<PrimeDoseMode>(GRIND_PRIME_MODE_DEFAULT);
+    grinder_purge_amount_g_for_session = GRIND_PRIME_AMOUNT_DEFAULT_G;
     last_error_message[0] = '\0';
     if (active_strategy) {
         active_strategy->on_exit(session_descriptor, strategy_context);
@@ -432,7 +432,7 @@ void GrindController::update() {
                 }
 
                 // Determine next phase based on mode AND staleness
-                if (grinder_purge_mode_for_session == GrinderPurgeMode::PURGE && should_show_purge_popup) {
+                if (prime_dose_mode_for_session == PrimeDoseMode::DISCARD && should_show_purge_popup) {
                     // Purge mode with stale grounds: wait for user confirmation before continuing
                     timeout_pause_start = loop_data.now;  // Track when pause started for timeout offset
                     switch_phase(GrindPhase::PURGE_CONFIRM, loop_data);

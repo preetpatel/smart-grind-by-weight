@@ -41,7 +41,7 @@ void ConfirmScreen::create() {
     // Create the actual message label inside the container
     message_label = lv_label_create(message_container);
     lv_obj_set_style_text_font(message_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(message_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_color(message_label, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_set_style_text_align(message_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(message_label, LV_PCT(100));
     lv_label_set_long_mode(message_label, LV_LABEL_LONG_WRAP);
@@ -49,7 +49,7 @@ void ConfirmScreen::create() {
     lv_obj_update_layout(message_container);
     lv_obj_scroll_to_y(message_container, 0, LV_ANIM_OFF);  // Scroll to top
 
-    create_dual_button_row(screen, &confirm_button, &cancel_button, "Confirm", "Cancel", lv_color_hex(THEME_COLOR_SUCCESS));
+    create_dual_button_row(screen, &confirm_button, &cancel_button, "Confirm", "Cancel", lv_color_hex(UI_COLOR_OK));
     confirm_button_label = lv_obj_get_child(confirm_button, -1);
     cancel_button_label = lv_obj_get_child(cancel_button, -1);
     

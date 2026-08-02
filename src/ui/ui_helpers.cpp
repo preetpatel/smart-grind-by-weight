@@ -3,11 +3,14 @@
 #include <cstdlib>
 #include <cstring>
 
+// Every menu row, toggle row and slider row is built on this. Flat surface,
+// gentler radius, body type at the 24 px floor: the same grammar the ready
+// screen uses, so the menu reads as the same machine.
 void style_as_button(lv_obj_t* object, int32_t width, int32_t height, const lv_font_t* font) {
-    lv_obj_set_style_radius(object, THEME_CORNER_RADIUS_PX, 0);
+    lv_obj_set_style_radius(object, 14, 0);
     lv_obj_set_style_bg_opa(object, LV_OPA_COVER, 0);
-    lv_obj_set_style_bg_color(object, lv_color_hex(THEME_COLOR_NEUTRAL), 0);
-    lv_obj_set_style_text_color(object, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_bg_color(object, lv_color_hex(UI_COLOR_SURFACE), 0);
+    lv_obj_set_style_text_color(object, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_set_style_text_font(object, font, 0);
     lv_obj_set_style_border_width(object, 0, 0);
     lv_obj_set_style_pad_hor(object, 20, 0);
@@ -21,16 +24,45 @@ void style_as_button(lv_obj_t* object, int32_t width, int32_t height, const lv_f
     lv_obj_clear_flag(object, LV_OBJ_FLAG_SCROLLABLE);
 }
 
-lv_obj_t* create_button(lv_obj_t* parent, const char* text, lv_color_t bg_color, int32_t width, int32_t height, const lv_font_t* font){ 
+lv_obj_t* create_button(lv_obj_t* parent, const char* text, lv_color_t bg_color, int32_t width, int32_t height, const lv_font_t* font){
     lv_obj_t* button = lv_btn_create(parent);
     style_as_button(button, width, height, font);
     lv_obj_set_style_bg_color(button, bg_color, 0);
-    
+
     lv_obj_t* label = lv_label_create(button);
     lv_label_set_text(label, text);
     lv_obj_center(label);
-    
-    return button;  
+
+    // White on amber is unreadable, and amber is now the colour every affirmative
+    // button wears. Anything sitting on the accent gets the dark ink instead.
+    if (lv_color_eq(bg_color, lv_color_hex(UI_COLOR_ACCENT))) {
+        lv_obj_set_style_text_color(label, lv_color_hex(UI_COLOR_ACCENT_INK), 0);
+    }
+
+    // Press feedback: the surface dips rather than the label moving, which reads
+    // as a physical button without costing a layout pass.
+    lv_obj_set_style_bg_opa(button, LV_OPA_80, LV_STATE_PRESSED);
+    ui_add_press_feedback(button);
+
+    return button;
+}
+
+void ui_add_press_feedback(lv_obj_t* object) {
+    if (!object) return;
+    static lv_style_transition_dsc_t transition;
+    static lv_style_prop_t props[] = {LV_STYLE_BG_OPA, LV_STYLE_BG_COLOR, LV_STYLE_PROP_INV};
+    static bool initialised = false;
+    if (!initialised) {
+        lv_style_transition_dsc_init(&transition, props, UI_MOTION_EASE, UI_MOTION_INSTANT_MS, 0, nullptr);
+        initialised = true;
+    }
+    lv_obj_set_style_transition(object, &transition, LV_STATE_DEFAULT);
+    lv_obj_set_style_transition(object, &transition, LV_STATE_PRESSED);
+}
+
+void ui_fade_in(lv_obj_t* object) {
+    if (!object) return;
+    lv_obj_fade_in(object, UI_MOTION_QUICK_MS, 0);
 }
 
 void set_label_text_if_changed(lv_obj_t* label, const char* text) {
@@ -92,13 +124,15 @@ lv_obj_t* create_profile_label(lv_obj_t* parent, lv_obj_t** profile_label, lv_ob
 
     *profile_label = lv_label_create(label_container);
     lv_label_set_text(*profile_label, "DOUBLE");
-    lv_obj_set_style_text_font(*profile_label, &lv_font_montserrat_32, 0);
-    lv_obj_set_style_text_color(*profile_label, lv_color_hex(THEME_COLOR_SECONDARY), 0);
-    
+    lv_obj_set_style_text_font(*profile_label, UI_FONT_BODY, 0);
+    lv_obj_set_style_text_color(*profile_label, lv_color_hex(UI_COLOR_DIM), 0);
+    lv_obj_set_style_text_letter_space(*profile_label, 3, 0);
+    lv_obj_set_style_margin_bottom(*profile_label, UI_GAP_TIGHT_PX, 0);
+
     *weight_label = lv_label_create(label_container);
     lv_label_set_text(*weight_label, "18.0g");
-    lv_obj_set_style_text_font(*weight_label, &lv_font_montserrat_60, 0);
-    lv_obj_set_style_text_color(*weight_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_font(*weight_label, UI_FONT_HERO_SMALL, 0);
+    lv_obj_set_style_text_color(*weight_label, lv_color_hex(UI_COLOR_INK), 0);
 
     return label_container;
 }
@@ -146,17 +180,19 @@ lv_obj_t* create_data_label(lv_obj_t* parent, const char* name, lv_obj_t** value
 
     lv_obj_t* name_label = lv_label_create(container);
     lv_label_set_text(name_label, name);
-    lv_obj_set_style_text_font(name_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(name_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_font(name_label, UI_FONT_BODY, 0);
+    lv_obj_set_style_text_color(name_label, lv_color_hex(UI_COLOR_DIM), 0);
     if (stacked) {
         lv_obj_set_width(name_label, LV_PCT(100));
         lv_obj_set_style_text_align(name_label, LV_TEXT_ALIGN_LEFT, 0);
     }
 
+    // The value is what you came to read, so it carries the ink and the label
+    // steps back - the reverse of the old styling.
     *value_label = lv_label_create(container);
     lv_label_set_text(*value_label, "");
-    lv_obj_set_style_text_font(*value_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(*value_label, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_obj_set_style_text_font(*value_label, UI_FONT_BODY, 0);
+    lv_obj_set_style_text_color(*value_label, lv_color_hex(UI_COLOR_INK), 0);
     if (stacked) {
         lv_obj_set_width(*value_label, LV_PCT(100));
         lv_obj_set_style_text_align(*value_label, LV_TEXT_ALIGN_RIGHT, 0);
@@ -206,9 +242,9 @@ static void radio_button_event_handler(lv_event_t* e) {
     for (int i = 0; i < data->button_count; i++) {
         if (data->buttons[i] && lv_obj_is_valid(data->buttons[i])) {
             if (i == clicked_index) {
-                lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(THEME_COLOR_PRIMARY), 0);
+                lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(UI_COLOR_ACCENT), 0);
             } else {
-                lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(THEME_COLOR_NEUTRAL), 0);
+                lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(UI_COLOR_SURFACE), 0);
             }
         }
     }
@@ -309,7 +345,7 @@ lv_obj_t* create_radio_button_group(
     
     // Create buttons
     for (int i = 0; i < option_count; i++) {
-        lv_color_t color = (i == initial_selection) ? lv_color_hex(THEME_COLOR_PRIMARY) : lv_color_hex(THEME_COLOR_NEUTRAL);
+        lv_color_t color = (i == initial_selection) ? lv_color_hex(UI_COLOR_ACCENT) : lv_color_hex(UI_COLOR_SURFACE);
         data->buttons[i] = create_button(group_container, options[i], color, actual_button_width, button_height, &lv_font_montserrat_24);
         
         // Add event handler
@@ -336,9 +372,9 @@ void radio_button_group_set_selection(lv_obj_t* group, int selected_index) {
     for (int i = 0; i < data->button_count; i++) {
         if (data->buttons[i] && lv_obj_is_valid(data->buttons[i])) {
             if (i == selected_index) {
-                lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(THEME_COLOR_PRIMARY), 0);
+                lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(UI_COLOR_ACCENT), 0);
             } else {
-                lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(THEME_COLOR_NEUTRAL), 0);
+                lv_obj_set_style_bg_color(data->buttons[i], lv_color_hex(UI_COLOR_SURFACE), 0);
             }
         }
     }

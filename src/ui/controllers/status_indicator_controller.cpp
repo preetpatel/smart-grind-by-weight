@@ -4,6 +4,7 @@
 #include "../../system/diagnostics_controller.h"
 #include "../../system/wifi_service.h"
 #include "../ui_helpers.h"
+#include "../ui_icons.h"
 #include "../ui_manager.h"
 
 namespace {
@@ -31,13 +32,23 @@ lv_obj_t* StatusIndicatorController::create_status_row() {
     return row;
 }
 
-lv_obj_t* StatusIndicatorController::create_status_icon(const char* symbol, uint32_t color) {
-    lv_obj_t* icon = lv_label_create(status_row_);
-    lv_label_set_text(icon, symbol);
-    lv_obj_set_style_text_font(icon, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(icon, lv_color_hex(color), 0);
-    lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+lv_obj_t* StatusIndicatorController::create_status_icon(IconKind kind, uint32_t color) {
+    lv_obj_t* icon = nullptr;
+    switch (kind) {
+        case IconKind::WIFI:
+            icon = ui_icon_wifi(status_row_, color);
+            break;
+        case IconKind::WARNING:
+            icon = ui_icon_warning(status_row_, color);
+            break;
+        case IconKind::BLUETOOTH:
+            icon = ui_icon_bluetooth(status_row_, color);
+            break;
+    }
+    if (icon) {
+        lv_obj_add_flag(icon, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    }
     return icon;
 }
 
@@ -54,9 +65,9 @@ void StatusIndicatorController::build() {
 
     // Laid out left to right in creation order: WiFi, warning, BLE. The WiFi
     // icon only shows for the few seconds per day the radio is actually up.
-    wifi_status_icon_ = create_status_icon(LV_SYMBOL_WIFI, THEME_COLOR_ACCENT);
-    warning_icon_ = create_status_icon(LV_SYMBOL_WARNING, THEME_COLOR_WARNING);
-    ble_status_icon_ = create_status_icon(LV_SYMBOL_BLUETOOTH, THEME_COLOR_ACCENT);
+    wifi_status_icon_ = create_status_icon(IconKind::WIFI, UI_COLOR_DIM);
+    warning_icon_ = create_status_icon(IconKind::WARNING, UI_COLOR_WARN);
+    ble_status_icon_ = create_status_icon(IconKind::BLUETOOTH, UI_COLOR_DIM);
 
     update_ble_status_icon();
     update_warning_icon();
@@ -79,9 +90,7 @@ void StatusIndicatorController::update_ble_status_icon() {
         lv_obj_clear_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
         // This runs every UI frame in every state, so only touch the style when the colour
         // actually changes - lv_obj_set_style_text_color() always invalidates the object.
-        set_label_text_color_if_changed(ble_status_icon_,
-                                        bluetooth->is_connected() ? lv_color_hex(THEME_COLOR_SUCCESS)
-                                                                  : lv_color_hex(THEME_COLOR_ACCENT));
+        ui_icon_set_color(ble_status_icon_, bluetooth->is_connected() ? UI_COLOR_OK : UI_COLOR_DIM);
     } else {
         lv_obj_add_flag(ble_status_icon_, LV_OBJ_FLAG_HIDDEN);
     }
@@ -99,11 +108,11 @@ void StatusIndicatorController::update_wifi_status_icon() {
     switch (wifi_service.get_state()) {
         case WifiService::State::CONNECTING:
             lv_obj_clear_flag(wifi_status_icon_, LV_OBJ_FLAG_HIDDEN);
-            set_label_text_color_if_changed(wifi_status_icon_, lv_color_hex(THEME_COLOR_ACCENT));
+            ui_icon_set_color(wifi_status_icon_, UI_COLOR_DIM);
             break;
         case WifiService::State::SYNCING:
             lv_obj_clear_flag(wifi_status_icon_, LV_OBJ_FLAG_HIDDEN);
-            set_label_text_color_if_changed(wifi_status_icon_, lv_color_hex(THEME_COLOR_SUCCESS));
+            ui_icon_set_color(wifi_status_icon_, UI_COLOR_OK);
             break;
         default:
             lv_obj_add_flag(wifi_status_icon_, LV_OBJ_FLAG_HIDDEN);

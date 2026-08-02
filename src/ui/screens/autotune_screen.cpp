@@ -19,7 +19,7 @@ void AutoTuneScreen::create() {
     title_label = lv_label_create(screen);
     lv_label_set_text(title_label, "Pulse Tune");
     lv_obj_set_style_text_font(title_label, &lv_font_montserrat_36, 0);
-    lv_obj_set_style_text_color(title_label, lv_color_hex(THEME_COLOR_ACCENT), 0);
+    lv_obj_set_style_text_color(title_label, lv_color_hex(UI_COLOR_ACCENT), 0);
     lv_obj_set_style_text_align(title_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 20);
 
@@ -37,8 +37,8 @@ void AutoTuneScreen::create() {
     lv_obj_set_size(console_textarea, 280, 340);
     lv_textarea_set_text(console_textarea, "");
     lv_obj_set_style_text_font(console_textarea, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(console_textarea, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
-    lv_obj_set_style_bg_color(console_textarea, lv_color_hex(THEME_COLOR_BACKGROUND), 0);
+    lv_obj_set_style_text_color(console_textarea, lv_color_hex(UI_COLOR_INK), 0);
+    lv_obj_set_style_bg_color(console_textarea, lv_color_hex(UI_COLOR_BG), 0);
     lv_obj_set_style_border_width(console_textarea, 1, 0);
     lv_obj_set_style_border_color(console_textarea, lv_color_hex(0x333333), 0);
     lv_obj_set_style_pad_all(console_textarea, 8, 0);
@@ -58,7 +58,7 @@ void AutoTuneScreen::create() {
     message_label = lv_label_create(result_container);
     lv_label_set_text(message_label, "New Motor Latency:");
     lv_obj_set_style_text_font(message_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(message_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_set_style_text_color(message_label, lv_color_hex(UI_COLOR_INK), 0);
     lv_obj_set_style_text_align(message_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_set_width(message_label, 280);
     lv_label_set_long_mode(message_label, LV_LABEL_LONG_WRAP);
@@ -67,7 +67,7 @@ void AutoTuneScreen::create() {
     final_latency_label = lv_label_create(result_container);
     lv_label_set_text(final_latency_label, "110 ms");
     lv_obj_set_style_text_font(final_latency_label, &lv_font_montserrat_56, 0);
-    lv_obj_set_style_text_color(final_latency_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
+    lv_obj_set_style_text_color(final_latency_label, lv_color_hex(UI_COLOR_OK), 0);
     lv_obj_align(final_latency_label, LV_ALIGN_CENTER, 0, 0);
 
     previous_latency_label = lv_label_create(result_container);
@@ -80,7 +80,7 @@ void AutoTuneScreen::create() {
     // Buttons
     button_row = create_dual_button_row(screen, &cancel_button, &ok_button,
                                         LV_SYMBOL_CLOSE, LV_SYMBOL_OK,
-                                        lv_color_hex(0x888888), lv_color_hex(THEME_COLOR_SUCCESS),
+                                        lv_color_hex(0x888888), lv_color_hex(UI_COLOR_OK),
                                         80, &lv_font_montserrat_32);
     lv_obj_set_width(button_row, 280);
     lv_obj_align(button_row, LV_ALIGN_BOTTOM_MID, 0, -10);
@@ -142,7 +142,7 @@ void AutoTuneScreen::show_success_screen(float new_latency_ms, float previous_la
     snprintf(previous_text, sizeof(previous_text), "Previous Value: %.0f ms", previous_latency_ms);
     lv_label_set_text(previous_latency_label, previous_text);
 
-    lv_obj_set_style_text_color(final_latency_label, lv_color_hex(THEME_COLOR_SUCCESS), 0);
+    lv_obj_set_style_text_color(final_latency_label, lv_color_hex(UI_COLOR_OK), 0);
 }
 
 void AutoTuneScreen::show_failure_screen(const char* error_message) {
@@ -193,7 +193,7 @@ void AutoTuneScreen::show_failure_screen(const char* error_message) {
     char default_text[32];
     snprintf(default_text, sizeof(default_text), "%.0f ms", (float)GRIND_MOTOR_RESPONSE_LATENCY_DEFAULT_MS);
     lv_label_set_text(final_latency_label, default_text);
-    lv_obj_set_style_text_color(final_latency_label, lv_color_hex(THEME_COLOR_WARNING), 0);
+    lv_obj_set_style_text_color(final_latency_label, lv_color_hex(UI_COLOR_WARN), 0);
     lv_obj_align(final_latency_label, LV_ALIGN_CENTER, 0, 80);
 
     lv_label_set_text(previous_latency_label, "Using default:");

@@ -641,7 +641,13 @@
     /* LV_FONT_DECLARE(lv_font_montserrat_54) */ \
     LV_FONT_DECLARE(lv_font_montserrat_56) \
     /* LV_FONT_DECLARE(lv_font_montserrat_58) */ \
-    LV_FONT_DECLARE(lv_font_montserrat_60)
+    LV_FONT_DECLARE(lv_font_montserrat_60) \
+    /* The hero faces: Montserrat instanced at Light 300, digits, '.' and ':'
+       only. A full face at 88 px would cost ~10x the flash for glyphs the hero
+       never renders, and Light is what makes a 7 mm numeral look drawn rather
+       than shouted. */ \
+    LV_FONT_DECLARE(lv_font_hero_60) \
+    LV_FONT_DECLARE(lv_font_hero_88)
 
 /** Always set a default font */
 #define LV_FONT_DEFAULT &lv_font_montserrat_14

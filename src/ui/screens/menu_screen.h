@@ -28,9 +28,11 @@ private:
     lv_obj_t* screen;
     lv_obj_t* menu;
     lv_obj_t* info_page;
-    lv_obj_t* bluetooth_page;
-    lv_obj_t* wifi_page;
-    lv_obj_t* cloud_sync_page;
+    // Bluetooth, WiFi and Cloud Sync were three pages saying near-identical
+    // things - a toggle, a block of status rows, a Forget button. They are one
+    // page now: connectivity is one subject, and on a 21 mm screen three
+    // near-identical pages is two too many.
+    lv_obj_t* network_page;
     lv_obj_t* display_page;
     lv_obj_t* grind_mode_page;
     lv_obj_t* data_page;
@@ -95,9 +97,9 @@ private:
     lv_obj_t* grind_mode_swipe_toggle;
     lv_obj_t* auto_start_toggle;
     lv_obj_t* auto_return_toggle;
-    lv_obj_t* grinder_purge_mode_radio_group;
-    lv_obj_t* grinder_purge_amount_slider;
-    lv_obj_t* grinder_purge_amount_label;
+    lv_obj_t* prime_mode_radio_group;
+    lv_obj_t* prime_amount_slider;
+    lv_obj_t* prime_amount_label;
     lv_obj_t* grind_freshness_hours_slider;
     lv_obj_t* grind_freshness_hours_label;
 
@@ -139,7 +141,7 @@ private:
     DiagnosticsController* diagnostics_controller;
 
 public:
-    static constexpr float kPurgeSliderScale = 10.0f; // Slider uses 0.1g increments
+    static constexpr float kPrimeSliderScale = 10.0f; // Slider uses 0.1g increments
 
     void create(BluetoothManager* bluetooth, GrindController* grind_ctrl, GrindingScreen* grind_screen, class HardwareManager* hw_mgr, DiagnosticsController* diag_ctrl);
     void show();
@@ -157,7 +159,7 @@ public:
     void update_logging_toggle();
     void update_clock_toggles();
     void update_grind_mode_toggles();
-    void update_grinder_purge_amount_label(float amount_g);
+    void update_prime_amount_label(float amount_g);
     void update_grind_freshness_hours_label(float hours);
     void reset_scale_display();
     void update_scale_weight(float weight);
@@ -174,9 +176,10 @@ public:
     bool is_scale_page_active() const { return scale_active; }
     bool is_info_page_active() const { return active_page == info_page; }
     bool is_diagnostics_page_active() const { return active_page == diagnostics_page; }
-    bool is_bluetooth_page_active() const { return active_page == bluetooth_page; }
-    bool is_wifi_page_active() const { return active_page == wifi_page; }
-    bool is_cloud_sync_page_active() const { return active_page == cloud_sync_page; }
+    // All three refreshers run together now that they share a page.
+    bool is_bluetooth_page_active() const { return active_page == network_page; }
+    bool is_wifi_page_active() const { return active_page == network_page; }
+    bool is_cloud_sync_page_active() const { return active_page == network_page; }
     lv_obj_t* get_ble_toggle() const { return ble_toggle; }
     lv_obj_t* get_wifi_toggle() const { return wifi_toggle; }
     lv_obj_t* get_wifi_forget_button() const { return wifi_forget_button; }
@@ -195,28 +198,27 @@ public:
     lv_obj_t* get_grind_mode_swipe_toggle() const { return grind_mode_swipe_toggle; }
     lv_obj_t* get_auto_start_toggle() const { return auto_start_toggle; }
     lv_obj_t* get_auto_return_toggle() const { return auto_return_toggle; }
-    lv_obj_t* get_grinder_purge_mode_radio_group() const { return grinder_purge_mode_radio_group; }
-    lv_obj_t* get_grinder_purge_amount_slider() const { return grinder_purge_amount_slider; }
+    lv_obj_t* get_prime_mode_radio_group() const { return prime_mode_radio_group; }
+    lv_obj_t* get_prime_amount_slider() const { return prime_amount_slider; }
     lv_obj_t* get_grind_freshness_hours_slider() const { return grind_freshness_hours_slider; }
 
 private:
     void create_menu_ui();
     void create_info_page(lv_obj_t* parent);
-    void create_bluetooth_page(lv_obj_t* parent);
-    void create_wifi_page(lv_obj_t* parent);
-    void create_cloud_sync_page(lv_obj_t* parent);
+    void create_network_page(lv_obj_t* parent);
     void create_display_page(lv_obj_t* parent);
     void create_grind_mode_page(lv_obj_t* parent);
     void create_scale_page(lv_obj_t* parent);
     void create_data_page(lv_obj_t* parent);
     void create_stats_page(lv_obj_t* parent);
     void create_diagnostics_page(lv_obj_t* parent);
+    lv_obj_t* create_detail_sink(lv_obj_t* parent);
     lv_obj_t* create_separator(lv_obj_t* parent, const char* text = nullptr);
     lv_obj_t* create_menu_item(lv_obj_t* parent, const char* text);
     lv_obj_t *create_toggle_row(lv_obj_t *parent, const char *text,lv_obj_t **out_toggle);
     lv_obj_t *create_slider_row(lv_obj_t *parent, const char *text,
                                 lv_obj_t **label, lv_obj_t **slider,
-                                lv_color_t slider_color = lv_color_hex(THEME_COLOR_ACCENT),
+                                lv_color_t slider_color = lv_color_hex(UI_COLOR_ACCENT),
                                 uint32_t min = 0, uint32_t max = 100);
     lv_obj_t *create_static_data_label(lv_obj_t *parent, const char *name,
                                        const char *value);

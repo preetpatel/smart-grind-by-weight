@@ -32,6 +32,7 @@ public:
     void update_current_weight(float weight) override;
     void update_tare_display() override;
     void update_progress(int percent) override;
+    void set_result_tone(ResultTone tone) override;
     bool is_visible() const override;
     lv_obj_t* get_screen() const override;
     void add_chart_data_point(float current_weight, float flow_rate, uint32_t current_time_ms) override;

@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Direction B — twelve variants</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@200;300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --page-bg: #0b0b0c; --panel: #141416; --rule: #242428;
+    --ink: #ededef; --ink-dim: #8e8e96; --ink-faint: #5c5c64;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; background: var(--page-bg); color: var(--ink);
+    font-family: "Montserrat", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(11,11,12,.94); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--rule); padding: 16px 30px 14px;
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0 0 3px; letter-spacing: -.01em; }
+  header p { font-size: 12px; color: var(--ink-faint); margin: 0; max-width: 760px; line-height: 1.55; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-top: 13px; }
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chips button {
+    font: inherit; font-size: 11.5px; font-weight: 500; color: var(--ink-dim);
+    background: transparent; border: 1px solid var(--rule); border-radius: 999px;
+    padding: 6px 12px; cursor: pointer;
+  }
+  .chips button:hover { color: var(--ink); }
+  .chips button[aria-pressed="true"] { background: var(--ink); color: #16161a; border-color: var(--ink); }
+
+  main { padding: 26px 30px 80px; }
+  .variant { margin-bottom: 40px; }
+  .variant.hidden { display: none; }
+  .vhead {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    margin: 0 0 16px; padding-bottom: 11px; border-bottom: 1px solid var(--rule);
+  }
+  .vhead h2 { font-size: 16px; margin: 0; font-weight: 600; }
+  .vhead .n { color: var(--ink-faint); font-weight: 600; font-size: 13px; margin-right: 2px; }
+  .vhead p { font-size: 12.5px; color: var(--ink-dim); margin: 0; flex: 1; min-width: 300px; line-height: 1.55; }
+  .vhead .tag {
+    font-size: 10px; letter-spacing: .05em; text-transform: uppercase; font-weight: 600;
+    color: var(--ink-faint); border: 1px solid var(--rule); border-radius: 5px; padding: 3px 7px;
+  }
+
+  .row { display: flex; gap: 20px; flex-wrap: wrap; }
+  .item { width: 296px; }
+  .frame {
+    position: relative; display: flex; justify-content: center; padding: 18px 0;
+    background: var(--panel); border: 1px solid var(--rule); border-radius: 14px;
+  }
+  .screen {
+    position: relative; width: 280px; height: 456px; border-radius: 26px; overflow: hidden;
+    box-shadow: 0 0 0 1px #26262a, 0 14px 34px rgba(0,0,0,.5);
+    transform-origin: top center; transition: transform .18s;
+  }
+  body.zoom .screen { transform: scale(1.4); }
+  body.zoom .frame { height: 660px; align-items: flex-start; }
+  body.dim .screen { filter: brightness(.4); }
+  .badge {
+    position: absolute; top: 10px; left: 13px; z-index: 3;
+    font-size: 10px; font-weight: 600; letter-spacing: .1em; color: #3d3d44; text-transform: uppercase;
+  }
+  footer {
+    border-top: 1px solid var(--rule); margin-top: 20px; padding: 22px 30px 60px;
+    font-size: 12.5px; line-height: 1.7; color: var(--ink-dim); max-width: 860px;
+  }
+  footer b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Direction B — twelve variants</h1>
+  <p>Same palette, same manners, twelve different postures. Each shown across the primary flow: Ready, Grinding, Complete. 280 × 456 at 1:1.</p>
+  <div class="bar">
+    <div class="chips" id="filters"></div>
+    <div class="chips">
+      <button id="btn-zoom" aria-pressed="false">Zoom 1.4×</button>
+      <button id="btn-dim" aria-pressed="false">Dimmed</button>
+    </div>
+  </div>
+</header>
+
+<main id="main"></main>
+
+<footer>
+  <p><b>What's constant.</b> True black, ink <code>#f7f7f5</code>, amber <code>#f0b429</code>, Montserrat, and the rule that exactly one action per screen gets colour. What varies is posture: where the content sits, how big the number is, how the action presents itself, and whether structure comes from rules, surfaces or pure space.</p>
+  <p><b>What to look for.</b> Whether the dose is legible from two metres; whether the action reads as the action without being read; and whether Grinding and Complete still feel like the same machine as Ready. A variant that only works on one of the three screens isn't a direction, it's a screen.</p>
+</footer>
+
+<script>
+(function () {
+"use strict";
+
+/* ---------- shared palette ---------- */
+var P = {
+  bg: "#000000", ink: "#f7f7f5", dim: "#8b8b85", faint: "#57574f",
+  line: "#1c1c1a", surface: "#121211", accent: "#f0b429", ok: "#4fae5f"
+};
+
+/* ---------- primitives ---------- */
+function lbl(text, o) {
+  o = o || {};
+  return '<span style="font-size:' + (o.size || 12) + "px;font-weight:" + (o.weight || 500) +
+    ";letter-spacing:" + (o.track || ".16em") + ";text-transform:" + (o.up === false ? "none" : "uppercase") +
+    ";color:" + (o.color || P.dim) + ";line-height:1;white-space:nowrap;" + (o.extra || "") + '">' + text + "</span>";
+}
+function num(text, size, o) {
+  o = o || {};
+  return '<span style="font-size:' + size + "px;font-weight:" + (o.weight || 300) +
+    ";letter-spacing:" + (o.track || "-.02em") + ";color:" + (o.color || P.ink) +
+    ";line-height:" + (o.lh || 1) + ";font-variant-numeric:tabular-nums;" + (o.extra || "") + '">' + text + "</span>";
+}
+function unit(text, size, o) {
+  o = o || {};
+  return '<span style="font-size:' + size + "px;font-weight:400;color:" + (o.color || P.dim) + ';">' + text + "</span>";
+}
+function hr(o) {
+  o = o || {};
+  return '<div style="height:1px;background:' + (o.color || P.line) + ";" + (o.extra || "") + '"></div>';
+}
+function panel(inner) {
+  return '<div class="screen" style="background:' + P.bg + ";color:" + P.ink + '">' + inner + "</div>";
+}
+function status(o) {
+  o = o || {};
+  return '<div style="position:absolute;left:' + (o.x || 20) + "px;right:" + (o.x || 20) +
+    'px;top:15px;display:flex;align-items:center;justify-content:space-between;z-index:2">' +
+    num("9:41", 13, { color: P.faint, weight: 400 }) +
+    '<div style="display:flex;gap:5px">' +
+    '<i style="width:4px;height:4px;border-radius:50%;background:' + P.faint + ';display:block"></i>' +
+    '<i style="width:4px;height:4px;border-radius:50%;background:' + P.faint + ';display:block"></i></div></div>';
+}
+function arc(frac, size, w, o) {
+  o = o || {};
+  var r = size / 2 - w, len = 2 * Math.PI * r;
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + " " + size + '">' +
+    '<circle cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" fill="none" stroke="' + (o.track || P.line) + '" stroke-width="' + w + '"/>' +
+    '<circle cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" fill="none" stroke="' + (o.color || P.accent) +
+    '" stroke-width="' + w + '" stroke-linecap="round" transform="rotate(-90 ' + size / 2 + " " + size / 2 +
+    ')" stroke-dasharray="' + len.toFixed(1) + '" stroke-dashoffset="' + (len * (1 - frac)).toFixed(1) + '"/></svg>';
+}
+function curve(w, h, color, fill) {
+  var pts = [], n = 26;
+  for (var i = 0; i <= n; i++) {
+    var x = (i / n) * w, p = i / n;
+    pts.push(x.toFixed(1) + "," + (h - h * 0.85 * (1 - Math.exp(-3.1 * p))).toFixed(1));
+  }
+  var line = "M " + pts.join(" L ");
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + " " + h + '">' +
+    (fill ? '<path d="' + line + " L " + w + "," + h + " L 0," + h + ' Z" fill="' + fill + '"/>' : "") +
+    '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+}
+function check(size, color) {
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 20 20">' +
+    '<path d="M4 10.5 L8 14.5 L16 6" fill="none" stroke="' + color + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+/* ---------- action treatments ---------- */
+function action(v, text, o) {
+  o = o || {};
+  var kind = o.kind || v.action;
+  var h = o.h || v.actionH || 92;
+  var strong = o.strong !== false;
+  if (kind === "solid") {
+    return '<div style="position:absolute;left:0;right:0;bottom:0;height:' + h + "px;background:" +
+      (strong ? P.accent : P.surface) + ';display:flex;align-items:center;justify-content:center">' +
+      lbl(text, { size: 15, weight: 600, track: ".18em", color: strong ? "#171206" : P.ink }) + "</div>";
+  }
+  if (kind === "inverted") {
+    return '<div style="position:absolute;left:0;right:0;bottom:0;height:' + h + "px;background:" +
+      (strong ? P.ink : "transparent") + (strong ? "" : ";border-top:1px solid " + P.line) +
+      ';display:flex;align-items:center;justify-content:center">' +
+      lbl(text, { size: 15, weight: 600, track: ".18em", color: strong ? "#0a0a09" : P.dim }) + "</div>";
+  }
+  if (kind === "ghost") {
+    return '<div style="position:absolute;left:0;right:0;bottom:0;height:' + h +
+      'px;border-top:1px solid ' + P.line + ';display:flex;align-items:center;justify-content:center">' +
+      lbl(text, { size: 15, weight: 600, track: ".18em", color: strong ? P.accent : P.dim }) + "</div>";
+  }
+  if (kind === "pill") {
+    return '<div style="position:absolute;left:20px;right:20px;bottom:24px;height:' + (h - 24) +
+      "px;border-radius:" + ((h - 24) / 2) + "px;background:" + (strong ? P.accent : "transparent") +
+      (strong ? "" : ";border:1px solid " + P.line) + ';display:flex;align-items:center;justify-content:center">' +
+      lbl(text, { size: 14, weight: 600, track: ".18em", color: strong ? "#171206" : P.dim }) + "</div>";
+  }
+  // "inline" — a rule with the word sitting on it, no filled area at all
+  return '<div style="position:absolute;left:0;right:0;bottom:0;height:' + h + 'px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:14px">' +
+    '<div style="width:38px;height:2px;background:' + (strong ? P.accent : P.line) + '"></div>' +
+    lbl(text, { size: 14, weight: 600, track: ".2em", color: strong ? P.ink : P.dim }) + "</div>";
+}
+
+/* dose selector treatments for the ready screen */
+function selector(v) {
+  if (v.selector === "dots") {
+    return '<div style="display:flex;gap:8px;margin-top:32px">' + [0, 1, 2].map(function (i) {
+      return '<i style="width:' + (i === 1 ? 20 : 6) + "px;height:6px;border-radius:3px;background:" +
+        (i === 1 ? P.accent : P.line) + ';display:block"></i>';
+    }).join("") + "</div>";
+  }
+  if (v.selector === "names") {
+    return '<div style="display:flex;gap:16px;margin-top:30px">' +
+      ["Single", "Double", "Custom"].map(function (n, i) {
+        return lbl(n, { size: 10.5, color: i === 1 ? P.accent : P.faint });
+      }).join("") + "</div>";
+  }
+  if (v.selector === "segment") {
+    return '<div style="display:flex;gap:6px;margin-top:30px">' +
+      ["Single", "Double", "Custom"].map(function (n, i) {
+        var on = i === 1;
+        return '<div style="padding:8px 12px;border-radius:999px;background:' + (on ? "rgba(240,180,41,.14)" : "transparent") +
+          ";border:1px solid " + (on ? "rgba(240,180,41,.5)" : P.line) + '">' +
+          lbl(n, { size: 9.5, track: ".1em", color: on ? P.accent : P.faint }) + "</div>";
+      }).join("") + "</div>";
+  }
+  return "";
+}
+
+/* ---------- variants ---------- */
+var VARIANTS = [
+  { id: "b1", name: "Baseline", tag: "As shown",
+    note: "The version you liked, unchanged, as the control. Centred hero, dots for the other doses, a full-bleed amber action bar.",
+    align: "center", hero: 108, action: "solid", selector: "dots", kicker: true },
+
+  { id: "b2", name: "Left column", tag: "Ragged left",
+    note: "Everything hangs off one left margin like a page of type. Asymmetry does the work colour would otherwise have to. Reads more like an instrument, less like an app.",
+    align: "left", hero: 100, action: "solid", selector: "names", kicker: true },
+
+  { id: "b3", name: "Ink only", tag: "No accent",
+    note: "Amber deleted entirely. The action is a white bar on black, which on an AMOLED is the loudest thing you can do. Worth testing whether the colour was ever earning its place.",
+    align: "center", hero: 108, action: "inverted", selector: "dots", kicker: true, monoAccent: P.ink },
+
+  { id: "b4", name: "Amber numerals", tag: "Accent inverted",
+    note: "The colour moves onto the number and off the button. The dose becomes the brightest thing on the panel, and the action is a quiet rule underneath.",
+    align: "center", hero: 108, action: "ghost", selector: "dots", kicker: true, heroColor: P.accent },
+
+  { id: "b5", name: "Card", tag: "Raised surface",
+    note: "Content on a lifted surface inset from the bezel. Gives the screen an edge to hold onto — and gives status a place to live outside the card.",
+    align: "center", hero: 92, action: "solid", selector: "dots", kicker: true, card: true },
+
+  { id: "b6", name: "Ruled", tag: "Table",
+    note: "Hairlines above and below the hero, and the supporting facts set as rows rather than centred lines. The most information-dense way to stay editorial.",
+    align: "left", hero: 84, action: "solid", selector: "rows", kicker: true, ruled: true },
+
+  { id: "b7", name: "Oversized", tag: "Max hero",
+    note: "The number at 132 px and almost nothing else. Legible across a room, and it makes the grinder feel confident rather than busy. Needs a generated font.",
+    align: "center", hero: 132, action: "inline", selector: "none", kicker: false },
+
+  { id: "b8", name: "Split", tag: "Two zones",
+    note: "One full-width rule divides context from action. Every screen inherits the same division, so your eye learns where to look once.",
+    align: "center", hero: 96, action: "ghost", selector: "names", kicker: true, split: true },
+
+  { id: "b9", name: "Pill", tag: "Floating action",
+    note: "The action stops being the bottom of the screen and becomes an object on it. Black margin all round reads more premium; it also costs you 24 px of touch target.",
+    align: "center", hero: 104, action: "pill", selector: "dots", kicker: true, actionH: 96 },
+
+  { id: "b10", name: "Top rail", tag: "Persistent header",
+    note: "A thin header carries profile and clock on every screen, so the hero never has to introduce itself. Consistency at the cost of 44 px.",
+    align: "center", hero: 100, action: "solid", selector: "dots", kicker: false, rail: true },
+
+  { id: "b11", name: "Hairline", tag: "Thin numerals",
+    note: "Weight 200 numerals with wide-set small labels underneath. High contrast between hair-thin and bold-small. The most elegant, and the first to disappear at low brightness.",
+    align: "center", hero: 112, action: "inline", selector: "names", kicker: true, heroWeight: 200 },
+
+  { id: "b12", name: "Informed", tag: "Context",
+    note: "The same language, but the screen earns its keep: last grind, freshness and what happens next sit under the hero. Closest to the contextual clock faces you starred.",
+    align: "center", hero: 88, action: "solid", selector: "dots", kicker: true, context: true }
+];
+
+/* ---------- screens ---------- */
+function ready(v) {
+  var pad = v.align === "left" ? 24 : 0;
+  var items = v.align === "left" ? "flex-start" : "center";
+  var heroWeight = v.heroWeight || 300;
+  var heroColor = v.heroColor || P.ink;
+
+  var hero = '<div style="display:flex;align-items:baseline;gap:7px">' +
+    num("21.5", v.hero, { weight: heroWeight, color: heroColor }) +
+    unit("g", Math.round(v.hero * 0.22)) + "</div>";
+
+  if (v.selector === "rows") {
+    var rows = [["Single", "18.0"], ["Double", "21.5"], ["Custom", "14.0"]].map(function (r, i) {
+      var on = i === 1;
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:11px 0;' +
+        (i < 2 ? "border-bottom:1px solid " + P.line + ";" : "") + '">' +
+        lbl(r[0], { size: 11, color: on ? P.ink : P.faint }) +
+        '<div style="display:flex;align-items:baseline;gap:3px">' +
+        num(r[1], on ? 22 : 18, { color: on ? P.accent : P.faint, weight: 400 }) +
+        unit("g", 11, { color: P.faint }) + "</div></div>";
+    }).join("");
+    return panel(status() +
+      '<div style="position:absolute;left:24px;right:24px;top:62px">' +
+      lbl("Dose", { color: P.faint, extra: "display:block;margin-bottom:14px" }) +
+      hr({ extra: "margin-bottom:18px" }) + hero +
+      '<div style="margin:20px 0 4px">' + hr() + "</div>" + rows + "</div>" +
+      action(v, "Grind"));
+  }
+
+  var body =
+    '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:' + items +
+    ';justify-content:center;padding-bottom:' + ((v.actionH || 92) - 14) + "px;padding-left:" + (pad || 26) + "px;padding-right:" + (pad || 26) + 'px">' +
+    (v.rail ? "" : (v.kicker ? lbl("Double", { extra: "margin-bottom:20px" }) : "")) +
+    hero + selector(v) +
+    (v.context ? '<div style="width:100%;margin-top:30px">' + hr({ extra: "margin-bottom:14px" }) +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px">' +
+      lbl("Last", { size: 10, color: P.faint }) + num("21.6 g · 2 h ago", 13, { color: P.dim, weight: 400 }) + "</div>" +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
+      lbl("Grounds", { size: 10, color: P.faint }) + num("fresh for 3 h", 13, { color: P.dim, weight: 400 }) + "</div></div>" : "") +
+    (v.selector === "none" ? lbl("Double", { size: 11, color: P.faint, extra: "margin-top:34px" }) : "") +
+    "</div>";
+
+  var chrome = "";
+  if (v.rail) {
+    chrome = '<div style="position:absolute;left:0;right:0;top:0;height:46px;border-bottom:1px solid ' + P.line +
+      ';display:flex;align-items:center;justify-content:space-between;padding:0 18px">' +
+      lbl("Double", { size: 11, color: P.ink }) + num("9:41", 12, { color: P.faint, weight: 400 }) + "</div>";
+  } else {
+    chrome = status();
+  }
+  if (v.split) {
+    chrome += '<div style="position:absolute;left:0;right:0;bottom:' + (v.actionH || 92) + 'px;height:1px;background:' + P.line + '"></div>';
+  }
+  if (v.card) {
+    return panel(status() +
+      '<div style="position:absolute;left:14px;right:14px;top:44px;bottom:' + ((v.actionH || 92) + 14) +
+      'px;border-radius:18px;background:' + P.surface + '"></div>' + body + action(v, "Grind"));
+  }
+  return panel(chrome + body + action(v, "Grind"));
+}
+
+function grinding(v) {
+  var items = v.align === "left" ? "flex-start" : "center";
+  var pad = v.align === "left" ? 24 : 0;
+  var accent = v.monoAccent || P.accent;
+
+  /* inside an arc the readout has to clear the ring, so it runs smaller there */
+  var insideArc = !(v.id === "b5" || v.id === "b9" || v.id === "b6" || v.id === "b2" ||
+                    v.id === "b7" || v.id === "b11" || v.id === "b12");
+  var readSize = Math.round(v.hero * (insideArc ? 0.62 : 0.8));
+  var readout = '<div style="display:flex;align-items:baseline;gap:6px">' +
+    num("14.2", readSize, { weight: v.heroWeight || 300, color: v.heroColor || P.ink }) +
+    unit("g", Math.round(readSize * 0.24)) + "</div>";
+
+  /* the progress treatment tracks the variant's personality */
+  var progress;
+  if (v.id === "b5" || v.id === "b9") {
+    progress = '<div style="width:190px;height:5px;border-radius:3px;background:' + P.line + ';overflow:hidden;margin-top:28px">' +
+      '<div style="width:66%;height:100%;background:' + accent + '"></div></div>';
+  } else if (v.id === "b6" || v.id === "b2") {
+    progress = '<div style="width:100%;height:4px;background:' + P.line + ';overflow:hidden;margin-top:26px">' +
+      '<div style="width:66%;height:100%;background:' + accent + '"></div></div>';
+  } else if (v.id === "b7" || v.id === "b11") {
+    progress = '<div style="width:150px;height:1px;background:' + P.line + ';position:relative;margin-top:30px">' +
+      '<div style="position:absolute;left:0;top:0;height:1px;width:66%;background:' + accent + '"></div></div>';
+  } else if (v.id === "b12") {
+    progress = '<div style="width:100%;margin-top:26px;display:flex;justify-content:center">' + curve(216, 88, accent, "rgba(240,180,41,.1)") + "</div>";
+  } else {
+    progress = null;   // arc variants draw it behind the number
+  }
+
+  var inner;
+  if (progress === null) {
+    inner = '<div style="position:relative;display:flex;align-items:center;justify-content:center">' +
+      arc(0.66, 232, 5, { color: accent }) +
+      '<div style="position:absolute;display:flex;flex-direction:column;align-items:center">' + readout +
+      lbl("of 21.5", { size: 10.5, color: P.faint, extra: "margin-top:12px" }) + "</div></div>";
+  } else {
+    inner = readout + lbl("of 21.5 g", { size: 10.5, color: P.faint, extra: "margin-top:14px" }) + progress;
+  }
+
+  var chrome = v.rail
+    ? '<div style="position:absolute;left:0;right:0;top:0;height:46px;border-bottom:1px solid ' + P.line +
+      ';display:flex;align-items:center;justify-content:space-between;padding:0 18px">' +
+      lbl("Grinding", { size: 11, color: P.ink }) + lbl("Pulse 2 of 4", { size: 10, color: P.faint }) + "</div>"
+    : "";
+  if (v.split) {
+    chrome += '<div style="position:absolute;left:0;right:0;bottom:' + (v.actionH || 92) + 'px;height:1px;background:' + P.line + '"></div>';
+  }
+  if (v.card) {
+    chrome += '<div style="position:absolute;left:14px;right:14px;top:44px;bottom:' + ((v.actionH || 92) + 14) +
+      'px;border-radius:18px;background:' + P.surface + '"></div>';
+  }
+
+  return panel(chrome +
+    '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:' + items +
+    ';justify-content:center;padding-bottom:' + ((v.actionH || 92) - 10) + "px;padding-left:" + (pad || 26) + "px;padding-right:" + (pad || 26) + 'px">' +
+    inner + "</div>" +
+    action(v, "Stop", { strong: false }));
+}
+
+function complete(v) {
+  var items = v.align === "left" ? "flex-start" : "center";
+  var pad = v.align === "left" ? 24 : 0;
+  var accent = v.monoAccent || P.accent;
+
+  var hero = '<div style="display:flex;align-items:baseline;gap:6px">' +
+    num("21.6", Math.round(v.hero * 0.86), { weight: v.heroWeight || 300, color: v.heroColor || P.ink }) +
+    unit("g", Math.round(v.hero * 0.2)) + "</div>";
+
+  var detail;
+  if (v.selector === "rows" || v.ruled) {
+    detail = '<div style="width:100%;margin-top:22px">' + hr() +
+      ['<div style="display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid ' + P.line + '">' +
+        lbl("Target", { size: 10, color: P.faint }) + num("21.5 g", 14, { color: P.dim, weight: 400 }) + "</div>",
+       '<div style="display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid ' + P.line + '">' +
+        lbl("Error", { size: 10, color: P.faint }) + num("+0.1 g", 14, { color: P.ok, weight: 400 }) + "</div>",
+       '<div style="display:flex;justify-content:space-between;padding:11px 0">' +
+        lbl("Time", { size: 10, color: P.faint }) + num("9.4 s", 14, { color: P.dim, weight: 400 }) + "</div>"].join("") + "</div>";
+  } else if (v.context) {
+    detail = '<div style="width:100%;margin-top:24px">' + hr({ extra: "margin-bottom:13px" }) +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline">' +
+      lbl("Within", { size: 10, color: P.faint }) + num("0.1 g of target", 13, { color: P.ok, weight: 400 }) + "</div></div>";
+  } else {
+    detail = lbl("+0.1 g over 21.5", { size: 10.5, color: P.faint, extra: "margin-top:18px" });
+  }
+
+  var mark = v.id === "b3"
+    ? '<div style="margin-bottom:22px">' + check(22, P.ink) + "</div>"
+    : (v.id === "b7" || v.id === "b11"
+      ? lbl("Complete", { size: 11, color: P.faint, extra: "margin-bottom:22px" })
+      : '<div style="width:38px;height:38px;border-radius:50%;border:1.5px solid ' + P.ok +
+        ';display:flex;align-items:center;justify-content:center;margin-bottom:22px">' + check(17, P.ok) + "</div>");
+
+  /* split action: pulse + done */
+  var h = v.actionH || 92;
+  var bar;
+  if (v.action === "pill") {
+    bar = '<div style="position:absolute;left:20px;right:20px;bottom:24px;display:flex;gap:10px">' +
+      '<div style="flex:1;height:' + (h - 24) + "px;border-radius:" + ((h - 24) / 2) +
+      'px;border:1px solid ' + P.line + ';display:flex;align-items:center;justify-content:center">' +
+      lbl("+ Pulse", { size: 12, color: P.dim, track: ".1em" }) + "</div>" +
+      '<div style="flex:1.4;height:' + (h - 24) + "px;border-radius:" + ((h - 24) / 2) + "px;background:" + accent +
+      ';display:flex;align-items:center;justify-content:center">' +
+      lbl("Done", { size: 12, weight: 600, color: "#171206", track: ".1em" }) + "</div></div>";
+  } else if (v.action === "inline") {
+    bar = '<div style="position:absolute;left:0;right:0;bottom:0;height:' + h +
+      'px;display:flex;align-items:center;justify-content:center;gap:38px">' +
+      lbl("+ Pulse", { size: 13, color: P.dim, track: ".16em" }) +
+      lbl("Done", { size: 13, weight: 600, color: accent, track: ".16em" }) + "</div>";
+  } else {
+    var doneBg = v.action === "inverted" ? P.ink : accent;
+    var doneInk = v.action === "inverted" ? "#0a0a09" : "#171206";
+    bar = '<div style="position:absolute;left:0;right:0;bottom:0;height:' + h + 'px;display:flex">' +
+      '<div style="flex:1;display:flex;align-items:center;justify-content:center;border-top:1px solid ' + P.line + '">' +
+      lbl("+ Pulse", { size: 13, color: P.dim, track: ".14em" }) + "</div>" +
+      '<div style="flex:1.5;background:' + doneBg + ';display:flex;align-items:center;justify-content:center">' +
+      lbl("Done", { size: 13, weight: 600, color: doneInk, track: ".14em" }) + "</div></div>";
+  }
+
+  var chrome = v.rail
+    ? '<div style="position:absolute;left:0;right:0;top:0;height:46px;border-bottom:1px solid ' + P.line +
+      ';display:flex;align-items:center;justify-content:space-between;padding:0 18px">' +
+      lbl("Complete", { size: 11, color: P.ink }) + num("9.4 s", 12, { color: P.faint, weight: 400 }) + "</div>"
+    : status();
+  if (v.card) {
+    chrome += '<div style="position:absolute;left:14px;right:14px;top:44px;bottom:' + (h + 14) +
+      'px;border-radius:18px;background:' + P.surface + '"></div>';
+  }
+
+  return panel(chrome +
+    '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:' + items +
+    ';justify-content:center;padding-bottom:' + (h - 8) + "px;padding-left:" + (pad || 26) + "px;padding-right:" + (pad || 26) + 'px">' +
+    mark + hero + detail + "</div>" + bar);
+}
+
+/* ---------- build ---------- */
+var SCREENS = [["Ready", ready], ["Grinding", grinding], ["Complete", complete]];
+var main = document.getElementById("main");
+var html = "";
+
+VARIANTS.forEach(function (v, i) {
+  html += '<section class="variant" data-f="' + v.id + '">' +
+    '<div class="vhead"><h2><span class="n">B' + (i + 1) + "</span>" + v.name + "</h2>" +
+    '<span class="tag">' + v.tag + "</span><p>" + v.note + "</p></div><div class=\"row\">";
+  SCREENS.forEach(function (s) {
+    html += '<div class="item"><div class="frame"><span class="badge">' + s[0] + "</span>" + s[1](v) + "</div></div>";
+  });
+  html += "</div></section>";
+});
+main.innerHTML = html;
+
+var filters = document.getElementById("filters");
+filters.innerHTML = '<button data-f="all" aria-pressed="true">All 12</button>' +
+  VARIANTS.map(function (v, i) { return '<button data-f="' + v.id + '">B' + (i + 1) + " " + v.name + "</button>"; }).join("");
+
+filters.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-f]");
+  if (!b) return;
+  filters.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+  document.querySelectorAll(".variant").forEach(function (s) {
+    s.classList.toggle("hidden", b.dataset.f !== "all" && s.dataset.f !== b.dataset.f);
+  });
+});
+
+var urlF = new URLSearchParams(location.search).get("filter");
+if (urlF) { var t = filters.querySelector('[data-f="' + urlF + '"]'); if (t) t.click(); }
+
+["btn-zoom:zoom", "btn-dim:dim"].forEach(function (pair) {
+  var p = pair.split(":"), b = document.getElementById(p[0]);
+  b.addEventListener("click", function () {
+    var on = b.getAttribute("aria-pressed") !== "true";
+    b.setAttribute("aria-pressed", String(on));
+    document.body.classList.toggle(p[1], on);
+  });
+});
+
+})();
+</script>
+</body>
+</html>

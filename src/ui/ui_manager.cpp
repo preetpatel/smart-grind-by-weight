@@ -69,7 +69,7 @@ void UIManager::create_ui() {
 #if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)
     lv_style_set_bg_color(&style_screen, lv_color_hex(THEME_COLOR_BACKGROUND_MOCK));
 #else
-    lv_style_set_bg_color(&style_screen, lv_color_hex(THEME_COLOR_BACKGROUND));
+    lv_style_set_bg_color(&style_screen, lv_color_hex(UI_COLOR_BG));
 #endif
     lv_obj_add_style(lv_scr_act(), &style_screen, 0);
 
@@ -93,6 +93,7 @@ void UIManager::create_ui() {
 
     if (grinding_controller_) {
         grinding_controller_->build_controls();
+        grinding_controller_->load_last_grind();
     }
 
     if (status_indicator_controller_) {
@@ -167,6 +168,9 @@ void UIManager::update() {
 
         case UIState::READY:
             ready_screen.update_clock();
+            if (ready_controller_) {
+                ready_controller_->update_context();
+            }
             break;
             
         default:
@@ -258,7 +262,7 @@ void UIManager::switch_to_state(UIState new_state) {
                 if (!grind_controller->get_grinder_purged_since_boot()) {
                     // First grind since boot
                     snprintf(message_buffer, sizeof(message_buffer),
-                             "Previous grind time unknown. Remove the purge grinds if desired.");
+                             "First grind since power-on. Tip out the prime dose if you want to.");
                 } else {
                     // Calculate elapsed time
                     uint64_t current_ms = esp_timer_get_time() / 1000;
@@ -268,12 +272,12 @@ void UIManager::switch_to_state(UIState new_state) {
                     int hours = (int)elapsed_hours;
 
                     snprintf(message_buffer, sizeof(message_buffer),
-                             "Last grind >%dh ago. Remove the purge grinds if desired.", hours);
+                             "Grounds are over %dh old. Tip out the prime dose if you want to.", hours);
                 }
             } else {
                 // Fallback message
                 snprintf(message_buffer, sizeof(message_buffer),
-                         "Remove the purge grinds if desired.");
+                         "Tip out the prime dose if you want to.");
             }
 
             purge_confirm_screen.set_message(message_buffer);
@@ -361,7 +365,7 @@ void UIManager::set_background_active(bool active) {
 #if defined(DEBUG_ENABLE_LOADCELL_MOCK) && (DEBUG_ENABLE_LOADCELL_MOCK != 0)
     lv_color_t inactive_color = lv_color_hex(THEME_COLOR_BACKGROUND_MOCK);
 #else
-    lv_color_t inactive_color = lv_color_hex(THEME_COLOR_BACKGROUND);
+    lv_color_t inactive_color = lv_color_hex(UI_COLOR_BG);
 #endif
     lv_color_t bg_color = active ? lv_color_hex(THEME_COLOR_GRINDER_ACTIVE) : inactive_color;
     lv_style_set_bg_color(&style_bg, bg_color);

@@ -108,6 +108,13 @@ void GrindingScreen::update_progress(int percent) {
     chart_screen.update_progress(percent);
 }
 
+void GrindingScreen::set_result_tone(ResultTone tone) {
+    // Both layouts are kept in step so toggling between them mid-result does not
+    // change what the screen is telling you.
+    arc_screen.set_result_tone(tone);
+    chart_screen.set_result_tone(tone);
+}
+
 bool GrindingScreen::is_visible() const {
     return active_screen ? active_screen->is_visible() : false;
 }

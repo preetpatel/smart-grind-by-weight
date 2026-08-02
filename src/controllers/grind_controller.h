@@ -99,7 +99,7 @@ private:
     
     float tolerance;
     GrindMode mode;
-    GrinderPurgeMode grinder_purge_mode_for_session;
+    PrimeDoseMode prime_dose_mode_for_session;
     float grinder_purge_amount_g_for_session;
 
     // Timeout tracking

@@ -20,6 +20,12 @@ public:
     
     // Chart-specific method (only implemented by chart screen)
     virtual void add_chart_data_point(float current_weight, float flow_rate, uint32_t current_time_ms) {}
+
+    // How the result reads: running (no verdict yet), landed, or failed. Drives
+    // the one coloured element on the screen, so a glance from across the
+    // kitchen says whether the grind is still going, went well, or did not.
+    enum class ResultTone { RUNNING, GOOD, BAD };
+    virtual void set_result_tone(ResultTone tone) {}
 };
 
 enum class GrindScreenLayout {

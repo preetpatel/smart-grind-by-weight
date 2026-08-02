@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Firmware UI — concepts</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@200;300;400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --page-bg: #0b0b0c;
+    --panel: #141416;
+    --rule: #242428;
+    --ink: #ededef;
+    --ink-dim: #8e8e96;
+    --ink-faint: #5c5c64;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--page-bg);
+    color: var(--ink);
+    font-family: "Montserrat", ui-sans-serif, system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: rgba(11,11,12,.94);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--rule);
+    padding: 16px 30px 14px;
+  }
+  header h1 { font-size: 16px; font-weight: 600; margin: 0 0 3px; letter-spacing: -.01em; }
+  header p { font-size: 12px; color: var(--ink-faint); margin: 0; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap; margin-top: 13px; }
+  .chips { display: flex; gap: 5px; flex-wrap: wrap; }
+  .chips button {
+    font: inherit; font-size: 11.5px; font-weight: 500;
+    color: var(--ink-dim); background: transparent;
+    border: 1px solid var(--rule); border-radius: 999px;
+    padding: 6px 12px; cursor: pointer;
+  }
+  .chips button:hover { color: var(--ink); }
+  .chips button[aria-pressed="true"] { background: var(--ink); color: #16161a; border-color: var(--ink); }
+
+  main { padding: 26px 30px 90px; }
+
+  .section { margin-bottom: 46px; }
+  .section.hidden { display: none; }
+  .section-head { margin-bottom: 18px; max-width: 780px; }
+  .section-head h2 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+  .section-head p { font-size: 13px; line-height: 1.6; color: var(--ink-dim); margin: 0; }
+
+  .row { display: flex; gap: 22px; flex-wrap: wrap; }
+
+  .item { width: 296px; }
+  .frame {
+    position: relative;
+    display: flex; justify-content: center;
+    padding: 18px 0;
+    background: var(--panel);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+  }
+  .screen {
+    position: relative;
+    width: 280px; height: 456px;
+    border-radius: 26px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px #26262a, 0 14px 34px rgba(0,0,0,.5);
+    transform-origin: top center;
+    transition: transform .18s;
+  }
+  body.zoom .screen { transform: scale(1.4); }
+  body.zoom .frame { height: 660px; align-items: flex-start; }
+  body.dim .screen { filter: brightness(.4); }
+
+  .cap { margin-top: 11px; }
+  .cap h3 { font-size: 13px; font-weight: 600; margin: 0 0 4px; }
+  .cap p { font-size: 11.5px; line-height: 1.55; color: var(--ink-dim); margin: 0; }
+  .badge {
+    position: absolute; top: 10px; left: 13px;
+    font-size: 10px; font-weight: 600; letter-spacing: .1em;
+    color: #3d3d44; text-transform: uppercase; z-index: 3;
+  }
+
+  .dirhead {
+    display: flex; align-items: baseline; gap: 14px;
+    margin: 34px 0 16px; padding-bottom: 10px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .dirhead h2 { font-size: 17px; margin: 0; font-weight: 600; }
+  .dirhead .swatches { display: flex; gap: 5px; margin-left: 4px; }
+  .dirhead .sw { width: 13px; height: 13px; border-radius: 4px; border: 1px solid #2c2c31; }
+  .dirhead p { font-size: 12.5px; color: var(--ink-dim); margin: 0; flex: 1; min-width: 260px; line-height: 1.55; }
+
+  footer {
+    border-top: 1px solid var(--rule);
+    margin-top: 30px; padding: 22px 30px 60px;
+    font-size: 12.5px; line-height: 1.7; color: var(--ink-dim); max-width: 860px;
+  }
+  footer b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Firmware UI — concept directions</h1>
+  <p>Every panel is the real 280 × 456 at 1:1, Montserrat only, true black. Nothing here is built yet.</p>
+  <div class="bar">
+    <div class="chips" id="filters"></div>
+    <div class="chips">
+      <button id="btn-zoom" aria-pressed="false">Zoom 1.4×</button>
+      <button id="btn-dim" aria-pressed="false">Dimmed</button>
+    </div>
+  </div>
+</header>
+
+<main id="main"></main>
+
+<footer>
+  <p><b>How to read this.</b> The first four blocks are competing <em>design directions</em> — the same six screens drawn four ways. Pick a direction, or pick pieces from several. The last three blocks are <em>interaction models</em> for the screens where the layout isn't the real question: how you choose a dose, what you watch while it grinds, and how the menu is shaped.</p>
+  <p><b>Everything here is Montserrat</b>, because that is what the firmware has. Where a direction wants a monospace or a different face, that's a generated font — a few KB for a digits-only subset, ~40 KB for a full one. No icons are drawn from LVGL's built-in symbol font; the glyph-like marks here are drawn shapes, which is what a custom icon set would mean in practice.</p>
+</footer>
+
+<script>
+(function () {
+"use strict";
+
+/* ============================ directions ============================ */
+var DIRECTIONS = [
+  {
+    id: "instrument",
+    name: "A · Instrument",
+    blurb: "Braun manners. Everything on a left grid, labels small and lettered wide, numbers doing all the shouting. Hairlines instead of boxes. One accent, used only for the thing that is live.",
+    t: {
+      bg: "#000000", ink: "#ffffff", dim: "#7c7c7c", faint: "#4a4a4a", line: "#1e1e1e",
+      accent: "#ff6a1f", surface: "#0e0e0e", radius: 4, align: "left",
+      label: { size: 12, track: ".2em", up: true, weight: 600 },
+      hero: { weight: 200, track: "-.03em" }
+    }
+  },
+  {
+    id: "editorial",
+    name: "B · Editorial",
+    blurb: "The web dashboard's manners on the device: flat surfaces, generous space, typography carrying the hierarchy, amber for the one real action. The grinder and the app would finally look related.",
+    t: {
+      bg: "#000000", ink: "#f7f7f5", dim: "#8b8b85", faint: "#57574f", line: "#1c1c1a",
+      accent: "#f0b429", surface: "#121211", radius: 14, align: "center",
+      label: { size: 13, track: ".14em", up: true, weight: 500 },
+      hero: { weight: 300, track: "-.02em" }
+    }
+  },
+  {
+    id: "tactile",
+    name: "C · Tactile",
+    blurb: "Designed for a wet thumb at 7am. Real blocks with real edges, nothing smaller than a fingertip, the selected thing filled rather than outlined. Keeps the existing brand red as the action colour.",
+    t: {
+      bg: "#0b0b0d", ink: "#ffffff", dim: "#9a9aa2", faint: "#65656d", line: "#232329",
+      accent: "#ff3d00", surface: "#1b1b20", radius: 18, align: "center",
+      label: { size: 13, track: ".06em", up: true, weight: 600 },
+      hero: { weight: 500, track: "-.02em" }
+    }
+  },
+  {
+    id: "espresso",
+    name: "D · Espresso",
+    blurb: "Warm black instead of pure black, copper instead of red, thin numerals with air around them. Reads like a machine that cost something. The riskiest on an AMOLED — warm greys are where banding shows.",
+    t: {
+      bg: "#070605", ink: "#f0e4d6", dim: "#93816e", faint: "#61523f", line: "#191410",
+      accent: "#c98b4b", surface: "#100d0a", radius: 10, align: "center",
+      label: { size: 12, track: ".26em", up: true, weight: 500 },
+      hero: { weight: 200, track: "-.01em" }
+    }
+  }
+];
+
+/* ============================ helpers ============================ */
+function lbl(t, text, opts) {
+  opts = opts || {};
+  return '<span style="font-size:' + (opts.size || t.label.size) + "px;font-weight:" + (opts.weight || t.label.weight) +
+    ";letter-spacing:" + (opts.track || t.label.track) + ";text-transform:" + (t.label.up ? "uppercase" : "none") +
+    ";color:" + (opts.color || t.dim) + ";line-height:1;" + (opts.extra || "") + '">' + text + "</span>";
+}
+function nums(t, text, size, opts) {
+  opts = opts || {};
+  return '<span style="font-size:' + size + "px;font-weight:" + (opts.weight || t.hero.weight) +
+    ";letter-spacing:" + (opts.track || t.hero.track) + ";color:" + (opts.color || t.ink) +
+    ";line-height:" + (opts.lh || 1) + ";font-variant-numeric:tabular-nums;" + (opts.extra || "") + '">' + text + "</span>";
+}
+function rule(t, opts) {
+  opts = opts || {};
+  return '<div style="height:1px;background:' + (opts.color || t.line) + ";" + (opts.extra || "") + '"></div>';
+}
+function screen(t, inner) {
+  return '<div class="screen" style="background:' + t.bg + ';color:' + t.ink + '">' + inner + "</div>";
+}
+/* full-bleed bottom action bar */
+function actionBar(t, text, opts) {
+  opts = opts || {};
+  var solid = opts.solid !== false;
+  return '<div style="position:absolute;left:0;right:0;bottom:0;height:' + (opts.h || 92) + "px;background:" +
+    (solid ? (opts.color || t.accent) : "transparent") + ";display:flex;align-items:center;justify-content:center;" +
+    (solid ? "" : "border-top:1px solid " + t.line + ";") + '">' +
+    '<span style="font-size:' + (opts.size || 22) + "px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:" +
+    (solid ? (opts.textColor || "#000") : t.ink) + '">' + text + "</span></div>";
+}
+function statusRow(t) {
+  return '<div style="position:absolute;left:18px;right:18px;top:14px;display:flex;align-items:center;justify-content:space-between">' +
+    lbl(t, "9:41", { size: 13, track: ".02em", color: t.faint }) +
+    '<div style="display:flex;gap:6px;align-items:center">' +
+    '<i style="width:5px;height:5px;border-radius:50%;background:' + t.faint + ';display:block"></i>' +
+    '<i style="width:5px;height:5px;border-radius:50%;background:' + t.faint + ';display:block"></i></div></div>';
+}
+function arcSvg(t, frac, size, width, opts) {
+  opts = opts || {};
+  var r = size / 2 - width;
+  var len = 2 * Math.PI * r;
+  var knob = "";
+  if (opts.knob) {
+    var a = (frac * 360 - 90) * Math.PI / 180;
+    knob = '<circle cx="' + (size / 2 + r * Math.cos(a)).toFixed(1) + '" cy="' + (size / 2 + r * Math.sin(a)).toFixed(1) +
+      '" r="9" fill="' + (opts.color || t.accent) + '"/>';
+  }
+  return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + " " + size + '">' +
+    '<circle cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" fill="none" stroke="' + (opts.track || t.line) + '" stroke-width="' + width + '"/>' +
+    '<circle cx="' + size / 2 + '" cy="' + size / 2 + '" r="' + r + '" fill="none" stroke="' + (opts.color || t.accent) +
+    '" stroke-width="' + width + '" stroke-linecap="' + (opts.cap || "round") + '" transform="rotate(-90 ' + size / 2 + " " + size / 2 + ')"' +
+    ' stroke-dasharray="' + len.toFixed(1) + '" stroke-dashoffset="' + (len * (1 - frac)).toFixed(1) + '"/>' + knob + "</svg>";
+}
+/* a flow/weight curve for the grinding screens */
+function curve(t, w, h, color, fill) {
+  var pts = [], n = 26;
+  for (var i = 0; i <= n; i++) {
+    var x = (i / n) * w;
+    var p = i / n;
+    var y = h - (h * 0.86) * (1 - Math.exp(-3.1 * p));
+    pts.push(x.toFixed(1) + "," + y.toFixed(1));
+  }
+  var line = "M " + pts.join(" L ");
+  var area = line + " L " + w + "," + h + " L 0," + h + " Z";
+  return '<svg width="' + w + '" height="' + h + '" viewBox="0 0 ' + w + " " + h + '">' +
+    (fill ? '<path d="' + area + '" fill="' + fill + '"/>' : "") +
+    '<path d="' + line + '" fill="none" stroke="' + color + '" stroke-width="2.5" stroke-linejoin="round"/></svg>';
+}
+
+/* ============================ screens ============================ */
+var SCREENS = {};
+
+/* ---- READY ---- */
+SCREENS.ready = function (d) {
+  var t = d.t;
+  if (d.id === "instrument") {
+    var rows = [["Single", "18.0"], ["Double", "21.5"], ["Custom", "14.0"]];
+    var out = "";
+    rows.forEach(function (r, i) {
+      var on = i === 1;
+      out += '<div style="display:flex;align-items:center;gap:14px;padding:11px 0;' +
+        (i < 2 ? "border-bottom:1px solid " + t.line + ";" : "") + '">' +
+        '<div style="width:3px;height:26px;background:' + (on ? t.accent : "transparent") + '"></div>' +
+        '<div style="flex:1">' + lbl(t, r[0], { color: on ? t.ink : t.faint }) + "</div>" +
+        nums(t, r[1], on ? 30 : 22, { color: on ? t.ink : t.faint, weight: on ? 300 : 300 }) +
+        '<span style="font-size:12px;color:' + t.faint + ';margin-left:3px">g</span></div>';
+    });
+    return screen(t, statusRow(t) +
+      '<div style="position:absolute;left:22px;right:22px;top:56px">' +
+      lbl(t, "Dose", { color: t.faint, extra: "display:block;margin-bottom:14px" }) +
+      '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:20px">' +
+      nums(t, "21.5", 80) + '<span style="font-size:20px;color:' + t.dim + '">g</span></div>' +
+      rule(t, { extra: "margin-bottom:6px" }) + out + "</div>" +
+      actionBar(t, "Grind", { textColor: "#000" }));
+  }
+  if (d.id === "editorial") {
+    return screen(t, statusRow(t) +
+      '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:70px">' +
+      lbl(t, "Double", { extra: "margin-bottom:22px" }) +
+      '<div style="display:flex;align-items:baseline;gap:8px">' + nums(t, "21.5", 108) +
+      '<span style="font-size:26px;color:' + t.dim + '">g</span></div>' +
+      '<div style="display:flex;gap:9px;margin-top:34px">' +
+      [0, 1, 2].map(function (i) {
+        return '<i style="width:' + (i === 1 ? 22 : 7) + "px;height:7px;border-radius:4px;background:" +
+          (i === 1 ? t.accent : t.line) + ';display:block"></i>';
+      }).join("") + "</div>" +
+      lbl(t, "Hold to edit", { size: 11, color: t.faint, extra: "margin-top:26px" }) + "</div>" +
+      actionBar(t, "Grind", { textColor: "#151208" }));
+  }
+  if (d.id === "tactile") {
+    var cards = [["Single", "18.0"], ["Double", "21.5"], ["Custom", "14.0"]];
+    var body = cards.map(function (c, i) {
+      var on = i === 1;
+      return '<div style="flex:1;border-radius:' + t.radius + "px;background:" + (on ? t.accent : t.surface) +
+        ';display:flex;align-items:center;justify-content:space-between;padding:0 20px">' +
+        lbl(t, c[0], { color: on ? "#1a0800" : t.dim, size: 14 }) +
+        nums(t, c[1], on ? 34 : 28, { color: on ? "#1a0800" : t.ink, weight: on ? 600 : 400 }) + "</div>";
+    }).join("");
+    return screen(t, statusRow(t) +
+      '<div style="position:absolute;left:16px;right:16px;top:48px;bottom:112px;display:flex;flex-direction:column;gap:12px">' +
+      body + "</div>" + actionBar(t, "Grind", { h: 96, textColor: "#1a0800" }));
+  }
+  // espresso
+  return screen(t, statusRow(t) +
+    '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:76px">' +
+    '<div style="position:relative;display:flex;align-items:center;justify-content:center">' +
+    arcSvg(t, 1, 214, 1, { color: t.line, track: "transparent", cap: "butt" }) +
+    '<div style="position:absolute;display:flex;flex-direction:column;align-items:center">' +
+    lbl(t, "Double", { extra: "margin-bottom:16px" }) +
+    '<div style="display:flex;align-items:baseline;gap:6px">' + nums(t, "21.5", 84) +
+    '<span style="font-size:20px;color:' + t.dim + '">g</span></div></div></div>' +
+    '<div style="display:flex;gap:14px;margin-top:30px">' +
+    ["Single", "Double", "Custom"].map(function (n, i) {
+      return lbl(t, n, { size: 11, color: i === 1 ? t.accent : t.faint });
+    }).join("") + "</div></div>" +
+    actionBar(t, "Grind", { solid: false }));
+};
+
+/* ---- GRINDING ---- */
+SCREENS.grinding = function (d) {
+  var t = d.t;
+  if (d.id === "instrument") {
+    return screen(t,
+      '<div style="position:absolute;left:22px;right:22px;top:26px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:30px">' +
+      lbl(t, "Double", { color: t.ink }) + lbl(t, "of 21.5 g", { color: t.faint }) + "</div>" +
+      '<div style="display:flex;align-items:baseline;gap:8px">' + nums(t, "14.2", 96, { color: t.accent }) +
+      '<span style="font-size:24px;color:' + t.dim + '">g</span></div>' +
+      '<div style="height:6px;background:' + t.line + ';margin-top:28px;overflow:hidden">' +
+      '<div style="width:66%;height:100%;background:' + t.accent + '"></div></div>' +
+      '<div style="display:flex;justify-content:space-between;margin-top:12px">' +
+      lbl(t, "Flow 1.8 g/s", { size: 11, color: t.faint }) + lbl(t, "3.4 s", { size: 11, color: t.faint }) + "</div>" +
+      '<div style="margin-top:34px">' + curve(t, 236, 96, t.accent, "rgba(255,106,31,.12)") + "</div></div>" +
+      actionBar(t, "Stop", { solid: false }));
+  }
+  if (d.id === "editorial") {
+    return screen(t,
+      '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:60px">' +
+      '<div style="position:relative;display:flex;align-items:center;justify-content:center">' +
+      arcSvg(t, 0.66, 236, 6) +
+      '<div style="position:absolute;display:flex;flex-direction:column;align-items:center">' +
+      '<div style="display:flex;align-items:baseline;gap:5px">' + nums(t, "14.2", 74) +
+      '<span style="font-size:20px;color:' + t.dim + '">g</span></div>' +
+      lbl(t, "of 21.5", { size: 12, color: t.faint, extra: "margin-top:12px" }) + "</div></div>" +
+      lbl(t, "Double", { extra: "margin-top:34px" }) + "</div>" +
+      actionBar(t, "Stop", { solid: false }));
+  }
+  if (d.id === "tactile") {
+    return screen(t,
+      '<div style="position:absolute;left:16px;right:16px;top:40px;bottom:112px;border-radius:' + t.radius +
+      'px;background:' + t.surface + ';overflow:hidden">' +
+      '<div style="position:absolute;left:0;right:0;bottom:0;height:66%;background:' + t.accent + ';opacity:.22"></div>' +
+      '<div style="position:absolute;left:0;right:0;bottom:66%;height:3px;background:' + t.accent + '"></div>' +
+      '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">' +
+      nums(t, "14.2", 82, { weight: 600 }) +
+      lbl(t, "of 21.5 g", { color: t.dim, extra: "margin-top:14px" }) + "</div></div>" +
+      actionBar(t, "Stop", { h: 96, color: t.surface, textColor: t.ink }));
+  }
+  return screen(t,
+    '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:66px">' +
+    lbl(t, "Grinding", { extra: "margin-bottom:28px" }) +
+    '<div style="display:flex;align-items:baseline;gap:6px">' + nums(t, "14.2", 96) +
+    '<span style="font-size:22px;color:' + t.dim + '">g</span></div>' +
+    '<div style="width:180px;height:1px;background:' + t.line + ';margin:30px 0 0;position:relative">' +
+    '<div style="position:absolute;left:0;top:0;height:1px;width:66%;background:' + t.accent + '"></div></div>' +
+    lbl(t, "21.5 g target", { size: 11, color: t.faint, extra: "margin-top:20px" }) + "</div>" +
+    actionBar(t, "Stop", { solid: false }));
+};
+
+/* ---- COMPLETE ---- */
+SCREENS.complete = function (d) {
+  var t = d.t;
+  var ok = "#4fae5f";
+  if (d.id === "instrument") {
+    return screen(t,
+      '<div style="position:absolute;left:22px;right:22px;top:34px">' +
+      lbl(t, "Complete", { color: ok, extra: "display:block;margin-bottom:24px" }) +
+      '<div style="display:flex;align-items:baseline;gap:8px">' + nums(t, "21.6", 96) +
+      '<span style="font-size:24px;color:' + t.dim + '">g</span></div>' +
+      '<div style="margin-top:26px">' + rule(t) + "</div>" +
+      '<div style="display:flex;justify-content:space-between;padding:14px 0">' +
+      lbl(t, "Target", { color: t.faint }) + nums(t, "21.5 g", 17, { color: t.dim, weight: 400 }) + "</div>" +
+      rule(t) +
+      '<div style="display:flex;justify-content:space-between;padding:14px 0">' +
+      lbl(t, "Error", { color: t.faint }) + nums(t, "+0.1 g", 17, { color: ok, weight: 400 }) + "</div>" +
+      rule(t) +
+      '<div style="display:flex;justify-content:space-between;padding:14px 0">' +
+      lbl(t, "Time", { color: t.faint }) + nums(t, "9.4 s", 17, { color: t.dim, weight: 400 }) + "</div></div>" +
+      '<div style="position:absolute;left:0;right:0;bottom:0;height:92px;display:flex">' +
+      '<div style="flex:1;display:flex;align-items:center;justify-content:center;border-top:1px solid ' + t.line + ';border-right:1px solid ' + t.line + '">' +
+      lbl(t, "+ Pulse", { color: t.dim, size: 15 }) + "</div>" +
+      '<div style="flex:1;background:' + t.accent + ';display:flex;align-items:center;justify-content:center">' +
+      lbl(t, "Done", { color: "#000", size: 15 }) + "</div></div>");
+  }
+  if (d.id === "editorial") {
+    return screen(t,
+      '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:70px">' +
+      '<div style="width:44px;height:44px;border-radius:50%;border:2px solid ' + ok + ';display:flex;align-items:center;justify-content:center;margin-bottom:26px">' +
+      '<svg width="20" height="20" viewBox="0 0 20 20"><path d="M4 10.5 L8 14.5 L16 6" fill="none" stroke="' + ok + '" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>' +
+      '<div style="display:flex;align-items:baseline;gap:7px">' + nums(t, "21.6", 92) +
+      '<span style="font-size:24px;color:' + t.dim + '">g</span></div>' +
+      lbl(t, "+0.1 g over 21.5", { size: 12, color: t.faint, extra: "margin-top:20px" }) + "</div>" +
+      '<div style="position:absolute;left:0;right:0;bottom:0;height:92px;display:flex">' +
+      '<div style="flex:1;display:flex;align-items:center;justify-content:center;border-top:1px solid ' + t.line + '">' +
+      lbl(t, "+ Pulse", { color: t.dim, size: 14 }) + "</div>" +
+      '<div style="flex:1.6;background:' + t.accent + ';display:flex;align-items:center;justify-content:center">' +
+      lbl(t, "Done", { color: "#151208", size: 15 }) + "</div></div>");
+  }
+  if (d.id === "tactile") {
+    return screen(t,
+      '<div style="position:absolute;left:16px;right:16px;top:40px;bottom:170px;border-radius:' + t.radius +
+      'px;background:' + t.surface + ';display:flex;flex-direction:column;align-items:center;justify-content:center">' +
+      lbl(t, "Complete", { color: ok, extra: "margin-bottom:20px" }) +
+      nums(t, "21.6", 84, { weight: 600 }) +
+      lbl(t, "+0.1 g", { color: t.dim, extra: "margin-top:16px" }) + "</div>" +
+      '<div style="position:absolute;left:16px;right:16px;bottom:112px;height:44px;border-radius:' + t.radius +
+      'px;border:1px solid ' + t.line + ';display:flex;align-items:center;justify-content:center">' +
+      lbl(t, "+ Pulse", { color: t.dim, size: 13 }) + "</div>" +
+      actionBar(t, "Done", { h: 96, textColor: "#1a0800" }));
+  }
+  return screen(t,
+    '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:76px">' +
+    lbl(t, "Complete", { extra: "margin-bottom:26px", color: t.accent }) +
+    '<div style="display:flex;align-items:baseline;gap:6px">' + nums(t, "21.6", 92) +
+    '<span style="font-size:22px;color:' + t.dim + '">g</span></div>' +
+    '<div style="width:120px;margin:30px 0 18px">' + rule(t) + "</div>" +
+    lbl(t, "+0.1 over 21.5", { size: 11, color: t.faint }) + "</div>" +
+    '<div style="position:absolute;left:0;right:0;bottom:0;height:88px;display:flex;border-top:1px solid ' + t.line + '">' +
+    '<div style="flex:1;display:flex;align-items:center;justify-content:center;border-right:1px solid ' + t.line + '">' +
+    lbl(t, "Pulse", { color: t.dim, size: 13 }) + "</div>" +
+    '<div style="flex:1;display:flex;align-items:center;justify-content:center">' +
+    lbl(t, "Done", { color: t.accent, size: 13 }) + "</div></div>");
+};
+
+/* ---- MENU ---- */
+SCREENS.menu = function (d) {
+  var t = d.t;
+  var items = [["Scale", "live weight"], ["Calibrate", "last: 12 Jun"], ["Grind", "weight mode"],
+               ["Display", "70%"], ["Network", "Wi-Fi · BLE"], ["Diagnostics", "OK"]];
+  if (d.id === "instrument") {
+    var rows = items.map(function (it, i) {
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:15px 0;' +
+        (i < items.length - 1 ? "border-bottom:1px solid " + t.line + ";" : "") + '">' +
+        lbl(t, it[0], { color: t.ink, size: 14 }) +
+        '<div style="display:flex;align-items:center;gap:12px">' + lbl(t, it[1], { size: 11, color: t.faint }) +
+        '<svg width="7" height="12" viewBox="0 0 7 12"><path d="M1 1 L6 6 L1 11" fill="none" stroke="' + t.faint + '" stroke-width="1.5" stroke-linecap="round"/></svg></div></div>';
+    }).join("");
+    return screen(t,
+      '<div style="position:absolute;left:22px;right:22px;top:28px">' +
+      lbl(t, "Menu", { color: t.faint, extra: "display:block;margin-bottom:20px" }) + rows + "</div>" +
+      actionBar(t, "Back", { solid: false, h: 76 }));
+  }
+  if (d.id === "editorial") {
+    var rows2 = items.map(function (it, i) {
+      return '<div style="display:flex;align-items:center;justify-content:space-between;padding:16px 22px;' +
+        (i < items.length - 1 ? "border-bottom:1px solid " + t.line + ";" : "") + '">' +
+        '<span style="font-size:16px;font-weight:500;color:' + t.ink + '">' + it[0] + "</span>" +
+        lbl(t, it[1], { size: 11, color: t.faint }) + "</div>";
+    }).join("");
+    return screen(t,
+      '<div style="position:absolute;left:0;right:0;top:24px">' +
+      '<div style="padding:0 22px 16px">' + lbl(t, "Menu", { color: t.faint }) + "</div>" + rows2 + "</div>" +
+      actionBar(t, "Back", { solid: false, h: 76 }));
+  }
+  if (d.id === "tactile") {
+    var tiles = items.map(function (it) {
+      return '<div style="border-radius:' + t.radius + "px;background:" + t.surface +
+        ';height:96px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px">' +
+        '<div style="width:22px;height:22px;border-radius:6px;border:2px solid ' + t.dim + '"></div>' +
+        lbl(t, it[0], { size: 12, color: t.ink }) + "</div>";
+    }).join("");
+    return screen(t,
+      '<div style="position:absolute;left:16px;right:16px;top:36px;display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
+      tiles + "</div>" + actionBar(t, "Back", { h: 88, color: t.surface, textColor: t.ink }));
+  }
+  var rows3 = items.map(function (it) {
+    return '<div style="padding:15px 0;display:flex;justify-content:space-between;align-items:baseline">' +
+      '<span style="font-size:16px;font-weight:300;letter-spacing:.04em;color:' + t.ink + '">' + it[0] + "</span>" +
+      lbl(t, it[1], { size: 10, color: t.faint }) + "</div>";
+  }).join("");
+  return screen(t,
+    '<div style="position:absolute;left:26px;right:26px;top:40px">' +
+    lbl(t, "Menu", { extra: "display:block;margin-bottom:22px" }) +
+    '<div style="margin-bottom:8px">' + rule(t) + "</div>" + rows3 + "</div>" +
+    actionBar(t, "Back", { solid: false, h: 76 }));
+};
+
+/* ---- SETTINGS PAGE ---- */
+SCREENS.settings = function (d) {
+  var t = d.t;
+  function toggle(on) {
+    return '<div style="width:44px;height:25px;border-radius:14px;background:' + (on ? t.accent : t.line) +
+      ';position:relative"><i style="position:absolute;top:3px;' + (on ? "right:3px" : "left:3px") +
+      ';width:19px;height:19px;border-radius:50%;background:' + (on ? "#000" : t.dim) + ';display:block"></i></div>';
+  }
+  function slider(pct) {
+    return '<div style="width:120px;height:4px;border-radius:2px;background:' + t.line + ';position:relative">' +
+      '<div style="position:absolute;left:0;top:0;height:4px;width:' + pct + '%;background:' + t.accent + ';border-radius:2px"></div>' +
+      '<i style="position:absolute;left:calc(' + pct + '% - 7px);top:-5px;width:14px;height:14px;border-radius:50%;background:' + t.ink + ';display:block"></i></div>';
+  }
+  var pad = d.id === "tactile" ? 16 : 22;
+  function row(label, control, sub) {
+    var base = '<div style="padding:15px 0;border-bottom:1px solid ' + t.line + '">' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:14px">' +
+      '<span style="font-size:15px;font-weight:500;color:' + t.ink + '">' + label + "</span>" + control + "</div>" +
+      (sub ? '<div style="margin-top:7px">' + lbl(t, sub, { size: 10.5, color: t.faint, track: ".04em" }) + "</div>" : "") +
+      "</div>";
+    return base;
+  }
+  return screen(t,
+    '<div style="position:absolute;left:' + pad + "px;right:" + pad + 'px;top:26px">' +
+    lbl(t, "Grind", { color: t.faint, extra: "display:block;margin-bottom:18px" }) +
+    '<div style="display:flex;gap:8px;margin-bottom:20px">' +
+    ["Weight", "Time"].map(function (m, i) {
+      var on = i === 0;
+      return '<div style="flex:1;height:44px;border-radius:' + t.radius + "px;background:" + (on ? t.accent : "transparent") +
+        ";border:1px solid " + (on ? t.accent : t.line) + ';display:flex;align-items:center;justify-content:center">' +
+        lbl(t, m, { size: 12, color: on ? "#000" : t.dim }) + "</div>";
+    }).join("") + "</div>" +
+    row("Start on cup", toggle(true)) +
+    row("Return on removal", toggle(false)) +
+    row("Purge", toggle(true), "1.0 g before every grind") +
+    row("Freshness", slider(55), "Purge after 8 h idle") +
+    "</div>" + actionBar(t, "Back", { solid: false, h: 76 }));
+};
+
+/* ---- EDIT DOSE ---- */
+SCREENS.edit = function (d) {
+  var t = d.t;
+  function stepper(sign) {
+    return '<div style="flex:0 0 auto;width:54px;height:54px;border-radius:' +
+      (d.id === "tactile" ? t.radius + "px" : "50%") + ";border:1px solid " + t.line +
+      ';display:flex;align-items:center;justify-content:center">' +
+      '<span style="font-size:28px;font-weight:300;color:' + t.ink + ';line-height:1">' + sign + "</span></div>";
+  }
+  return screen(t,
+    '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:80px">' +
+    lbl(t, "Double", { extra: "margin-bottom:26px" }) +
+    '<div style="display:flex;align-items:center;gap:10px">' + stepper("−") +
+    '<div style="display:flex;align-items:baseline;gap:4px;width:132px;justify-content:center">' +
+    nums(t, "21.5", 50) + '<span style="font-size:15px;color:' + t.dim + '">g</span></div>' +
+    stepper("+") + "</div>" +
+    lbl(t, "Hold to run faster", { size: 10.5, color: t.faint, extra: "margin-top:30px" }) + "</div>" +
+    '<div style="position:absolute;left:0;right:0;bottom:0;height:88px;display:flex;border-top:1px solid ' + t.line + '">' +
+    '<div style="flex:1;display:flex;align-items:center;justify-content:center;border-right:1px solid ' + t.line + '">' +
+    lbl(t, "Cancel", { color: t.faint, size: 13 }) + "</div>" +
+    '<div style="flex:1;background:' + t.accent + ';display:flex;align-items:center;justify-content:center">' +
+    lbl(t, "Save", { color: "#000", size: 13 }) + "</div></div>");
+};
+
+/* ============================ variant models ============================ */
+var E = DIRECTIONS[1];   // models are drawn in direction B so only the model differs
+
+var READY_MODELS = [
+  { name: "Three rows", note: "Every dose visible and tappable, the armed one marked. Hold a row to edit it. Nothing hidden behind a gesture.",
+    render: function () {
+      var t = E.t;
+      var rows = [["Single", "18.0"], ["Double", "21.5"], ["Custom", "14.0"]];
+      var body = rows.map(function (r, i) {
+        var on = i === 1;
+        return '<div style="display:flex;align-items:center;justify-content:space-between;padding:20px 22px;background:' +
+          (on ? "rgba(240,180,41,.09)" : "transparent") + ";border-left:3px solid " + (on ? t.accent : "transparent") + '">' +
+          lbl(t, r[0], { color: on ? t.ink : t.faint, size: 13 }) +
+          '<div style="display:flex;align-items:baseline;gap:4px">' +
+          nums(t, r[1], on ? 40 : 30, { color: on ? t.ink : t.dim }) +
+          '<span style="font-size:14px;color:' + t.faint + '">g</span></div></div>';
+      }).join("");
+      return screen(t, statusRow(t) + '<div style="position:absolute;left:0;right:0;top:52px">' + body + "</div>" +
+        actionBar(t, "Grind", { textColor: "#151208" }));
+    }},
+  { name: "Hero + rail", note: "One dose big, the others peeking at the edges so the swipe is discoverable. Closest to today's model, minus the invisibility.",
+    render: function () {
+      var t = E.t;
+      return screen(t, statusRow(t) +
+        '<div style="position:absolute;left:0;right:0;top:104px;display:flex;align-items:center">' +
+        '<div style="flex:0 0 46px;display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding-left:11px;opacity:.32">' +
+        lbl(t, "Single", { size: 8.5, color: t.faint }) + nums(t, "18.0", 19, { color: t.dim }) + "</div>" +
+        '<div style="flex:1 1 auto;min-width:0;display:flex;flex-direction:column;align-items:center">' +
+        lbl(t, "Double", { extra: "margin-bottom:16px" }) +
+        '<div style="display:flex;align-items:baseline;gap:5px">' + nums(t, "21.5", 72) +
+        '<span style="font-size:19px;color:' + t.dim + '">g</span></div></div>' +
+        '<div style="flex:0 0 46px;display:flex;flex-direction:column;align-items:flex-end;gap:5px;padding-right:11px;opacity:.32">' +
+        lbl(t, "Custom", { size: 8.5, color: t.faint }) + nums(t, "14.0", 19, { color: t.dim }) + "</div></div>" +
+        actionBar(t, "Grind", { textColor: "#151208" }));
+    }},
+  { name: "Dial", note: "The dose itself is the control: drag the arc to change it, no separate edit screen at all. Kills a whole UIState.",
+    render: function () {
+      var t = E.t;
+      return screen(t, statusRow(t) +
+        '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:70px">' +
+        '<div style="position:relative;display:flex;align-items:center;justify-content:center">' +
+        arcSvg(t, 0.62, 230, 4, { knob: true }) +
+        '<div style="position:absolute;display:flex;flex-direction:column;align-items:center">' +
+        lbl(t, "Double", { extra: "margin-bottom:14px" }) +
+        '<div style="display:flex;align-items:baseline;gap:5px">' + nums(t, "21.5", 78) +
+        '<span style="font-size:19px;color:' + t.dim + '">g</span></div></div></div>' +
+        lbl(t, "Drag to adjust", { size: 10.5, color: t.faint, extra: "margin-top:28px" }) + "</div>" +
+        actionBar(t, "Grind", { textColor: "#151208" }));
+    }},
+  { name: "Tiles", note: "Three doses and the menu as one four-up grid. The menu stops pretending to be a profile — which is the single worst thing about the current screen.",
+    render: function () {
+      var t = E.t;
+      var cells = [["Single", "18.0", false], ["Double", "21.5", true], ["Custom", "14.0", false], ["Menu", "", false]];
+      var grid = cells.map(function (c) {
+        return '<div style="border-radius:' + t.radius + "px;border:1px solid " + (c[2] ? t.accent : t.line) +
+          ";background:" + (c[2] ? "rgba(240,180,41,.1)" : "transparent") +
+          ';display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px">' +
+          lbl(t, c[0], { size: 11, color: c[2] ? t.accent : t.faint }) +
+          (c[1] ? nums(t, c[1], 34, { color: t.ink }) : '<div style="width:20px;height:2px;background:' + t.faint +
+            ';box-shadow:0 6px 0 ' + t.faint + ",0 -6px 0 " + t.faint + '"></div>') + "</div>";
+      }).join("");
+      return screen(t, statusRow(t) +
+        '<div style="position:absolute;left:16px;right:16px;top:46px;bottom:108px;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px">' +
+        grid + "</div>" + actionBar(t, "Grind", { textColor: "#151208" }));
+    }},
+  { name: "Scale-first", note: "The live scale reading is the screen; the dose is a target line under it. Puts a cup down and it is already weighing, which is what the hardware is doing anyway.",
+    render: function () {
+      var t = E.t;
+      return screen(t, statusRow(t) +
+        '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:74px">' +
+        '<div style="display:flex;align-items:baseline;gap:6px">' + nums(t, "0.0", 104, { color: t.dim }) +
+        '<span style="font-size:24px;color:' + t.faint + '">g</span></div>' +
+        '<div style="width:170px;margin:28px 0 20px">' + rule(t) + "</div>" +
+        '<div style="display:flex;align-items:baseline;gap:8px">' + lbl(t, "Double", { size: 12 }) +
+        nums(t, "21.5 g", 20, { color: t.ink, weight: 400 }) + "</div></div>" +
+        actionBar(t, "Grind", { textColor: "#151208" }));
+    }}
+];
+
+var GRIND_MODELS = [
+  { name: "Arc", note: "Today's minimal layout, restyled. Progress is angular, the number is the hero, nothing else moves.",
+    render: function () { return SCREENS.grinding(E); } },
+  { name: "Filling vessel", note: "The panel fills bottom-up like the cup does. Readable from across the kitchen with no numbers at all, which the arc is not.",
+    render: function () {
+      var t = E.t;
+      return screen(t,
+        '<div style="position:absolute;inset:0;background:linear-gradient(to top, rgba(240,180,41,.16) 66%, transparent 66%)"></div>' +
+        '<div style="position:absolute;left:0;right:0;bottom:66%;height:2px;background:' + t.accent + '"></div>' +
+        '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:60px">' +
+        '<div style="display:flex;align-items:baseline;gap:6px">' + nums(t, "14.2", 84) +
+        '<span style="font-size:22px;color:' + t.dim + '">g</span></div>' +
+        lbl(t, "of 21.5", { size: 12, color: t.faint, extra: "margin-top:16px" }) + "</div>" +
+        actionBar(t, "Stop", { solid: false }));
+    }},
+  { name: "Nerd view", note: "The chart layout, cleaned up: weight curve, flow, the predicted finish as a ghost line. Same data as today, drawn like the dashboard draws it.",
+    render: function () {
+      var t = E.t;
+      return screen(t,
+        '<div style="position:absolute;left:20px;right:20px;top:30px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px">' +
+        lbl(t, "Double", { color: t.ink }) + lbl(t, "predicted 12.1 s", { size: 10.5, color: t.faint }) + "</div>" +
+        '<div style="display:flex;align-items:baseline;gap:6px;margin-bottom:22px">' + nums(t, "14.2", 68) +
+        '<span style="font-size:19px;color:' + t.dim + '">/ 21.5 g</span></div>' +
+        curve(t, 240, 128, t.accent, "rgba(240,180,41,.12)") +
+        '<div style="display:flex;justify-content:space-between;margin-top:16px">' +
+        lbl(t, "Flow 1.8 g/s", { size: 10.5, color: t.faint }) +
+        lbl(t, "Pulse 2 of 4", { size: 10.5, color: t.faint }) + "</div></div>" +
+        actionBar(t, "Stop", { solid: false }));
+    }},
+  { name: "Phase strip", note: "Names what the machine is doing — prime, grind, pulse, settle — because the nine-phase state machine is currently invisible to the person watching it.",
+    render: function () {
+      var t = E.t;
+      var phases = ["Prime", "Grind", "Pulse", "Settle"];
+      var strip = phases.map(function (p, i) {
+        var done = i < 2, on = i === 2;
+        return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:9px">' +
+          '<div style="width:100%;height:3px;background:' + (done ? t.dim : on ? t.accent : t.line) + '"></div>' +
+          lbl(t, p, { size: 9.5, color: on ? t.accent : t.faint, track: ".08em" }) + "</div>";
+      }).join("");
+      return screen(t,
+        '<div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-bottom:80px">' +
+        '<div style="display:flex;align-items:baseline;gap:6px">' + nums(t, "14.2", 92) +
+        '<span style="font-size:22px;color:' + t.dim + '">g</span></div>' +
+        lbl(t, "of 21.5", { size: 12, color: t.faint, extra: "margin-top:16px" }) + "</div>" +
+        '<div style="position:absolute;left:20px;right:20px;bottom:104px;display:flex;gap:8px">' + strip + "</div>" +
+        actionBar(t, "Stop", { solid: false }));
+    }}
+];
+
+var MENU_MODELS = [
+  { name: "Flat list", note: "One scroll, thirteen destinations, grouped by rules rather than by separator labels. Closest to today.",
+    render: function () { return SCREENS.menu(E); } },
+  { name: "Two columns", note: "Six tiles, everything reachable without scrolling, deeper settings one level down. Fewer things at the top level is the actual fix.",
+    render: function () { return SCREENS.menu(DIRECTIONS[2]); } },
+  { name: "Task-first", note: "Opens on the three things you'd actually walk over to do — tare, calibrate, purge — with settings demoted to one row at the bottom.",
+    render: function () {
+      var t = E.t;
+      var tasks = [["Tare the scale", "0.0 g on the platform"], ["Calibrate", "last done 12 June"], ["Purge", "1.0 g, keeps the burrs fresh"]];
+      var body = tasks.map(function (x) {
+        return '<div style="padding:18px 22px;border-bottom:1px solid ' + t.line + '">' +
+          '<div style="font-size:16px;font-weight:500;color:' + t.ink + ';margin-bottom:6px">' + x[0] + "</div>" +
+          lbl(t, x[1], { size: 10.5, color: t.faint, track: ".04em" }) + "</div>";
+      }).join("");
+      return screen(t,
+        '<div style="position:absolute;left:0;right:0;top:28px">' +
+        '<div style="padding:0 22px 14px">' + lbl(t, "Menu", { color: t.faint }) + "</div>" + body +
+        '<div style="padding:18px 22px;display:flex;justify-content:space-between;align-items:center">' +
+        lbl(t, "All settings", { size: 12, color: t.dim }) +
+        '<svg width="7" height="12" viewBox="0 0 7 12"><path d="M1 1 L6 6 L1 11" fill="none" stroke="' + t.faint + '" stroke-width="1.5" stroke-linecap="round"/></svg></div></div>' +
+        actionBar(t, "Back", { solid: false, h: 76 }));
+    }}
+];
+
+/* ============================ build ============================ */
+var SCREEN_ORDER = [
+  ["ready", "Ready", "The 99% screen: pick a dose, start."],
+  ["grinding", "Grinding", "Live weight against target."],
+  ["complete", "Complete", "What landed, and the top-up pulse."],
+  ["edit", "Edit dose", "Adjusting a profile's target."],
+  ["menu", "Menu", "Thirteen destinations today."],
+  ["settings", "Grind settings", "The densest settings page."]
+];
+
+var main = document.getElementById("main");
+var html = "";
+
+DIRECTIONS.forEach(function (d) {
+  html += '<section class="section" data-filter="' + d.id + '">' +
+    '<div class="dirhead"><h2>' + d.name + "</h2>" +
+    '<div class="swatches">' + [d.t.bg, d.t.ink, d.t.dim, d.t.accent].map(function (c) {
+      return '<i class="sw" style="background:' + c + '"></i>';
+    }).join("") + "</div>" +
+    "<p>" + d.blurb + "</p></div><div class=\"row\">";
+  SCREEN_ORDER.forEach(function (s) {
+    html += '<div class="item"><div class="frame"><span class="badge">' + s[1] + "</span>" +
+      SCREENS[s[0]](d) + '</div><div class="cap"><h3>' + s[1] + "</h3><p>" + s[2] + "</p></div></div>";
+  });
+  html += "</div></section>";
+});
+
+function modelSection(id, title, blurb, models) {
+  var out = '<section class="section" data-filter="' + id + '">' +
+    '<div class="section-head"><h2>' + title + "</h2><p>" + blurb + "</p></div><div class=\"row\">";
+  models.forEach(function (m, i) {
+    out += '<div class="item"><div class="frame"><span class="badge">' + String(i + 1).padStart(2, "0") + "</span>" +
+      m.render() + '</div><div class="cap"><h3>' + m.name + "</h3><p>" + m.note + "</p></div></div>";
+  });
+  return out + "</div></section>";
+}
+
+html += modelSection("models-ready", "Ready-screen models",
+  "The real question isn't how the ready screen looks, it's how you choose a dose. Today three profiles hide behind an invisible swipe and the menu pretends to be a fourth. All drawn in direction B so only the model differs.",
+  READY_MODELS);
+
+html += modelSection("models-grind", "Grinding models",
+  "What you watch for the ten seconds it runs. The device already computes flow, pulse count and a predicted finish — today almost none of it is on screen.",
+  GRIND_MODELS);
+
+html += modelSection("models-menu", "Menu models",
+  "Thirteen destinations under three separators is an inventory, not a menu. Three ways to make the top level smaller.",
+  MENU_MODELS);
+
+main.innerHTML = html;
+
+/* filters */
+var filters = document.getElementById("filters");
+var items = [["all", "Everything"]]
+  .concat(DIRECTIONS.map(function (d) { return [d.id, d.name.split(" · ")[1]]; }))
+  .concat([["models-ready", "Ready models"], ["models-grind", "Grind models"], ["models-menu", "Menu models"]]);
+filters.innerHTML = items.map(function (i) {
+  return '<button data-f="' + i[0] + '"' + (i[0] === "all" ? ' aria-pressed="true"' : "") + ">" + i[1] + "</button>";
+}).join("");
+
+filters.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-f]");
+  if (!b) return;
+  var f = b.dataset.f;
+  filters.querySelectorAll("button").forEach(function (x) { x.setAttribute("aria-pressed", String(x === b)); });
+  document.querySelectorAll(".section").forEach(function (s) {
+    s.classList.toggle("hidden", f !== "all" && s.dataset.filter !== f);
+  });
+});
+
+var urlF = new URLSearchParams(location.search).get("filter");
+if (urlF) {
+  var target = filters.querySelector('[data-f="' + urlF + '"]');
+  if (target) target.click();
+}
+
+function toggleBtn(id, cls) {
+  var b = document.getElementById(id);
+  b.addEventListener("click", function () {
+    var on = b.getAttribute("aria-pressed") !== "true";
+    b.setAttribute("aria-pressed", String(on));
+    document.body.classList.toggle(cls, on);
+  });
+}
+toggleBtn("btn-zoom", "zoom");
+toggleBtn("btn-dim", "dim");
+
+})();
+</script>
+</body>
+</html>

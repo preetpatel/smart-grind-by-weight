@@ -33,11 +33,12 @@ void GrindingScreenChart::create() {
     lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_gap(screen, 15, 0);
 
-    // Profile name label
+    // Profile name label - same kicker treatment as the ready and arc screens
     profile_label = lv_label_create(screen);
     lv_label_set_text(profile_label, "DOUBLE");
-    lv_obj_set_style_text_font(profile_label, &lv_font_montserrat_32, 0);
-    lv_obj_set_style_text_color(profile_label, lv_color_hex(THEME_COLOR_SECONDARY), 0);
+    lv_obj_set_style_text_font(profile_label, UI_FONT_BODY, 0);
+    lv_obj_set_style_text_color(profile_label, lv_color_hex(UI_COLOR_DIM), 0);
+    lv_obj_set_style_text_letter_space(profile_label, 3, 0);
 
     // Create chart - use full screen width
     chart = lv_chart_create(screen);
@@ -46,10 +47,12 @@ void GrindingScreenChart::create() {
     lv_chart_set_point_count(chart, MAX_CHART_POINTS);
     lv_chart_set_div_line_count(chart, 0, 0);  // No grid lines for clean look
     
-    // Chart styling - dark background
-    lv_obj_set_style_bg_color(chart, lv_color_hex(0x111111), LV_PART_MAIN);
-    lv_obj_set_style_border_width(chart, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(chart, lv_color_hex(0x333333), LV_PART_MAIN);
+    // Chart styling - the plot sits on the page rather than in a box, so only a
+    // hairline baseline remains of the old frame.
+    lv_obj_set_style_bg_opa(chart, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(chart, UI_HAIRLINE_PX, LV_PART_MAIN);
+    lv_obj_set_style_border_side(chart, LV_BORDER_SIDE_BOTTOM, LV_PART_MAIN);
+    lv_obj_set_style_border_color(chart, lv_color_hex(UI_COLOR_LINE), LV_PART_MAIN);
     lv_obj_set_style_pad_all(chart, 0, LV_PART_MAIN);
     
     // Initialize data tracking
@@ -70,20 +73,18 @@ void GrindingScreenChart::create() {
     lv_chart_set_axis_range(chart, LV_CHART_AXIS_PRIMARY_Y, 0, (int32_t)(max_y_value * 10)); // Weight axis
     lv_chart_set_axis_range(chart, LV_CHART_AXIS_SECONDARY_Y, 0, 25); // Flow rate axis: 0-2.5 g/s * 10
     
-    // Add data series in z-order: weight (bottom/filled), flow rate, target (top)
-    // Weight series (red filled area) - Use primary Y axis for weight
-    weight_series = lv_chart_add_series(chart, lv_color_hex(THEME_COLOR_PRIMARY), LV_CHART_AXIS_PRIMARY_Y);
-    
-    // Flow rate series (green line) - Use secondary Y axis for flow rate
-    flow_rate_series = lv_chart_add_series(chart, lv_color_hex(THEME_COLOR_SUCCESS), LV_CHART_AXIS_SECONDARY_Y);
+    // Weight is the series you are actually watching, so it takes the accent;
+    // flow is supporting evidence and stays grey.
+    weight_series = lv_chart_add_series(chart, lv_color_hex(UI_COLOR_ACCENT), LV_CHART_AXIS_PRIMARY_Y);
+    flow_rate_series = lv_chart_add_series(chart, lv_color_hex(UI_COLOR_DIM), LV_CHART_AXIS_SECONDARY_Y);
     
     // Configure chart to show both lines and bars (for filled area effect)
     lv_chart_set_type(chart, LV_CHART_TYPE_LINE);
     
     // Style each series individually - remove data point markers
     lv_obj_set_style_line_width(chart, 3, LV_PART_ITEMS);
-    lv_obj_set_style_line_color(chart, lv_color_hex(THEME_COLOR_PRIMARY), LV_PART_ITEMS);
-    lv_obj_set_style_bg_color(chart, lv_color_hex(THEME_COLOR_PRIMARY), LV_PART_ITEMS);
+    lv_obj_set_style_line_color(chart, lv_color_hex(UI_COLOR_ACCENT), LV_PART_ITEMS);
+    lv_obj_set_style_bg_color(chart, lv_color_hex(UI_COLOR_ACCENT), LV_PART_ITEMS);
     // lv_obj_set_style_bg_opa(chart, LV_OPA_20, LV_PART_ITEMS);
     
     // Remove data point markers/circles - set both width and height to 0
@@ -110,13 +111,13 @@ void GrindingScreenChart::create() {
     
     // Create initial spans using correct API
     lv_span_t* current_span = lv_spangroup_add_span(weight_spangroup);
-    lv_style_set_text_font(lv_span_get_style(current_span), &lv_font_montserrat_56);
-    lv_style_set_text_color(lv_span_get_style(current_span), lv_color_hex(THEME_COLOR_TEXT_PRIMARY));
+    lv_style_set_text_font(lv_span_get_style(current_span), UI_FONT_HERO_SMALL);
+    lv_style_set_text_color(lv_span_get_style(current_span), lv_color_hex(UI_COLOR_INK));
     lv_span_set_text(current_span, "0.0g");
-    
+
     lv_span_t* separator_span = lv_spangroup_add_span(weight_spangroup);
-    lv_style_set_text_font(lv_span_get_style(separator_span), &lv_font_montserrat_24);
-    lv_style_set_text_color(lv_span_get_style(separator_span), lv_color_hex(THEME_COLOR_TEXT_SECONDARY));
+    lv_style_set_text_font(lv_span_get_style(separator_span), UI_FONT_PHRASE);
+    lv_style_set_text_color(lv_span_get_style(separator_span), lv_color_hex(UI_COLOR_FAINT));
     lv_span_set_text(separator_span, " / 18.0g");
     
     lv_spangroup_refresh(weight_spangroup);
@@ -257,6 +258,24 @@ void GrindingScreenChart::update_tare_display() {
             lv_spangroup_refresh(weight_spangroup);
         }
     }
+}
+
+void GrindingScreenChart::set_result_tone(ResultTone tone) {
+    // The verdict rides the second span, which is where update_target_weight_text
+    // puts it. Only its colour changes; the words come from the controller.
+    lv_span_t* verdict_span = lv_spangroup_get_child(weight_spangroup, 1);
+    if (!verdict_span) {
+        return;
+    }
+
+    uint32_t color = UI_COLOR_FAINT;
+    if (tone == ResultTone::GOOD) {
+        color = UI_COLOR_OK;
+    } else if (tone == ResultTone::BAD) {
+        color = UI_COLOR_BAD;
+    }
+    lv_style_set_text_color(lv_span_get_style(verdict_span), lv_color_hex(color));
+    lv_spangroup_refresh(weight_spangroup);
 }
 
 void GrindingScreenChart::update_progress(int percent) {

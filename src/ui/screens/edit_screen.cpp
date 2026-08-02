@@ -19,11 +19,11 @@ void EditScreen::create() {
     lv_obj_set_flex_align(screen, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
 
-    create_dual_button_row(screen, &save_btn, &cancel_btn, LV_SYMBOL_OK, LV_SYMBOL_CLOSE, lv_color_hex(THEME_COLOR_SUCCESS), lv_color_hex(THEME_COLOR_NEUTRAL), 80, &lv_font_montserrat_32);
+    create_dual_button_row(screen, &save_btn, &cancel_btn, LV_SYMBOL_OK, LV_SYMBOL_CLOSE, lv_color_hex(UI_COLOR_OK), lv_color_hex(UI_COLOR_SURFACE), 80, &lv_font_montserrat_32);
 
     create_profile_label(screen, &profile_label, &weight_label);
 
-    create_dual_button_row(screen, &minus_btn, &plus_btn, LV_SYMBOL_MINUS, LV_SYMBOL_PLUS, lv_color_hex(THEME_COLOR_PRIMARY), lv_color_hex(THEME_COLOR_PRIMARY), 100, &lv_font_montserrat_32);
+    create_dual_button_row(screen, &minus_btn, &plus_btn, LV_SYMBOL_MINUS, LV_SYMBOL_PLUS, lv_color_hex(UI_COLOR_ACCENT), lv_color_hex(UI_COLOR_ACCENT), 100, &lv_font_montserrat_32);
 
     visible = false;
     mode = GrindMode::WEIGHT;
