@@ -105,7 +105,10 @@ agreed design; each decision was made deliberately — change them knowingly.
   store management (create/rename/delete/provision/rotate — `authOwner`). The
   firmware knows nothing about accounts: it uploads with its `upload_key` exactly as
   before. No mail service exists, so there is **no password reset** — the sign-in UI
-  says so and pushes GitHub-linking or a passkey as the backup way in.
+  says so and pushes GitHub-linking or a passkey as the backup way in. On `/account` that
+  warning is **conditional on actually having no way back in** (no linked GitHub *and* no
+  passkey); as a permanent subtitle it kept warning about lost access to accounts that
+  already had both.
 - **Credential UX is password-manager-first.** The auth forms carry the markup managers
   (1Password, Keychain, Chrome) match on: `name` attributes, `autocomplete="username"` on
   the email field, `new-password`/`current-password` on the right side of the sign-in ↔
@@ -177,6 +180,15 @@ agreed design; each decision was made deliberately — change them knowingly.
   passkeys, the account's stores (each showing its grinder, or an *Archive* badge when
   unbound — rename / share link / release / delete) and account deletion (typed
   confirmation, cascades stores).
+- **One grinder, one name.** The sidebar switcher reads `grinderRegistry` in localStorage
+  (labelled from the BLE advertised name at pairing: "GrindByWeight", "GrindByWeight 2");
+  the store carries its own `name`. These used to drift — renaming the backup left the
+  sidebar on the generic label. Renaming in *either* place now sets both:
+  `ble.renameByDeviceId()` joins them on the factory MAC (the registry is keyed by the
+  browser's Web Bluetooth device id, the store by the MAC, and the snapshot carries the
+  MAC), and the switcher's own Rename pushes to the bound store when one is owned. The
+  store lookup happens inside the rename handler, not on render — the sidebar is on every
+  page and otherwise has no need for the account's stores.
 - **Auth has its own frame.** The app shell lives in the `app/(app)` route group; `/signin`
   sits in `app/(auth)`, which renders one centred column and a link home instead of a
   sidebar full of grinder routes a signed-out visitor can't use. URLs are unchanged —
@@ -187,7 +199,9 @@ agreed design; each decision was made deliberately — change them knowingly.
   labelled "This Mac" says nothing about what it is without a heading over it — that
   section carries *Add a passkey* on its heading line and an empty state of its own.
   Backups are one row per store, with
-  *Copy link* inline and rename / release / delete behind a `⋯` menu. Nothing that is used
+  *Copy link* inline and rename / release / delete behind a `⋯` menu — the grinder id lives
+  in that menu rather than the row, being a lookup rather than something you scan a list by.
+  Every row is one line: name left, state right, action last, stacking under `sm`. Nothing that is used
   once a year sits expanded: change-password and account deletion are dialogs
   (`components/auth/{change-password,delete-account}-dialog.tsx`), so the page stays
   scannable and an irreversible form is never one stray click from submitting.

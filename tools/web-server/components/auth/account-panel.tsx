@@ -22,12 +22,15 @@ import { Button } from '@/components/ui/button';
 import {
     DropdownMenu,
     DropdownMenuContent,
+    DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuLabel,
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import { authClient } from '@/lib/client/auth';
+import * as ble from '@/lib/client/ble';
 import {
     deleteStore,
     listMyStores,
@@ -59,9 +62,13 @@ function shortDate(value: Date | string | null | undefined): string | null {
         : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
-// `action` sits on the heading line rather than under the list: for a section
-// that owns a collection, "Passkeys ………… Add" is what tells you at a glance
-// both what these rows are and that this is where you manage them.
+// The section owns the rule *below* it, so the gap above and below each
+// hairline is the section's own padding — one number, symmetric, instead of the
+// margin-plus-padding stack that left ~55px voids around every divider.
+//
+// `action` pairs with the title, not the title block: putting the description
+// in the same flex row lets a long line wrap the button underneath it, where it
+// reads as part of the prose.
 function Section({
     title,
     description,
@@ -74,29 +81,44 @@ function Section({
     children: ReactNode;
 }) {
     return (
-        <section className="mt-10 border-t pt-8 first:mt-0 first:border-t-0 first:pt-0">
-            {/* The action pairs with the *title*, not the title block — putting
-                the description in the same flex row lets a long line wrap the
-                button underneath it, where it reads as part of the prose. */}
+        <section className="border-b py-6 first:pt-0 last:border-b-0 last:pb-0">
             <div className="flex items-center justify-between gap-4">
                 <h2 className="min-w-0 font-medium text-base">{title}</h2>
                 {action && <div className="shrink-0">{action}</div>}
             </div>
             {description && <p className="mt-1 text-muted-foreground text-sm">{description}</p>}
-            <div className="mt-4">{children}</div>
+            <div className="mt-3">{children}</div>
         </section>
     );
 }
 
-// One fact per row, hairline *between* rows — the last one drops its rule so
-// it doesn't sit a few pixels above the next section's, which reads as a
-// mistake rather than as structure. Actions fade in on hover on a pointer
-// device, but stay put for keyboard focus and on touch, where there is no
-// hover to reveal them with.
-function Row({ children, actions }: { children: ReactNode; actions?: ReactNode }) {
+// One line per fact: what it is on the left, its state on the right, the action
+// last. The value belongs in a right-hand column rather than stacked under the
+// name — stacked, every row was two lines of near-identical text with a wide
+// empty gutter between it and the action, which is what made the page read as
+// noise. Under `sm` there isn't room for three columns, so it stacks.
+//
+// Names are normal weight, not medium: at 14px medium they competed with the
+// 16px medium section headings and flattened the hierarchy.
+function Row({
+    name,
+    value,
+    actions,
+}: {
+    name: ReactNode;
+    value?: ReactNode;
+    actions?: ReactNode;
+}) {
     return (
-        <div className="group flex items-center justify-between gap-4 border-b py-3 last:border-b-0">
-            <div className="min-w-0">{children}</div>
+        <div className="group flex items-center gap-4 border-b py-2.5 last:border-b-0">
+            <div className="flex min-w-0 flex-1 flex-col gap-0.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <span className="min-w-0 truncate text-sm">{name}</span>
+                {value && (
+                    <span className="min-w-0 truncate text-muted-foreground text-sm sm:text-right">
+                        {value}
+                    </span>
+                )}
+            </div>
             {actions && (
                 <div className="flex shrink-0 items-center gap-1 opacity-100 transition-opacity focus-within:opacity-100 sm:opacity-70 sm:group-hover:opacity-100">
                     {actions}
@@ -104,14 +126,6 @@ function Row({ children, actions }: { children: ReactNode; actions?: ReactNode }
             )}
         </div>
     );
-}
-
-function RowTitle({ children }: { children: ReactNode }) {
-    return <p className="truncate font-medium text-sm">{children}</p>;
-}
-
-function RowMeta({ children }: { children: ReactNode }) {
-    return <p className="truncate text-muted-foreground text-xs">{children}</p>;
 }
 
 export function AccountPanel({ github }: { github: boolean }) {
@@ -193,6 +207,9 @@ export function AccountPanel({ github }: { github: boolean }) {
     const email = session.user.email;
     const hasPassword = accounts.some((a) => a.providerId === 'credential');
     const hasGithub = accounts.some((a) => a.providerId === 'github');
+    // Anything that gets you in without the password. There is no email reset,
+    // so with none of these a forgotten password locks the account for good.
+    const hasRecovery = hasGithub || passkeys.length > 0;
 
     const linkGithub = async () => {
         setBusy(true);
@@ -232,6 +249,10 @@ export function AccountPanel({ github }: { github: boolean }) {
     const rename = async (store: OwnedStore, name: string) => {
         try {
             await renameStore(store.store_id, name.trim());
+            // One grinder, one store, one name. Without this the sidebar kept
+            // showing the label auto-generated from the BLE advertised name
+            // ("GrindByWeight 2") while the backup carried the real one.
+            if (store.device_id) ble.renameByDeviceId(store.device_id, name.trim());
             reload();
         } catch (error) {
             showError(error, 'Rename failed');
@@ -299,9 +320,21 @@ export function AccountPanel({ github }: { github: boolean }) {
                 <div>
                     <Section
                         title="Signing in"
-                        description="There is no password recovery — a passkey or linked GitHub is your way back in."
+                        // Only shown when it is actually true. As a permanent
+                        // subtitle it kept warning about lost access to an
+                        // account that already had a passkey and GitHub linked.
+                        description={
+                            hasRecovery ? undefined : (
+                                <span className="text-caution">
+                                    There is no password reset — link GitHub or add a passkey so you
+                                    have a way back in.
+                                </span>
+                            )
+                        }
                     >
                         <Row
+                            name="Password"
+                            value={hasPassword ? 'In use' : 'Not set'}
                             actions={
                                 hasPassword && (
                                     <Button
@@ -313,17 +346,12 @@ export function AccountPanel({ github }: { github: boolean }) {
                                     </Button>
                                 )
                             }
-                        >
-                            <RowTitle>Password</RowTitle>
-                            <RowMeta>
-                                {hasPassword
-                                    ? 'In use'
-                                    : 'Not set — you sign in with GitHub or a passkey'}
-                            </RowMeta>
-                        </Row>
+                        />
 
                         {(github || hasGithub) && (
                             <Row
+                                name="GitHub"
+                                value={hasGithub ? 'Linked' : 'Not linked'}
                                 actions={
                                     !hasGithub && (
                                         <Button
@@ -336,20 +364,18 @@ export function AccountPanel({ github }: { github: boolean }) {
                                         </Button>
                                     )
                                 }
-                            >
-                                <RowTitle>GitHub</RowTitle>
-                                <RowMeta>{hasGithub ? 'Linked' : 'Not linked'}</RowMeta>
-                            </Row>
+                            />
                         )}
                     </Section>
 
                     {/* Passkeys get their own section rather than more rows in
                         the list above: they are a collection you add to and
                         remove from, and a device name like "This Mac" says
-                        nothing about what it is without a heading over it. */}
+                        nothing about what it is without a heading over it.
+                        What a passkey *is* only needs explaining when there
+                        are none — a list of your own devices explains itself. */}
                     <Section
                         title="Passkeys"
-                        description="Sign in with Touch ID, Windows Hello or your phone — nothing to type, nothing to forget."
                         action={
                             <Button
                                 variant="outline"
@@ -364,7 +390,8 @@ export function AccountPanel({ github }: { github: boolean }) {
                     >
                         {passkeys.length === 0 ? (
                             <p className="text-muted-foreground text-sm">
-                                None yet — add one on each device you use.
+                                None yet — add one to sign in with Touch ID or your phone instead of
+                                a password.
                             </p>
                         ) : (
                             passkeys.map((entry) => {
@@ -372,6 +399,8 @@ export function AccountPanel({ github }: { github: boolean }) {
                                 return (
                                     <Row
                                         key={entry.id}
+                                        name={entry.name ?? 'Passkey'}
+                                        value={added ? `Added ${added}` : undefined}
                                         actions={
                                             <Button
                                                 variant="ghost"
@@ -382,12 +411,7 @@ export function AccountPanel({ github }: { github: boolean }) {
                                                 Remove
                                             </Button>
                                         }
-                                    >
-                                        <RowTitle>{entry.name ?? 'Passkey'}</RowTitle>
-                                        <RowMeta>
-                                            {added ? `Added ${added}` : 'Added on this device'}
-                                        </RowMeta>
-                                    </Row>
+                                    />
                                 );
                             })
                         )}
@@ -415,6 +439,32 @@ export function AccountPanel({ github }: { github: boolean }) {
                                 return (
                                     <Row
                                         key={store.store_id}
+                                        name={
+                                            <span className="flex items-center gap-2">
+                                                <span className="truncate">
+                                                    {store.name ?? store.store_id}
+                                                </span>
+                                                {!store.device_id && (
+                                                    <Badge variant="outline">Archive</Badge>
+                                                )}
+                                            </span>
+                                        }
+                                        value={
+                                            <>
+                                                <span className="tabular-nums">
+                                                    {store.session_count}
+                                                </span>{' '}
+                                                grinds
+                                                {lastUpload && (
+                                                    <>
+                                                        {' · last upload '}
+                                                        <span className="tabular-nums">
+                                                            {lastUpload}
+                                                        </span>
+                                                    </>
+                                                )}
+                                            </>
+                                        }
                                         actions={
                                             <>
                                                 <Button
@@ -438,22 +488,43 @@ export function AccountPanel({ github }: { github: boolean }) {
                                                     />
                                                     <DropdownMenuContent
                                                         align="end"
-                                                        className="w-44"
+                                                        className="w-56"
                                                     >
-                                                        <DropdownMenuItem
-                                                            onClick={() => setStoreToRename(store)}
-                                                        >
-                                                            Rename
-                                                        </DropdownMenuItem>
-                                                        {store.device_id && (
+                                                        {/* The grinder id is a
+                                                            lookup, not something
+                                                            you scan a list by —
+                                                            it belongs one click
+                                                            away, not in the row. */}
+                                                        {/* DropdownMenuLabel is
+                                                            Base UI's GroupLabel:
+                                                            it reads a context
+                                                            only Group provides
+                                                            and throws without
+                                                            one, taking the page
+                                                            down with it. */}
+                                                        <DropdownMenuGroup>
+                                                            {store.device_id && (
+                                                                <DropdownMenuLabel className="font-mono font-normal text-muted-foreground text-xs">
+                                                                    {store.device_id}
+                                                                </DropdownMenuLabel>
+                                                            )}
                                                             <DropdownMenuItem
                                                                 onClick={() =>
-                                                                    setStoreToRelease(store)
+                                                                    setStoreToRename(store)
                                                                 }
                                                             >
-                                                                Release grinder
+                                                                Rename
                                                             </DropdownMenuItem>
-                                                        )}
+                                                            {store.device_id && (
+                                                                <DropdownMenuItem
+                                                                    onClick={() =>
+                                                                        setStoreToRelease(store)
+                                                                    }
+                                                                >
+                                                                    Release grinder
+                                                                </DropdownMenuItem>
+                                                            )}
+                                                        </DropdownMenuGroup>
                                                         <DropdownMenuSeparator />
                                                         <DropdownMenuItem
                                                             variant="destructive"
@@ -465,39 +536,7 @@ export function AccountPanel({ github }: { github: boolean }) {
                                                 </DropdownMenu>
                                             </>
                                         }
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <RowTitle>{store.name ?? store.store_id}</RowTitle>
-                                            {!store.device_id && (
-                                                <Badge variant="outline">Archive</Badge>
-                                            )}
-                                        </div>
-                                        <RowMeta>
-                                            <span className="font-mono tabular-nums">
-                                                {store.session_count}
-                                            </span>{' '}
-                                            grinds
-                                            {lastUpload && (
-                                                <>
-                                                    {' · last upload '}
-                                                    <span className="tabular-nums">
-                                                        {lastUpload}
-                                                    </span>
-                                                </>
-                                            )}
-                                            {/* No "no grinder" fallback — the
-                                                Archive badge above already
-                                                says it. */}
-                                            {store.device_id && (
-                                                <>
-                                                    {' · grinder '}
-                                                    <span className="font-mono">
-                                                        {store.device_id}
-                                                    </span>
-                                                </>
-                                            )}
-                                        </RowMeta>
-                                    </Row>
+                                    />
                                 );
                             })
                         )}
@@ -556,7 +595,7 @@ export function AccountPanel({ github }: { github: boolean }) {
                 open={storeToRename !== null}
                 onOpenChange={(open) => !open && setStoreToRename(null)}
                 title="Rename backup"
-                description="Only a label — share links are unchanged."
+                description="Also renames the grinder in the sidebar. Share links are unchanged."
                 label="Name"
                 initialValue={storeToRename?.name ?? ''}
                 onSubmit={(name) => {

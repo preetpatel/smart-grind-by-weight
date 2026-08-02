@@ -13,6 +13,7 @@ import {
     Layers,
     ListFilter,
     LogIn,
+    PenLine,
     Plus,
     RefreshCw,
     Stethoscope,
@@ -26,6 +27,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '@/components/confirm-dialog';
+import { RenameDialog } from '@/components/rename-dialog';
 import { Badge } from '@/components/ui/badge';
 import {
     DropdownMenu,
@@ -49,8 +51,10 @@ import {
 } from '@/components/ui/sidebar';
 import { authClient } from '@/lib/client/auth';
 import * as ble from '@/lib/client/ble';
+import { listMyStores, renameStore } from '@/lib/client/cloud';
 import { compareVersions, fetchReleases, latestStable } from '@/lib/client/releases';
 import { useGrinder } from '@/lib/client/use-grinder';
+import { normalizeDeviceId } from '@/lib/device-id';
 
 const GRINDER_NAV = [
     { href: '/', label: 'Home', icon: House },
@@ -86,6 +90,7 @@ function GrinderSwitcher() {
     const { supported, connected, active, grinders } = useGrinder();
     const [busy, setBusy] = useState(false);
     const [confirmForget, setConfirmForget] = useState(false);
+    const [renaming, setRenaming] = useState(false);
     const refreshed = useRef(false);
 
     // Silent background refresh of the active grinder (no chooser), quiet on
@@ -110,6 +115,24 @@ function GrinderSwitcher() {
             }
         } finally {
             setBusy(false);
+        }
+    };
+
+    // The name lives in two places — this browser's registry and, when the
+    // grinder is backed up, the store that owns its grinds. Renaming in either
+    // place sets both, so there is only ever one name for one grinder. The
+    // store lookup happens here rather than on every render: the sidebar is on
+    // every page and does not otherwise need the account's stores.
+    const renameGrinder = async (id: string, deviceId: unknown, label: string) => {
+        ble.rename(id, label);
+        const canonical = normalizeDeviceId(deviceId);
+        if (!canonical) return;
+        try {
+            const stores = await listMyStores();
+            const bound = stores.find((s) => normalizeDeviceId(s.device_id) === canonical);
+            if (bound) await renameStore(bound.store_id, label);
+        } catch {
+            // Signed out, offline, or no store yet — the local rename stands.
         }
     };
 
@@ -190,6 +213,10 @@ function GrinderSwitcher() {
                         <RefreshCw />
                         Refresh
                     </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setRenaming(true)}>
+                        <PenLine />
+                        Rename
+                    </DropdownMenuItem>
                     <DropdownMenuItem disabled={busy} onClick={() => run(() => ble.addGrinder())}>
                         <Plus />
                         Add grinder
@@ -200,6 +227,18 @@ function GrinderSwitcher() {
                     </DropdownMenuItem>
                 </DropdownMenuContent>
             </DropdownMenu>
+
+            <RenameDialog
+                open={renaming}
+                onOpenChange={setRenaming}
+                title="Rename grinder"
+                description="Also renames its backup, so both places agree."
+                label="Name"
+                initialValue={active.label}
+                onSubmit={(name) =>
+                    renameGrinder(active.id, active.snapshot?.system?.device_id, name)
+                }
+            />
 
             <ConfirmDialog
                 open={confirmForget}

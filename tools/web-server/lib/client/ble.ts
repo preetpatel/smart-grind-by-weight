@@ -15,6 +15,8 @@
 // React components consume this through useSyncExternalStore via the
 // subscribe/getRegistryVersion pair (see components/device-strip.tsx).
 
+import { normalizeDeviceId } from '@/lib/device-id';
+
 export const DEVICE_NAME = 'GrindByWeight';
 
 // UUIDs mirror src/config/bluetooth.h.
@@ -200,6 +202,35 @@ export function setActive(id: string): void {
     device = null;
     setActiveId(id);
     notify();
+}
+
+export function rename(id: string, label: string): void {
+    const registry = loadRegistry();
+    const entry = registry[id];
+    if (!entry || !label.trim()) return;
+    entry.label = label.trim();
+    saveRegistry(registry);
+    notify();
+}
+
+// The registry is keyed by the browser's Web Bluetooth device id, which is
+// meaningless anywhere else; a cloud store is keyed by the grinder's factory
+// MAC, which arrives in the snapshot. This is the join between the two, so
+// renaming a backup can rename the grinder it belongs to. Returns whether a
+// grinder matched — a browser that has never paired this one has nothing to
+// rename, which is not an error.
+export function renameByDeviceId(deviceId: string, label: string): boolean {
+    const wanted = normalizeDeviceId(deviceId);
+    if (!wanted || !label.trim()) return false;
+    const registry = loadRegistry();
+    const found = Object.entries(registry).find(
+        ([, entry]) => normalizeDeviceId(entry.snapshot?.system?.device_id) === wanted,
+    );
+    if (!found) return false;
+    found[1].label = label.trim();
+    saveRegistry(registry);
+    notify();
+    return true;
 }
 
 export function forget(id: string): void {
