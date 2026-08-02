@@ -1,5 +1,6 @@
 # Self-hosted grinder cloud: web app (flasher + analytics dashboard + sync
-# API) plus Postgres. Run from tools/web-server:  docker compose up -d
+# API + accounts) plus Postgres. Run from tools/web-server:
+#   BETTER_AUTH_SECRET=$(openssl rand -hex 32) docker compose up -d
 # Then point the flasher's WiFi & Sync provisioning at http://<host>:3000.
 services:
   app:
@@ -12,6 +13,14 @@ services:
       DATABASE_URL: postgres://postgres:postgres@db:5432/sgbw
       # Self-host default: no session quota (docs/CLOUD_SYNC.md "Limits").
       SYNC_SESSION_QUOTA: "0"
+      # Session-cookie secret — set once and keep it stable across restarts
+      # (README "Environment").
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?run with BETTER_AUTH_SECRET set, e.g. $(openssl rand -hex 32)}
+      # Optional: enable "Continue with GitHub" by creating an OAuth app with
+      # callback ${BETTER_AUTH_URL}/api/auth/callback/github.
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
     depends_on:
       db:
         condition: service_healthy

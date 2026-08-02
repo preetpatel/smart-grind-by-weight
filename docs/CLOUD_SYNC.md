@@ -77,21 +77,38 @@ agreed design; each decision was made deliberately — change them knowingly.
 
 ## Auth model — device is the credential
 
-- **Two keys per store.** `upload_key` (write; lives on the device + provisioning
-  browser) and `view_key` (read-only; shareable, lives in browser localStorage). Server
-  middleware treats `upload_key` as a strict superset of `view_key` — one check, no
-  per-endpoint confusion. Read ≠ write: sharing a dashboard never hands out write access.
-- **Claim by possession.** Any new browser gets access by connecting to the grinder over
-  BLE and reading `store_id + view_key` back from the device. No accounts, no passwords.
-- **Store creation is provisional.** `POST /api/stores` is public (called by the flasher,
-  which is public JS — possession gates *claiming*, not *creating*). Defenses: per-IP
-  rate limit, and stores receiving no device upload within 48 h are garbage-collected.
-  Bots mint empty rows that evaporate; only real grinders create persistent storage.
-- **Lifecycle.** Delete (cascade: blobs, summaries, snapshots, store) requires
-  `upload_key` — exposed in the flasher's WiFi & Sync section with confirm. `view_key`
-  rotation (`upload_key`-authed) is the leak-recovery path; the flasher writes the fresh
-  key back to the device so future BLE claims hand out the new one. `upload_key` leak
-  recovery = delete + re-provision (its leak scenario is exotic by construction).
+- **Accounts own stores; the device stays a bearer-key client.** Browser-side cloud
+  flows require a signed-in account (Better Auth: email/password always, passkeys on
+  top, GitHub when the deployment configures an OAuth app — `lib/auth-server.ts`,
+  tables in `lib/auth-schema.ts`). Every store carries a non-null `owner_id` from
+  birth; the owner's session cookie is the write credential for browser requests
+  (`authStore` tries session first, then bearer keys) and the *only* credential for
+  store management (create/rename/delete/provision/rotate — `authOwner`). The
+  firmware knows nothing about accounts: it uploads with its `upload_key` exactly as
+  before. No mail service exists, so there is **no password reset** — the sign-in UI
+  says so and pushes GitHub-linking or a passkey as the backup way in.
+- **Two keys per store, one job each.** `upload_key` is the device's HTTP credential:
+  stored **hashed**, and **rotated on every provision** — any signed-in browser can
+  provision a device (`POST /api/stores/[id]/provision` mints a fresh key for the BLE
+  write), yet a DB dump never leaks a usable write credential. `view_key` is the
+  semi-public read credential behind `#store=` share links and BLE claims: stored
+  plaintext so any owner browser can produce a share link. Upload ⊇ view for reads;
+  read ≠ write: sharing a dashboard never hands out write access.
+- **Claim by possession is read-only.** Any browser reading a provisioned grinder over
+  BLE gets `store_id + view_key` and becomes a *viewer* (exactly a share link). Owners
+  get full access by signing in — which is also what syncs dashboards across browsers.
+- **Store creation is owner-authed.** `POST /api/stores` requires a session; the
+  per-account cap (`SYNC_STORES_PER_USER`) replaces the old per-IP limit, and the
+  provisional-store 48 h GC is gone — stores are born owned, and deleting the account
+  cascades through stores to sessions and snapshots.
+- **CSRF/CORS split.** Wildcard CORS survives only on the key-authed routes (device
+  ingest + cross-origin share-link reads carry no cookies). Session-authed routes are
+  same-origin: Better Auth checks origins on its own endpoints; custom session
+  mutations go through `assertSameOrigin` on top of SameSite=Lax cookies.
+- **Lifecycle.** Store delete (cascade: blobs, summaries, snapshots, store) and
+  `view_key` rotation are owner-session actions (Account page + WiFi & Sync). After a
+  view-key rotation, re-provision the device so future BLE claims hand out the fresh
+  key. `upload_key` leak recovery = just provision again (rotation is the mechanism).
 
 ## Limits (hosted)
 
@@ -105,26 +122,36 @@ agreed design; each decision was made deliberately — change them knowingly.
 
 ## UX placement
 
-- **Flasher:** WiFi tab becomes **WiFi & Sync** — one flow provisions both (the coupling
-  is real: sync needs WiFi). Store created at setup, keys written over BLE in the same
-  session. Delete/rotate actions live here too.
-- **Analytics tab: two sources, prefer cloud (no merging).** If `grinderRegistry` knows a
-  store → load from API (instant, full history, works without the grinder awake).
-  Otherwise → existing BLE pull, unchanged. The cloud store is a superset of any BLE pull
-  whenever reachable, so merging buys nothing. A BLE pull additionally offers **"push to
-  store"** — browser-side backfill through the same idempotent ingest endpoint.
+- **Masthead:** account slot (sign in / email → `/account`). `/signin` offers GitHub
+  (env-gated), email/password and passkey one-tap; `/account` manages sign-in methods,
+  passkeys, the account's stores (rename / share link / delete) and account deletion
+  (typed confirmation, cascades stores).
+- **Flasher:** WiFi tab is **WiFi & Sync** — one flow provisions both (the coupling is
+  real: sync needs WiFi). Requires sign-in; it reuses the device's store when the
+  account owns it (rotating the upload key) or creates a fresh one, then writes the
+  credentials over BLE in the same session. Forget Sync offers server-side deletion
+  only to the owner.
+- **Analytics: sources resolve owned-first.** Signed-in accounts get their stores (a
+  picker when they own several, preference in `sgbwActiveStore` localStorage);
+  otherwise a viewer link (`#store=` fragment or BLE claim, `sgbwCloudViewer`
+  localStorage — no secrets beyond the semi-public view key). The cloud store is a
+  superset of any BLE pull whenever reachable, so no merging. A BLE pull auto-backfills
+  owned stores through the same idempotent ingest endpoint using the session cookie.
 - **Device:** Menu → Settings → Cloud Sync (WiFi page pattern): enable toggle, status
   rows, Forget Sync.
 
 ## Implementation map
 
 - **Server:** `tools/web-server` — Next.js (app router, strict TypeScript, Biome) +
-  Drizzle/Postgres. Schema `lib/schema.ts` (migrations in `drizzle/`), ingest
-  `lib/ingest.ts` (validates with the shared `lib/parser.ts` — the same TS parser
-  the browser dashboard uses), auth `lib/auth.ts`, limits
-  `lib/config.ts`, routes under `app/api/stores/`. Checks: `pnpm test` (vitest +
-  PGlite, real route handlers), `pnpm typecheck`, `pnpm lint` (Biome). Deploy:
-  Vercel (root `tools/web-server`) or `docker compose up` (app + Postgres, quota off).
+  Drizzle/Postgres. Schema `lib/schema.ts` + `lib/auth-schema.ts` (migrations in
+  `drizzle/`), ingest `lib/ingest.ts` (validates with the shared `lib/parser.ts` —
+  the same TS parser the browser dashboard uses), request auth `lib/auth.ts`,
+  Better Auth instance `lib/auth-server.ts` (lazy over `getDb()`; mounted at
+  `app/api/auth/[...all]`), limits `lib/config.ts`, routes under `app/api/stores/`
+  and `app/api/me/`. Checks: `pnpm test` (vitest + PGlite, real route handlers —
+  including real Better Auth sign-ups), `pnpm typecheck`, `pnpm lint` (Biome).
+  Deploy: Vercel (root `tools/web-server`) or `docker compose up` (app + Postgres,
+  quota off; needs `BETTER_AUTH_SECRET`).
 - **Firmware:** `src/system/cloud_sync.{h,cpp}` (uploader; NVS `cloudsync`),
   `WifiService::State::UPLOADING` (`src/system/wifi_service.*`), CRC-32 in
   `src/logging/grind_logging.cpp`, BLE characteristics in `src/config/bluetooth.h` +
