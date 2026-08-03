@@ -8,16 +8,14 @@
 import { ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 import Script from 'next/script';
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
-import { FirmwareSelect, useReleases } from './firmware-select';
+import { FirmwareSelect, useFirmwareChoice, useReleases } from './firmware-select';
 
 export function GetStartedPanel({ onGoToWifi }: { onGoToWifi?: () => void }) {
     const { entries, error } = useReleases();
-    const [showRc, setShowRc] = useState(false);
-    const [tag, setTag] = useState('');
+    const { showPrereleases, showRcVersions, tag, setTag } = useFirmwareChoice(entries, 'manifest');
 
     const manifest = entries.find((entry) => entry.tag === tag)?.manifest ?? undefined;
 
@@ -40,15 +38,15 @@ export function GetStartedPanel({ onGoToWifi }: { onGoToWifi?: () => void }) {
                     id="usb-firmware"
                     entries={entries}
                     kind="manifest"
-                    showPrereleases={showRc}
+                    showPrereleases={showPrereleases}
                     selectedTag={tag}
                     onSelect={setTag}
                 />
                 <div className="flex items-center gap-2 pt-1">
                     <Checkbox
                         id="usb-show-rc"
-                        checked={showRc}
-                        onCheckedChange={(checked) => setShowRc(checked === true)}
+                        checked={showPrereleases}
+                        onCheckedChange={(checked) => showRcVersions(checked === true)}
                     />
                     <Label htmlFor="usb-show-rc" className="font-normal text-muted-foreground">
                         Show release candidates

@@ -12,13 +12,12 @@ import { Label } from '@/components/ui/label';
 import { connectAndFlash } from '@/lib/client/ota';
 import { compareVersions, latestStable } from '@/lib/client/releases';
 import { useGrinder } from '@/lib/client/use-grinder';
-import { FirmwareSelect, useReleases } from './firmware-select';
+import { FirmwareSelect, useFirmwareChoice, useReleases } from './firmware-select';
 
 export function UpdatePanel() {
     const { entries, error } = useReleases();
     const { supported, active } = useGrinder();
-    const [showRc, setShowRc] = useState(false);
-    const [tag, setTag] = useState('');
+    const { showPrereleases, showRcVersions, tag, setTag } = useFirmwareChoice(entries, 'ota');
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState<StatusMessage | null>(null);
     const [progress, setProgress] = useState<number | null>(null);
@@ -89,15 +88,15 @@ export function UpdatePanel() {
                     id="ota-firmware"
                     entries={entries}
                     kind="ota"
-                    showPrereleases={showRc}
+                    showPrereleases={showPrereleases}
                     selectedTag={tag}
                     onSelect={setTag}
                 />
                 <div className="flex items-center gap-2 pt-1">
                     <Checkbox
                         id="ota-show-rc"
-                        checked={showRc}
-                        onCheckedChange={(checked) => setShowRc(checked === true)}
+                        checked={showPrereleases}
+                        onCheckedChange={(checked) => showRcVersions(checked === true)}
                     />
                     <Label htmlFor="ota-show-rc" className="font-normal text-muted-foreground">
                         Show release candidates

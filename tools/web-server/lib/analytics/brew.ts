@@ -62,6 +62,18 @@ export function brewShots(
     return shots;
 }
 
+// Display name for a session's bean: the registered bag when attributed,
+// the legacy free-text note otherwise. Every surface that shows a bean per
+// grind resolves through this, so none is left reading the field the picker
+// no longer writes.
+export function beanLabel(annotation: Annotation | undefined, beans: Bean[]): string | null {
+    if (annotation?.bean_id) {
+        const bean = beans.find((entry) => entry.id === annotation.bean_id);
+        if (bean) return bean.name;
+    }
+    return annotation?.bean ?? null;
+}
+
 // How many grinds are attributed to a bean at all (with or without a brew).
 export function beanShotCount(annotations: Map<string, Annotation>, beanId: string): number {
     let count = 0;

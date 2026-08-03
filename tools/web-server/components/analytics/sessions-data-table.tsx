@@ -42,8 +42,9 @@ import {
     TableHeader,
     TableRow,
 } from '@/components/ui/table';
+import { beanLabel } from '@/lib/analytics/brew';
 import { sessionErrorLabel, sessionStartLabel, sessionTargetLabel } from '@/lib/analytics/labels';
-import type { Annotation } from '@/lib/analytics/types';
+import type { Annotation, Bean } from '@/lib/analytics/types';
 import { type StoredRecord, TOLERANCE_G } from '@/lib/analytics/types';
 import { MODE_MAP, PROFILE_MAP } from '@/lib/parser';
 import { cn } from '@/lib/utils';
@@ -154,9 +155,11 @@ function FacetFilter({
 export function SessionsDataTable({
     records,
     annotations,
+    beans,
 }: {
     records: StoredRecord[];
     annotations: Map<string, Annotation>;
+    beans: Bean[];
 }) {
     const router = useRouter();
     const [sorting, setSorting] = useState<SortingState>([{ id: 'started', desc: true }]);
@@ -289,7 +292,7 @@ export function SessionsDataTable({
             },
             {
                 id: 'bean',
-                accessorFn: (r) => annotations.get(r.sha256)?.bean ?? '—',
+                accessorFn: (r) => beanLabel(annotations.get(r.sha256), beans) ?? '—',
                 header: 'Bean',
                 filterFn: (row, id, value: string[]) =>
                     !value.length || value.includes(row.getValue(id)),
@@ -324,7 +327,7 @@ export function SessionsDataTable({
                 meta: { numeric: true },
             },
         ],
-        [annotations],
+        [annotations, beans],
     );
 
     const table = useReactTable({
@@ -341,7 +344,7 @@ export function SessionsDataTable({
             const s = row.original.session;
             const annotation = annotations.get(row.original.sha256);
             const haystack =
-                `#${s.session_id} ${sessionStartLabel(s)} ${MODE_MAP[s.grind_mode]} ${PROFILE_MAP[s.profile_id]} ${s.result_status} ${annotation?.bean ?? ''} ${annotation?.grind_setting ?? ''} ${annotation?.note ?? ''} ${annotation?.tags.join(' ') ?? ''}`.toLowerCase();
+                `#${s.session_id} ${sessionStartLabel(s)} ${MODE_MAP[s.grind_mode]} ${PROFILE_MAP[s.profile_id]} ${s.result_status} ${beanLabel(annotation, beans) ?? ''} ${annotation?.grind_setting ?? ''} ${annotation?.note ?? ''} ${annotation?.tags.join(' ') ?? ''}`.toLowerCase();
             return haystack.includes(value.toLowerCase());
         },
         getCoreRowModel: getCoreRowModel(),

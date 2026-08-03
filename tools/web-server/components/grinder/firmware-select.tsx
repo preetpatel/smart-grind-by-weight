@@ -22,6 +22,29 @@ export function useReleases(): { entries: FirmwareEntry[]; error: string | null 
     return { entries, error };
 }
 
+type FirmwareKind = 'manifest' | 'ota';
+
+function visibleReleases(
+    entries: FirmwareEntry[],
+    kind: FirmwareKind,
+    showPrereleases: boolean,
+): FirmwareEntry[] {
+    return entries.filter((entry) => entry[kind] && (!entry.prerelease || showPrereleases));
+}
+
+// Version choice for a panel: newest first, and revealing release candidates
+// moves to the newest one rather than leaving the older stable pick in place —
+// asking to see RCs means wanting the RC.
+export function useFirmwareChoice(entries: FirmwareEntry[], kind: FirmwareKind) {
+    const [showPrereleases, setShowPrereleases] = useState(false);
+    const [tag, setTag] = useState('');
+    const showRcVersions = (show: boolean) => {
+        setShowPrereleases(show);
+        if (show) setTag(visibleReleases(entries, kind, true)[0]?.tag ?? '');
+    };
+    return { showPrereleases, showRcVersions, tag, setTag };
+}
+
 export function FirmwareSelect({
     id,
     entries,
@@ -32,14 +55,12 @@ export function FirmwareSelect({
 }: {
     id?: string;
     entries: FirmwareEntry[];
-    kind: 'manifest' | 'ota';
+    kind: FirmwareKind;
     showPrereleases: boolean;
     selectedTag: string;
     onSelect: (tag: string) => void;
 }) {
-    const visible = entries.filter(
-        (entry) => entry[kind] && (!entry.prerelease || showPrereleases),
-    );
+    const visible = visibleReleases(entries, kind, showPrereleases);
     // Keep the selection valid as filters change; default to the newest.
     const selected = visible.some((entry) => entry.tag === selectedTag)
         ? selectedTag

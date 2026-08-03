@@ -8,7 +8,7 @@ import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 
 export default function SessionsPage() {
-    const { records, loaded, annotations, busy, pullData } = useAnalytics();
+    const { records, loaded, annotations, beans, busy, pullData } = useAnalytics();
 
     if (!loaded) return null;
 
@@ -19,7 +19,7 @@ export default function SessionsPage() {
                 description={records.length ? `${records.length} grinds` : undefined}
             />
             {records.length ? (
-                <SessionsDataTable records={records} annotations={annotations} />
+                <SessionsDataTable records={records} annotations={annotations} beans={beans} />
             ) : (
                 <EmptyState
                     icon={ListFilter}
