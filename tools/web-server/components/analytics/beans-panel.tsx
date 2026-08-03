@@ -23,7 +23,6 @@ import {
     Dialog,
     DialogClose,
     DialogContent,
-    DialogDescription,
     DialogFooter,
     DialogHeader,
     DialogTitle,
@@ -133,10 +132,6 @@ function BeanDialog({
                 >
                     <DialogHeader>
                         <DialogTitle>{title}</DialogTitle>
-                        <DialogDescription>
-                            The ratio times the dose is the output your grinder expects after every
-                            shot.
-                        </DialogDescription>
                     </DialogHeader>
                     <div className="my-5 grid gap-4">
                         <div className="grid gap-2">
@@ -286,7 +281,6 @@ export function BeansPanel() {
                 <EmptyState
                     icon={BeanIcon}
                     title="Beans live with your backup"
-                    description="Set up a cloud backup for your grinder, then register the bag in the hopper here."
                     action={
                         <Button nativeButton={false} render={<Link href="/grinder/wifi" />}>
                             Set up backup
@@ -297,13 +291,16 @@ export function BeansPanel() {
         );
     }
 
+    // State or control, never mechanism: confirmed delivery is a fact,
+    // a too-old firmware is a terse precondition, and everything else is
+    // just the button. The WiFi fallback needs no narration.
     const pushLine = (() => {
         if (!owned || !active) return null;
         if (pushState === 'pushed') {
             return (
                 <span className="flex items-center gap-2">
                     <span className="size-2 rounded-full bg-success" />
-                    On the grinder — pushed just now
+                    On the grinder
                 </span>
             );
         }
@@ -311,20 +308,20 @@ export function BeansPanel() {
             return (
                 <span className="flex items-center gap-2">
                     <span className="size-2 rounded-full bg-caution" />
-                    Your grinder&apos;s firmware doesn&apos;t know beans yet — update it and push
-                    again
+                    Firmware too old
                 </span>
             );
         }
         return (
-            <span className="flex items-center gap-2">
-                <span className="size-2 rounded-full border border-muted-foreground" />
-                Reaches the grinder on its next WiFi sync
-                <Button variant="ghost" size="xs" onClick={() => pushActive(active, true)}>
-                    <Bluetooth />
-                    Push now
-                </Button>
-            </span>
+            <Button
+                variant="ghost"
+                size="sm"
+                className="-ml-2.5"
+                onClick={() => pushActive(active, true)}
+            >
+                <Bluetooth />
+                Push to grinder
+            </Button>
         );
     })();
 
@@ -332,7 +329,6 @@ export function BeansPanel() {
         <>
             <PageHeader
                 title="Beans"
-                description="One bag at a time. The active bean sets the ratio and shot time your grinder expects after every grind."
                 actions={
                     owned ? (
                         <Button onClick={() => setDialog({ title: 'Add bean', bean: null })}>
@@ -348,7 +344,7 @@ export function BeansPanel() {
                 <EmptyState
                     icon={BeanIcon}
                     title="No beans yet"
-                    description="Add the bag in your hopper — the grinder starts asking for shot outputs once it knows what to expect."
+                    description="With a bag active, the grinder asks for each shot's output."
                     action={
                         owned ? (
                             <Button onClick={() => setDialog({ title: 'Add bean', bean: null })}>
@@ -506,8 +502,7 @@ export function BeansPanel() {
                                         </>
                                     ) : (
                                         <span className="text-muted-foreground">
-                                            Log shot outputs on the grinder after each grind — a
-                                            verdict appears after {3} shots.
+                                            A verdict appears after 3 logged shots.
                                         </span>
                                     )}
                                 </p>
@@ -659,7 +654,7 @@ export function BeansPanel() {
                 open={deleting !== null}
                 onOpenChange={(open) => !open && setDeleting(null)}
                 title={deleting ? `Delete ${deleting.name}?` : 'Delete bean?'}
-                description="Grinds keep their history; only the bag and its attribution go away. Finished bags are usually archived instead."
+                description="Grinds keep their history; only the bag and its attribution go away."
                 confirmLabel="Delete"
                 destructive
                 onConfirm={() => {
