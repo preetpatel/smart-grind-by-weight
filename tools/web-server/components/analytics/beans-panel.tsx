@@ -425,21 +425,35 @@ export function BeansPanel() {
                                 </div>
                                 <p className="mt-1 font-mono text-muted-foreground text-sm tabular-nums">
                                     {ratioLabel(active.ratio)} · {active.brew_time_s} s
-                                    {bag?.sizeG
-                                        ? ` · ${bag.remainingG} g left of ${bag.sizeG} g`
-                                        : ''}
                                     {active.roast_date
                                         ? ` · roasted ${shortDate(active.roast_date)}`
                                         : ''}
                                     {active.notes ? ` · ${active.notes}` : ''}
                                 </p>
+                                {bag?.sizeG != null && bag.remainingG != null && (
+                                    <div className="mt-3 flex max-w-md items-center gap-3">
+                                        <div className="h-1 min-w-16 flex-1 overflow-hidden rounded-full bg-muted">
+                                            <div
+                                                className={`h-full rounded-full ${bag.low ? 'bg-caution' : 'bg-primary'}`}
+                                                style={{
+                                                    width: `${Math.min(100, Math.max(2, (bag.remainingG / bag.sizeG) * 100))}%`,
+                                                }}
+                                            />
+                                        </div>
+                                        <span
+                                            className={`shrink-0 font-mono text-sm tabular-nums ${bag.low ? 'text-caution' : 'text-muted-foreground'}`}
+                                        >
+                                            {bag.remainingG} g · {bag.shotsRemaining} shots left
+                                        </span>
+                                    </div>
+                                )}
                                 {pushLine && (
                                     <div className="mt-2 text-muted-foreground text-sm">
                                         {pushLine}
                                     </div>
                                 )}
 
-                                <div className="mt-6 flex gap-10">
+                                <div className="mt-6 flex flex-wrap gap-x-10 gap-y-3">
                                     <div>
                                         <div className="font-mono text-xl tabular-nums">
                                             {beanShotCount(annotations, active.id)}
@@ -448,18 +462,6 @@ export function BeansPanel() {
                                             shots
                                         </div>
                                     </div>
-                                    {bag?.sizeG != null && (
-                                        <div>
-                                            <div
-                                                className={`font-mono text-xl tabular-nums ${bag.low ? 'text-caution' : ''}`}
-                                            >
-                                                {bag.shotsRemaining}
-                                            </div>
-                                            <div className="mt-0.5 text-muted-foreground text-xs">
-                                                shots left
-                                            </div>
-                                        </div>
-                                    )}
                                     <div>
                                         <div
                                             className={`font-mono text-xl tabular-nums ${
@@ -497,12 +499,10 @@ export function BeansPanel() {
                                         </>
                                     ) : advice.verdict === 'ok' ? (
                                         <>
+                                            {/* The number already sits in the stat
+                                                row; repeating it here was noise. */}
                                             <span className="size-2 shrink-0 rounded-full bg-success" />
-                                            On target — median{' '}
-                                            {advice.median_deviation_pct === null
-                                                ? '0'
-                                                : advice.median_deviation_pct}
-                                            % over the last {advice.shots_considered} shots.
+                                            On target.
                                         </>
                                     ) : (
                                         <span className="text-muted-foreground">
@@ -513,10 +513,13 @@ export function BeansPanel() {
                                 </p>
 
                                 {activeShots.length >= 2 && (
-                                    <div className="mt-4">
+                                    <div className="mt-6">
+                                        <p className="mb-1 text-muted-foreground text-xs">
+                                            Deviation from expected output, per shot
+                                        </p>
                                         <PlotlyChart
                                             figure={brewDeviationFigure(activeShots)}
-                                            small
+                                            compact
                                         />
                                     </div>
                                 )}

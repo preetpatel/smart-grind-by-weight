@@ -23,22 +23,29 @@ export function AnalyticsToolbar() {
                 Pull grinds
             </Button>
             <div className="flex-1" />
-            <Button variant="ghost" size="sm" onClick={exportJson}>
+            {/* On a phone the trio collapses to icons so the row never wraps. */}
+            <Button variant="ghost" size="sm" aria-label="Export" onClick={exportJson}>
                 <Download />
-                Export
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => importInput.current?.click()}>
-                <Upload />
-                Import
+                <span className="hidden sm:inline">Export</span>
             </Button>
             <Button
                 variant="ghost"
                 size="sm"
+                aria-label="Import"
+                onClick={() => importInput.current?.click()}
+            >
+                <Upload />
+                <span className="hidden sm:inline">Import</span>
+            </Button>
+            <Button
+                variant="ghost"
+                size="sm"
+                aria-label="Clear local grinds"
                 disabled={!records.length}
                 onClick={() => setConfirmClear(true)}
             >
                 <Trash2 />
-                Clear
+                <span className="hidden sm:inline">Clear</span>
             </Button>
 
             <input

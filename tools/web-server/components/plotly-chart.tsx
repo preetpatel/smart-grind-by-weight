@@ -16,7 +16,17 @@ function loadPlotly(): Promise<PlotlyModule> {
     return plotlyPromise;
 }
 
-export function PlotlyChart({ figure, small = false }: { figure: Figure; small?: boolean }) {
+export function PlotlyChart({
+    figure,
+    small = false,
+    compact = false,
+}: {
+    figure: Figure;
+    small?: boolean;
+    /** Sparkline-sized: for charts that support a stat block rather than
+     *  standing alone as the page's subject. */
+    compact?: boolean;
+}) {
     const host = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -56,7 +66,13 @@ export function PlotlyChart({ figure, small = false }: { figure: Figure; small?:
     return (
         <div
             ref={host}
-            className={small ? 'mb-5 min-h-[20rem] w-full' : 'mb-5 min-h-[28rem] w-full'}
+            className={
+                compact
+                    ? 'mb-2 h-52 w-full'
+                    : small
+                      ? 'mb-5 min-h-[20rem] w-full'
+                      : 'mb-5 min-h-[28rem] w-full'
+            }
         />
     );
 }

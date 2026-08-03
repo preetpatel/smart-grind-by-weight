@@ -215,8 +215,20 @@ export function brewDeviationFigure(shots: BrewShot[]): Figure {
             });
         }
     }
+    // Sparkline manners: the section caption names the metric, the tick
+    // suffix carries the unit, and the axes are locked — a rotated axis title
+    // clipped on phones, and touch-panning a chart traps the page scroll.
+    const base = chartLayout('', '', '');
     const layout = {
-        ...chartLayout('', 'Shot', 'Deviation from expected (%)'),
+        ...base,
+        xaxis: { ...(base.xaxis as object), title: undefined, fixedrange: true, dtick: 1 },
+        yaxis: {
+            ...(base.yaxis as object),
+            title: undefined,
+            fixedrange: true,
+            ticksuffix: '%',
+        },
+        margin: { t: 24, r: 10, b: 26, l: 42 },
         shapes,
         annotations,
     };
@@ -241,7 +253,7 @@ export function brewDeviationFigure(shots: BrewShot[]): Figure {
             },
         ],
         layout,
-        config: CHART_CONFIG,
+        config: { ...CHART_CONFIG, displayModeBar: false },
     };
 }
 
