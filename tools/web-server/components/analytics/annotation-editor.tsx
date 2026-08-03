@@ -8,10 +8,10 @@
 // validate, the write is local and instant, and a dashboard you have to
 // remember to save is a dashboard people stop annotating.
 //
-// The bean field is a picker over the store's registered bags once any exist
-// (the free-text input remains for stores without beans); the shot row is the
-// brew the grinder logged after this grind, editable here for corrections or
-// for shots logged late.
+// With registered beans, the bean is a picker and the roast date comes from
+// the bag (read-only, with days-off-roast for this shot) — one place to edit
+// it, not one copy per grind. The free-text bean and per-grind roast date
+// remain only for stores that never registered beans.
 import { useEffect, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -23,6 +23,7 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import type { Annotation, Bean } from '@/lib/analytics/types';
+import { isEpochTimestamp } from '@/lib/analytics/types';
 
 const NO_BEAN = '__none__';
 
@@ -55,15 +56,30 @@ function useCommittedNumber(value: number | null, onCommit: (next: number | null
     };
 }
 
+// "Roasted 12 Jul · 9 days off roast" — the derived number that matters per
+// shot; the date itself lives on the bag.
+function roastContext(bean: Bean | undefined, sessionTimestamp: number): string | null {
+    if (!bean?.roast_date) return null;
+    const roasted = new Date(bean.roast_date);
+    if (Number.isNaN(roasted.getTime())) return null;
+    const label = roasted.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+    if (!isEpochTimestamp(sessionTimestamp)) return `Roasted ${label}`;
+    const days = Math.floor((sessionTimestamp * 1000 - roasted.getTime()) / 86400000);
+    if (days < 0) return `Roasted ${label}`;
+    return `Roasted ${label} · ${days} day${days === 1 ? '' : 's'} off roast`;
+}
+
 export function AnnotationEditor({
     annotation,
     beans,
+    sessionTimestamp,
     beanSuggestions,
     settingSuggestions,
     onSave,
 }: {
     annotation: Annotation | undefined;
     beans: Bean[];
+    sessionTimestamp: number;
     beanSuggestions: string[];
     settingSuggestions: string[];
     onSave: (patch: Partial<Omit<Annotation, 'sha256'>>) => void;
@@ -92,6 +108,8 @@ export function AnnotationEditor({
     );
 
     const beanId = annotation?.bean_id ?? null;
+    const attributedBean = beans.find((entry) => entry.id === beanId);
+    const roastLine = roastContext(attributedBean, sessionTimestamp);
     const beanItems: Record<string, string> = { [NO_BEAN]: 'No bean' };
     for (const entry of beans) beanItems[entry.id] = entry.name;
 
@@ -137,29 +155,29 @@ export function AnnotationEditor({
                                 ))}
                             </SelectContent>
                         </Select>
-                        {!beanId && annotation?.bean && (
-                            <p className="text-muted-foreground text-xs">
-                                Noted before beans existed: {annotation.bean}
-                            </p>
-                        )}
+                        {roastLine && <p className="text-muted-foreground text-xs">{roastLine}</p>}
                     </div>
                 ) : (
-                    <div className="grid gap-2 sm:col-span-2">
-                        <Label htmlFor="ann-bean">Bean</Label>
-                        {/* Stores without registered beans keep the free-text
-                            field — autocompletion still groups the charts. */}
-                        <Input
-                            id="ann-bean"
-                            list="ann-bean-options"
-                            placeholder="Kenya Nyeri, washed"
-                            {...bean}
-                        />
-                        <datalist id="ann-bean-options">
-                            {beanSuggestions.map((option) => (
-                                <option key={option} value={option} />
-                            ))}
-                        </datalist>
-                    </div>
+                    <>
+                        <div className="grid gap-2">
+                            <Label htmlFor="ann-bean">Bean</Label>
+                            <Input
+                                id="ann-bean"
+                                list="ann-bean-options"
+                                placeholder="Kenya Nyeri, washed"
+                                {...bean}
+                            />
+                            <datalist id="ann-bean-options">
+                                {beanSuggestions.map((option) => (
+                                    <option key={option} value={option} />
+                                ))}
+                            </datalist>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="ann-roast">Roast date</Label>
+                            <Input id="ann-roast" type="date" className="font-mono" {...roast} />
+                        </div>
+                    </>
                 )}
                 <div className="grid gap-2">
                     <Label htmlFor="ann-brew-output">Shot yield (g)</Label>
@@ -185,10 +203,6 @@ export function AnnotationEditor({
                     />
                 </div>
                 <div className="grid gap-2">
-                    <Label htmlFor="ann-roast">Roast date</Label>
-                    <Input id="ann-roast" type="date" className="font-mono" {...roast} />
-                </div>
-                <div className="grid gap-2 sm:col-span-2">
                     <Label htmlFor="ann-tags">Tags</Label>
                     <Input id="ann-tags" placeholder="espresso, dialling in" {...tags} />
                 </div>

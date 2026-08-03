@@ -19,22 +19,35 @@ import {
 const ALL_BEANS = 'all';
 
 export default function TrendsPage() {
-    const { records, deviceReports, loaded, annotations, busy, pullData } = useAnalytics();
+    const {
+        records,
+        deviceReports,
+        loaded,
+        annotations,
+        beans: registeredBeans,
+        busy,
+        pullData,
+    } = useAnalytics();
     const [bean, setBean] = useState(ALL_BEANS);
 
-    const beans = useMemo(() => {
+    // Registered beans filter by id (attribution is stamped at ingest); the
+    // free-text names remain only for stores that never registered any.
+    const beanOptions = useMemo(() => {
+        if (registeredBeans.length) {
+            return registeredBeans.map((entry) => ({ value: entry.id, label: entry.name }));
+        }
         const names = new Set<string>();
         for (const entry of annotations.values()) if (entry.bean) names.add(entry.bean);
-        return [...names].sort();
-    }, [annotations]);
+        return [...names].sort().map((name) => ({ value: name, label: name }));
+    }, [registeredBeans, annotations]);
 
-    const filtered = useMemo(
-        () =>
-            bean === ALL_BEANS
-                ? records
-                : records.filter((record) => annotations.get(record.sha256)?.bean === bean),
-        [records, annotations, bean],
-    );
+    const filtered = useMemo(() => {
+        if (bean === ALL_BEANS) return records;
+        return records.filter((record) => {
+            const note = annotations.get(record.sha256);
+            return registeredBeans.length ? note?.bean_id === bean : note?.bean === bean;
+        });
+    }, [records, annotations, bean, registeredBeans]);
 
     // Where the grind setting changed from one session to the next, in session
     // order — those are the moments the curves below should step.
@@ -62,7 +75,7 @@ export default function TrendsPage() {
         <>
             <PageHeader title="Trends" />
 
-            {beans.length > 0 && (
+            {beanOptions.length > 0 && (
                 <div className="mb-5 flex items-center gap-2">
                     <Label htmlFor="trends-bean" className="font-normal text-muted-foreground">
                         Bean
@@ -74,7 +87,9 @@ export default function TrendsPage() {
                         // the Root is given the value→label map.
                         items={{
                             [ALL_BEANS]: 'All beans',
-                            ...Object.fromEntries(beans.map((name) => [name, name])),
+                            ...Object.fromEntries(
+                                beanOptions.map((option) => [option.value, option.label]),
+                            ),
                         }}
                     >
                         <SelectTrigger id="trends-bean" size="sm" className="w-56">
@@ -82,9 +97,9 @@ export default function TrendsPage() {
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value={ALL_BEANS}>All beans</SelectItem>
-                            {beans.map((option) => (
-                                <SelectItem key={option} value={option}>
-                                    {option}
+                            {beanOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                    {option.label}
                                 </SelectItem>
                             ))}
                         </SelectContent>

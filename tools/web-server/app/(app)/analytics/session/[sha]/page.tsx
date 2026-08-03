@@ -179,6 +179,7 @@ export default function SessionPage() {
             <AnnotationEditor
                 annotation={annotations.get(record.sha256)}
                 beans={beans}
+                sessionTimestamp={record.session.session_timestamp}
                 beanSuggestions={suggestions.beans}
                 settingSuggestions={suggestions.settings}
                 onSave={(patch) => saveAnnotation(record.sha256, patch)}
