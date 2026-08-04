@@ -99,10 +99,23 @@ agreed design; each decision was made deliberately — change them knowingly.
 - **A bean is one bag** (`beans`: name, brew ratio, shot time, roast date, notes,
   archived_at), owned by the store; `stores.active_bean_id` is the bag in the hopper.
   The server is the source of truth: the dashboard's beans page writes it first, then
-  best-effort pushes `{name, ratio, brew_time_s}` to the grinder over BLE
+  best-effort pushes `{name, ratio, brew_time_s, dose_g, yield_min_g, yield_max_g,
+  time_min_s, time_max_s}` to the grinder over BLE
   (`BLE_SYSINFO_BEAN_CONFIG_CHAR_UUID`), and the sync window's config fetch
   (`GET /config`) converges a grinder no browser is near. Both channels carry the same
   server state into the `bean` NVS namespace, so they cannot disagree.
+- **A bag states a recipe, not a number** — "dose 20.5 g, yield 27–30 g, time 25–31 s".
+  Those numbers routinely contradict the bag's own printed ratio (20.5 × 1.5 = 30.75,
+  outside 27–30), so the five recipe columns store what was typed and the ratio becomes
+  a derived display value; a range held as a *ratio* range would silently rewrite the
+  roaster. All five are nullable — a bean with none behaves exactly as before ranges
+  existed. `resolveRecipe` (`lib/beans.ts`, mirrored in `lib/analytics/brew.ts` and by
+  `BeanConfig::recipe_for_dose` on the device) resolves them for the dose a grind
+  actually delivered: the **yield band scales** by `dose ÷ dose_g`, because the range
+  is quoted at a reference dose; the **time band does not**, being an absolute the
+  roaster stated. With no stated yield range the band falls back to dose × ratio ±3%
+  (`USER_BREW_ON_TARGET_BAND_PCT`); with no stated time range there is deliberately no
+  fallback at all, since a tolerance nobody wrote down must not become evidence.
 - **Attribution is stamped at ingest**: a session arriving while a bean is active gets
   `annotations.bean_id` filled — only when blank (`coalesce`), and without touching
   `updated_at`, so a hand-picked bean and the LWW reconcile are never overridden.
@@ -114,12 +127,26 @@ agreed design; each decision was made deliberately — change them knowingly.
   on its annotation row; `stored`/`deleted` (tombstoned) drop the queued file,
   `unknown` keeps it for the next window. The response echoes `{bean, advice}` so a
   logged shot refreshes the verdict in one round trip.
+- **Unmeasured time is null, never a default.** `brew_time_s` of `0` (the user skipped
+  the time step) or absent (firmware that never asked) both store null. Before this,
+  every record carried the bean's pinned 30 s, which made a real 30 s shot
+  indistinguishable from an unanswered prompt in the column the advice engine reads as
+  evidence. Rows written under the old behaviour cannot be told apart retroactively;
+  they are only ever read by the yield-deviation path below.
 - **Advice is computed server-side** (`lib/advice.ts`, mirrored client-side in
-  `lib/analytics/brew.ts`): with the shot time fixed per bean, output deviation is a
-  flow signal — median of the last 5 shots beyond ±8% means finer (ran fast) or
-  coarser (choked), minimum 3 shots, and a recorded grind-setting change resets the
-  evidence. The grinder only displays the verdict (ready-screen chip), so thresholds
-  evolve without firmware releases.
+  `lib/analytics/brew.ts` — change one, change both), and reports which of two readings
+  produced it as `basis`. Where the bag states a target time *and* the window's shots
+  were really timed (`basis: 'time'`), the clock decides, which is the classic dial-in
+  loop: hold the dose and the yield, and let time say whether the grind is too fine or
+  too coarse. Each shot's time is first normalised to the middle of its yield band
+  (`time × target_yield ÷ output`), so a shot stopped short doesn't read as fast for the
+  wrong reason; the median then lands under `time_min_s` → finer, over `time_max_s` →
+  coarser. Untimed shots never enter that median — they answered a different question.
+  Otherwise (`basis: 'yield'`) the original reading stands: with time assumed fixed,
+  output deviation is a flow proxy, median of the last 5 shots beyond ±8% meaning finer
+  (ran fast) or coarser (choked). Both need at least 3 shots, and a recorded
+  grind-setting change resets the evidence either way. The grinder only displays the
+  verdict (ready-screen chip), so thresholds evolve without firmware releases.
 - **Bag tracking follows the same split.** An optional `beans.bag_size_g` enables it:
   the server sums the doses of every session attributed to the bag, estimates the
   per-shot dose from the median of the last 10, and ships
