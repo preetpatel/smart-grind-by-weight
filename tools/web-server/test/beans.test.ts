@@ -197,6 +197,56 @@ describe('brew records', () => {
         expect(row?.brew_time_s).toBe(30);
     });
 
+    it('stores an unmeasured time as null rather than a default', async () => {
+        const store = await newStore();
+        await createBean(store.store_id, store.cookie);
+        const skipped = await ingestBlob(store.store_id, store.upload_key, {
+            sessionId: 7,
+            timestamp: 1754000007,
+        });
+        const absent = await ingestBlob(store.store_id, store.upload_key, {
+            sessionId: 8,
+            timestamp: 1754000008,
+        });
+
+        // 0 is what the grinder sends when the user skips the time step; an
+        // older firmware omits the field entirely. Neither may become a 30.
+        const response = await api.postBrews(store.store_id, {
+            key: store.upload_key,
+            body: {
+                brews: [
+                    {
+                        session_id: 7,
+                        session_timestamp: 1754000007,
+                        brew_output_g: 30.1,
+                        brew_time_s: 0,
+                    },
+                    {
+                        session_id: 8,
+                        session_timestamp: 1754000008,
+                        brew_output_g: 29.4,
+                    },
+                ],
+            },
+        });
+        expect(response.status).toBe(200);
+
+        const annotations = (await (
+            await api.getAnnotations(store.store_id, { cookie: store.cookie })
+        ).json()) as {
+            annotations: {
+                sha256: string;
+                brew_output_g: number | null;
+                brew_time_s: number | null;
+            }[];
+        };
+        for (const sha of [skipped, absent]) {
+            const row = annotations.annotations.find((entry) => entry.sha256 === sha);
+            expect(row?.brew_time_s).toBeNull();
+            expect(row?.brew_output_g).not.toBeNull();
+        }
+    });
+
     it('reports unknown for sessions that have not uploaded yet', async () => {
         const store = await newStore();
         const response = await api.postBrews(store.store_id, {

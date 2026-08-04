@@ -62,6 +62,16 @@ export function parseBrewTime(value: unknown): number {
     return seconds;
 }
 
+// What a *shot* reports, as opposed to what a bean recommends. The grinder
+// sends 0 when the user skipped the time step, and absent from older firmware
+// that never asked — both mean unmeasured, and must stay null. A defaulted
+// value here is indistinguishable from a real one downstream, which is exactly
+// what made the stored time useless as evidence for advice.
+export function parseMeasuredBrewTime(value: unknown): number | null {
+    if (value === undefined || value === null || value === 0) return null;
+    return parseBrewTime(value);
+}
+
 // null clears the size (tracking off); absent means untouched.
 export function parseBagSize(value: unknown): number | null {
     if (value === null) return null;

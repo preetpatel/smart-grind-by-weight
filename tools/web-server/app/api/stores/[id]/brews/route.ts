@@ -1,8 +1,9 @@
-// Brew-record ingest. The grinder queues one record per logged shot — output
-// grams over the bean's fixed brew time — keyed by (session_id,
-// session_timestamp), the same identity pair the manifest uses, because the
-// device never knows a session's content hash. The server resolves the pair to
-// the session's sha256 and lands the record on its annotation row.
+// Brew-record ingest. The grinder queues one record per logged shot — grams out
+// and, when the user answered the time step, the seconds it took — keyed by
+// (session_id, session_timestamp), the same identity pair the manifest uses,
+// because the device never knows a session's content hash. The server resolves
+// the pair to the session's sha256 and lands the record on its annotation row.
+// brew_time_s of 0 or absent means unmeasured and stores null.
 //
 // Responds with per-record status plus the current device config, so the
 // grinder gets fresh advice in the same round trip. 'unknown' means the
@@ -12,7 +13,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { deviceConfig } from '@/lib/advice';
 import { authStore } from '@/lib/auth';
-import { parseBrewTime } from '@/lib/beans';
+import { parseMeasuredBrewTime } from '@/lib/beans';
 import { withCors } from '@/lib/cors';
 import { getDb } from '@/lib/db';
 import { ApiError, handleErrors, json } from '@/lib/http';
@@ -54,7 +55,7 @@ function parseBrew(value: unknown): BrewEntry {
         sessionId: sessionId as number,
         sessionTimestamp: sessionTimestamp as number,
         brewOutputG: Math.round(output * 10) / 10,
-        brewTimeS: entry.brew_time_s === undefined ? null : parseBrewTime(entry.brew_time_s),
+        brewTimeS: parseMeasuredBrewTime(entry.brew_time_s),
     };
 }
 
