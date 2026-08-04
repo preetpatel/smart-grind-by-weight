@@ -78,9 +78,10 @@ void JogAdjustController::handle_timer(lv_timer_t* timer) {
                 cal_weight + ui_manager_->jog_direction * USER_FINE_WEIGHT_ADJUSTMENT_G);
             ui_manager_->calibration_screen.update_calibration_weight(cal_weight);
         } else if (ui_manager_->state_machine->is_state(UIState::BREW_ENTRY)) {
+            // The controller owns the increment: grams on the yield step,
+            // seconds on the time step.
             if (ui_manager_->brew_entry_controller_) {
-                ui_manager_->brew_entry_controller_->adjust_output(
-                    ui_manager_->jog_direction * USER_FINE_WEIGHT_ADJUSTMENT_G);
+                ui_manager_->brew_entry_controller_->adjust(ui_manager_->jog_direction);
             }
         }
     }

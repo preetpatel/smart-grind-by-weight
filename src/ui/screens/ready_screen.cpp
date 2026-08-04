@@ -10,6 +10,14 @@ namespace {
     // What the shared chip currently shows, so its tap dismisses the right
     // message (the click callback has no per-instance context).
     bool chip_showing_bag_warning = false;
+
+    // The grind button is 100px tall, 10px off the bottom of the screen, so its
+    // top edge is at 346. This container's bottom edge is at 80% of 456 = 364;
+    // -28 lands the chip's bottom 10px above the button.
+    constexpr lv_coord_t kAdviceChipBottomOffset = -28;
+    // Long enough for "TRY COARSER" (173px at montserrat_24) plus padding,
+    // short enough that a future verdict can't reach the bezels.
+    constexpr lv_coord_t kAdviceChipMaxWidth = 240;
 }
 
 void ReadyScreen::create() {
@@ -66,12 +74,17 @@ void ReadyScreen::create() {
     clock_text[0] = '\0';
 
     // Grind advice chip: the server's finer/coarser verdict, shown where the
-    // user stands before dialing the next shot. Sits at the bottom of this
-    // 80%-height container, clear of the floating grind button below it.
-    // Tap to dismiss until the verdict changes.
+    // user stands before dialing the next shot. Tap to dismiss until the
+    // verdict changes.
+    //
+    // Anchored off the grind button's keep-out, not off this container: the
+    // container is LV_PCT(80) = 364px while the button (a sibling of the whole
+    // screen) starts at 346, so aligning to the container's own bottom edge put
+    // the chip 16px underneath it.
     advice_chip = lv_obj_create(screen);
     lv_obj_set_size(advice_chip, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_align(advice_chip, LV_ALIGN_BOTTOM_MID, 0, -2);
+    lv_obj_set_style_max_width(advice_chip, kAdviceChipMaxWidth, 0);
+    lv_obj_align(advice_chip, LV_ALIGN_BOTTOM_MID, 0, kAdviceChipBottomOffset);
     lv_obj_set_style_bg_color(advice_chip, lv_color_hex(0x202020), 0);
     lv_obj_set_style_bg_opa(advice_chip, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(advice_chip, THEME_CORNER_RADIUS_PX, 0);
@@ -95,6 +108,9 @@ void ReadyScreen::create() {
     lv_label_set_text(advice_label, "");
     lv_obj_set_style_text_font(advice_label, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(advice_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    // The chip is width-capped, so a long verdict ellipsises instead of
+    // pushing the dot off the left edge.
+    lv_label_set_long_mode(advice_label, LV_LABEL_LONG_DOT);
 
     lv_obj_add_event_cb(advice_chip, [](lv_event_t* e) {
         if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;

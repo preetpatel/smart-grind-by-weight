@@ -393,14 +393,28 @@ void CloudSync::apply_device_config(const char* response) {
         if (json_find_string(response, "name", name, sizeof(name))
             && json_find_number(response, "ratio", &ratio) && ratio > 0.0) {
             json_find_number(response, "brew_time_s", &brew_time);
-            char current_name[USER_BEAN_NAME_MAX_LENGTH + 1];
+
+            // The bag's stated recipe. Absent keys (an older server, or a bean
+            // carrying only a ratio) leave these 0 = not stated.
+            double dose = 0.0, yield_lo = 0.0, yield_hi = 0.0, time_lo = 0.0, time_hi = 0.0;
+            json_find_number(response, "dose_g", &dose);
+            json_find_number(response, "yield_min_g", &yield_lo);
+            json_find_number(response, "yield_max_g", &yield_hi);
+            json_find_number(response, "time_min_s", &time_lo);
+            json_find_number(response, "time_max_s", &time_hi);
+
+            BeanConfig::Config config = {};
+            config.name = name;
+            config.ratio = (float)ratio;
+            config.brew_time_s = (uint16_t)brew_time;
+            config.dose_g = (float)dose;
+            config.yield_lo_g = (float)yield_lo;
+            config.yield_hi_g = (float)yield_hi;
+            config.time_lo_s = (uint16_t)time_lo;
+            config.time_hi_s = (uint16_t)time_hi;
+
             bean_config.reload_if_dirty();
-            bean_config.get_name(current_name, sizeof(current_name));
-            bool changed = !bean_config.is_configured()
-                || strcmp(current_name, name) != 0
-                || fabsf(bean_config.get_ratio() - (float)ratio) > 0.001f
-                || bean_config.get_brew_time_s() != (uint16_t)brew_time;
-            if (changed) bean_config.set_config(name, (float)ratio, (uint16_t)brew_time);
+            if (!bean_config.matches(config)) bean_config.set_config(config);
         }
     }
 

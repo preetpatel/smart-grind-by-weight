@@ -74,11 +74,14 @@
 //------------------------------------------------------------------------------
 // ACTIVE BEAN / BREW ENTRY
 //------------------------------------------------------------------------------
-// The dashboard pushes the active bag's {name, ratio, shot time} over BLE (or
-// the grinder fetches it during a cloud sync window). While one is set, every
-// logged grind is followed by the brew entry screen: expected output pre-set
-// to dose x ratio, jog to the actual yield, Done queues a brew record.
+// The dashboard pushes the active bag's recipe over BLE (or the grinder
+// fetches it during a cloud sync window). While one is set, every logged grind
+// is followed by the brew entry screen: yield pre-set from the recipe, then
+// the shot time, Done queues a brew record. Skipping the time step records the
+// shot with no time rather than a fabricated one.
 #define USER_BEAN_NAME_MAX_LENGTH 32                                            // Maximum characters in the active bean name
 #define USER_BREW_ENTRY_TIMEOUT_MS 900000                                       // Brew entry screen holds this long (15 min) before giving up unrecorded
 #define USER_BREW_OUTPUT_MAX_G 500.0f                                           // Upper clamp for the entered shot yield
-#define USER_BREW_ON_TARGET_BAND_PCT 3.0f                                       // Deviation within this band shows as on-target (green)
+#define USER_BREW_ON_TARGET_BAND_PCT 3.0f                                       // Tolerance around dose x ratio when the bag states no yield range
+#define USER_BREW_TIME_ADJUSTMENT_S 1                                           // Seconds per click on the brew time step (hold escalates)
+#define USER_BREW_TIME_MAX_S 600                                                // Upper clamp for the entered shot time

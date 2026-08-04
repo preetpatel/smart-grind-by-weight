@@ -735,8 +735,12 @@ void BluetoothManager::update_cloud_status_info() {
     }
 }
 
-// Payload: [0x01][name]\0[ratio]\0[brew_time_s]\0 to set the active bean,
-// [0x02] to clear it. Runs on the bluetooth task (same deferral as WiFi).
+// Payload: [0x01][name]\0[ratio]\0[brew_time_s]\0[dose_g]\0[yield_lo_g]\0
+// [yield_hi_g]\0[time_lo_s]\0[time_hi_s]\0 to set the active bean, [0x02] to
+// clear it. Runs on the bluetooth task (same deferral as WiFi).
+//
+// The recipe fields are what the bag states; an older dashboard sends only the
+// first three and the rest read back as 0, which is exactly "not stated".
 void BluetoothManager::process_bean_config_payload() {
     bean_config_pending = false;
     if (bean_config_pending_len == 0) return;
@@ -746,10 +750,10 @@ void BluetoothManager::process_bean_config_payload() {
         log("Bluetooth Bean: Clear command received\n");
         bean_config.clear_config();
     } else if (opcode == 0x01) {
-        // Extract up to three NUL-terminated strings from the remainder
-        const char* fields[3] = {"", "", ""};
+        constexpr int kFieldCount = 8;
+        const char* fields[kFieldCount] = {"", "", "", "", "", "", "", ""};
         size_t pos = 1;
-        for (int i = 0; i < 3 && pos < bean_config_pending_len; i++) {
+        for (int i = 0; i < kFieldCount && pos < bean_config_pending_len; i++) {
             fields[i] = reinterpret_cast<const char*>(&bean_config_pending_payload[pos]);
             size_t remaining = bean_config_pending_len - pos;
             size_t field_len = strnlen(fields[i], remaining);
@@ -764,11 +768,18 @@ void BluetoothManager::process_bean_config_payload() {
             }
             pos += field_len + 1;
         }
-        float ratio = strtof(fields[1], nullptr);
-        uint16_t brew_time_s = (uint16_t)strtoul(fields[2], nullptr, 10);
+        BeanConfig::Config config = {};
+        config.name = fields[0];
+        config.ratio = strtof(fields[1], nullptr);
+        config.brew_time_s = (uint16_t)strtoul(fields[2], nullptr, 10);
+        config.dose_g = strtof(fields[3], nullptr);
+        config.yield_lo_g = strtof(fields[4], nullptr);
+        config.yield_hi_g = strtof(fields[5], nullptr);
+        config.time_lo_s = (uint16_t)strtoul(fields[6], nullptr, 10);
+        config.time_hi_s = (uint16_t)strtoul(fields[7], nullptr, 10);
         log("Bluetooth Bean: Active bean '%s' (1:%.2f over %us)\n",
-            fields[0], ratio, (unsigned)brew_time_s);
-        bean_config.set_config(fields[0], ratio, brew_time_s);
+            config.name, config.ratio, (unsigned)config.brew_time_s);
+        bean_config.set_config(config);
     } else {
         log("Bluetooth Bean: Unknown opcode 0x%02X\n", opcode);
         return;

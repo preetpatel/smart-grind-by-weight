@@ -35,7 +35,7 @@ void BrewEntryController::register_events() {
             UIManager* ui = bound->controller->ui_manager_;
             lv_event_code_t code = lv_event_get_code(e);
             if (code == LV_EVENT_CLICKED) {
-                bound->controller->adjust_output(bound->direction * USER_FINE_WEIGHT_ADJUSTMENT_G);
+                bound->controller->adjust(bound->direction);
             } else if (code == LV_EVENT_LONG_PRESSED) {
                 if (ui->jog_adjust_controller_) ui->jog_adjust_controller_->start(bound->direction);
             } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
@@ -50,16 +50,20 @@ void BrewEntryController::register_events() {
         lv_obj_add_event_cb(done, [](lv_event_t* e) {
             if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
             if (auto* controller = static_cast<BrewEntryController*>(lv_event_get_user_data(e))) {
-                controller->finish(true);
+                controller->advance();
             }
         }, LV_EVENT_CLICKED, this);
     }
     if (lv_obj_t* skip = screen.get_skip_button()) {
         lv_obj_add_event_cb(skip, [](lv_event_t* e) {
             if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
-            if (auto* controller = static_cast<BrewEntryController*>(lv_event_get_user_data(e))) {
-                controller->finish(false);
-            }
+            auto* controller = static_cast<BrewEntryController*>(lv_event_get_user_data(e));
+            if (!controller) return;
+            // On the yield step there is nothing worth keeping; on the time
+            // step the yield is already answered, so save it with the time
+            // left unmeasured rather than throwing the shot away.
+            bool on_time_step = (controller->step_ == BrewEntryScreen::Step::TIME);
+            controller->finish(on_time_step, false);
         }, LV_EVENT_CLICKED, this);
     }
 }
@@ -82,7 +86,7 @@ void BrewEntryController::arm(float dose_g) {
     session_timestamp_ = grind_logger.get_last_started_session_timestamp();
     // Dose after any top-up pulses - what actually goes in the portafilter,
     // not the frozen final_weight the session log keeps.
-    expected_g_ = snap_to_tenth(dose_g * bean_config.get_ratio());
+    dose_g_ = dose_g;
 }
 
 void BrewEntryController::discard_pending() {
@@ -95,11 +99,21 @@ bool BrewEntryController::begin_entry() {
     if (!ui_manager_ || !pending_) return false;
     pending_ = false;
     settled_session_id_ = session_id_;
-    output_g_ = expected_g_;
+
+    BeanConfig::Recipe recipe = bean_config.recipe_for_dose(dose_g_);
+    yield_lo_ = recipe.yield_lo_g;
+    yield_hi_ = recipe.yield_hi_g;
+    yield_stated_ = recipe.yield_stated;
+    output_g_ = snap_to_tenth(recipe.default_yield_g);
+    time_lo_ = recipe.time_lo_s;
+    time_hi_ = recipe.time_hi_s;
+    time_s_ = recipe.default_time_s;
+    step_ = BrewEntryScreen::Step::YIELD;
 
     char name[USER_BEAN_NAME_MAX_LENGTH + 1];
     bean_config.get_name(name, sizeof(name));
     ui_manager_->brew_entry_screen.set_bean_name(name);
+    ui_manager_->brew_entry_screen.set_step(step_);
     refresh_screen();
     ui_manager_->switch_to_state(UIState::BREW_ENTRY);
 
@@ -109,26 +123,63 @@ bool BrewEntryController::begin_entry() {
     return true;
 }
 
-void BrewEntryController::adjust_output(float delta_g) {
-    output_g_ = snap_to_tenth(output_g_ + delta_g);
-    if (output_g_ < 0.0f) output_g_ = 0.0f;
-    if (output_g_ > USER_BREW_OUTPUT_MAX_G) output_g_ = USER_BREW_OUTPUT_MAX_G;
+void BrewEntryController::adjust(int direction) {
+    if (step_ == BrewEntryScreen::Step::YIELD) {
+        output_g_ = snap_to_tenth(output_g_ + direction * USER_FINE_WEIGHT_ADJUSTMENT_G);
+        if (output_g_ < 0.0f) output_g_ = 0.0f;
+        if (output_g_ > USER_BREW_OUTPUT_MAX_G) output_g_ = USER_BREW_OUTPUT_MAX_G;
+    } else {
+        int32_t seconds = (int32_t)time_s_ + direction * USER_BREW_TIME_ADJUSTMENT_S;
+        if (seconds < 0) seconds = 0;
+        if (seconds > USER_BREW_TIME_MAX_S) seconds = USER_BREW_TIME_MAX_S;
+        time_s_ = (uint16_t)seconds;
+    }
     refresh_screen();
 }
 
 void BrewEntryController::refresh_screen() {
     if (!ui_manager_) return;
-    ui_manager_->brew_entry_screen.set_values(output_g_, expected_g_);
+    BrewEntryScreen& screen = ui_manager_->brew_entry_screen;
+
+    if (step_ == BrewEntryScreen::Step::YIELD) {
+        // Where the band is a derived tolerance rather than numbers off a bag,
+        // print what it was derived from instead of edges nobody stated.
+        char hint[40] = "";
+        if (!yield_stated_) {
+            snprintf(hint, sizeof(hint), "1 : %.2f   +/- %d %%",
+                     bean_config.get_ratio(), (int)USER_BREW_ON_TARGET_BAND_PCT);
+        }
+        screen.set_value(step_, output_g_, yield_lo_, yield_hi_, hint[0] ? hint : nullptr);
+    } else {
+        const char* hint = (time_hi_ > time_lo_) ? nullptr : "no target time on this bag";
+        screen.set_value(step_, (float)time_s_, time_lo_, time_hi_, hint);
+    }
 }
 
-void BrewEntryController::finish(bool save) {
+void BrewEntryController::advance() {
+    if (!ui_manager_ || !ui_manager_->state_machine) return;
+    if (!ui_manager_->state_machine->is_state(UIState::BREW_ENTRY)) return;
+
+    if (step_ == BrewEntryScreen::Step::YIELD) {
+        step_ = BrewEntryScreen::Step::TIME;
+        ui_manager_->brew_entry_screen.set_step(step_);
+        refresh_screen();
+        return;
+    }
+    finish(true, true);
+}
+
+void BrewEntryController::finish(bool save, bool timed) {
     if (!ui_manager_ || !ui_manager_->state_machine) return;
     if (!ui_manager_->state_machine->is_state(UIState::BREW_ENTRY)) return;
     cancel_timeout();
 
     if (save && output_g_ > 0.0f) {
+        // 0 travels as "unmeasured" and the server stores null. Skipping the
+        // time step must land here rather than shipping the pre-filled
+        // default, which would be indistinguishable from a real measurement.
         brew_log.queue_record(session_id_, session_timestamp_, output_g_,
-                              bean_config.get_brew_time_s());
+                              (timed && time_s_ > 0) ? time_s_ : 0);
         // The record's upload response carries fresh advice, so ask for a
         // window now rather than waiting for the daily sweep.
         wifi_service.request_sync_now();
