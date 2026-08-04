@@ -493,6 +493,13 @@ export interface BeanDraft {
     ratio: number;
     brew_time_s?: number;
     bag_size_g?: number | null;
+    // The bag's stated recipe. Each range must be sent as a pair (or both
+    // null to clear it); a yield range needs the dose it was quoted at.
+    dose_g?: number | null;
+    yield_min_g?: number | null;
+    yield_max_g?: number | null;
+    time_min_s?: number | null;
+    time_max_s?: number | null;
     roast_date?: string | null;
     notes?: string | null;
 }

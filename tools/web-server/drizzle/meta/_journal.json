@@ -36,6 +36,13 @@
       "when": 1785709978312,
       "tag": "0004_last_ultimo",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785820523235,
+      "tag": "0005_stiff_sentinel",
+      "breakpoints": true
     }
   ]
 }

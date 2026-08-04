@@ -62,12 +62,28 @@ function shortDate(value: string | null): string | null {
         : date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 }
 
-function ratioLabel(ratio: number): string {
-    return `1 : ${ratio}`;
+// What the bag says, in the bag's own terms. A stated range governs the
+// grinder's pre-fill and the advice verdict, so showing the ratio it
+// contradicts would misdescribe what the shot is being judged against.
+function recipeLabel(bean: Bean): string {
+    const parts: string[] = [];
+    if (bean.dose_g != null && bean.yield_min_g != null && bean.yield_max_g != null) {
+        parts.push(`${bean.dose_g} → ${bean.yield_min_g}–${bean.yield_max_g} g`);
+    } else {
+        parts.push(`1 : ${bean.ratio}`);
+    }
+    parts.push(
+        bean.time_min_s != null && bean.time_max_s != null
+            ? `${bean.time_min_s}–${bean.time_max_s} s`
+            : `${bean.brew_time_s} s`,
+    );
+    return parts.join(' · ');
 }
 
-// Add/edit form. Ratio and shot time are the two numbers the grinder's
-// post-shot screen is built on, so they sit right under the name.
+// Add/edit form. The recipe block is what the bag prints — dose, yield range,
+// time range — and what the grinder's two post-shot steps are built on, so it
+// sits right under the name. Ratio and shot time remain for bags that state
+// neither; a stated range wins over both.
 function BeanDialog({
     open,
     onOpenChange,
@@ -87,6 +103,11 @@ function BeanDialog({
     const [bagSize, setBagSize] = useState('');
     const [roastDate, setRoastDate] = useState('');
     const [notes, setNotes] = useState('');
+    const [dose, setDose] = useState('');
+    const [yieldMin, setYieldMin] = useState('');
+    const [yieldMax, setYieldMax] = useState('');
+    const [timeMin, setTimeMin] = useState('');
+    const [timeMax, setTimeMax] = useState('');
 
     useEffect(() => {
         if (!open) return;
@@ -96,11 +117,34 @@ function BeanDialog({
         setBagSize(initial?.bag_size_g ? String(initial.bag_size_g) : '');
         setRoastDate(initial?.roast_date ?? '');
         setNotes(initial?.notes ?? '');
+        setDose(initial?.dose_g != null ? String(initial.dose_g) : '');
+        setYieldMin(initial?.yield_min_g != null ? String(initial.yield_min_g) : '');
+        setYieldMax(initial?.yield_max_g != null ? String(initial.yield_max_g) : '');
+        setTimeMin(initial?.time_min_s != null ? String(initial.time_min_s) : '');
+        setTimeMax(initial?.time_max_s != null ? String(initial.time_max_s) : '');
     }, [open, initial]);
 
     const parsedRatio = Number.parseFloat(ratio);
     const parsedTime = Number.parseInt(brewTime, 10);
     const parsedBag = bagSize.trim() ? Number.parseFloat(bagSize) : null;
+    const optionalFloat = (value: string) => (value.trim() ? Number.parseFloat(value) : null);
+    const optionalInt = (value: string) => (value.trim() ? Number.parseInt(value, 10) : null);
+    const parsedDose = optionalFloat(dose);
+    const parsedYieldMin = optionalFloat(yieldMin);
+    const parsedYieldMax = optionalFloat(yieldMax);
+    const parsedTimeMin = optionalInt(timeMin);
+    const parsedTimeMax = optionalInt(timeMax);
+
+    // Mirrors assertRecipeConsistent on the server: a range is only meaningful
+    // as a pair with width, and a yield range needs the dose it was quoted at.
+    const pairOk = (lo: number | null, hi: number | null) =>
+        (lo === null && hi === null) ||
+        (lo !== null && hi !== null && Number.isFinite(lo) && Number.isFinite(hi) && hi > lo);
+    const recipeValid =
+        pairOk(parsedYieldMin, parsedYieldMax) &&
+        pairOk(parsedTimeMin, parsedTimeMax) &&
+        (parsedYieldMin === null || (parsedDose !== null && Number.isFinite(parsedDose)));
+
     const valid =
         name.trim().length > 0 &&
         Number.isFinite(parsedRatio) &&
@@ -110,7 +154,8 @@ function BeanDialog({
         parsedTime >= 5 &&
         parsedTime <= 600 &&
         (parsedBag === null ||
-            (Number.isFinite(parsedBag) && parsedBag >= 10 && parsedBag <= 10000));
+            (Number.isFinite(parsedBag) && parsedBag >= 10 && parsedBag <= 10000)) &&
+        recipeValid;
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
@@ -124,6 +169,11 @@ function BeanDialog({
                             ratio: parsedRatio,
                             brew_time_s: parsedTime,
                             bag_size_g: parsedBag === null ? null : Math.round(parsedBag),
+                            dose_g: parsedDose,
+                            yield_min_g: parsedYieldMin,
+                            yield_max_g: parsedYieldMax,
+                            time_min_s: parsedTimeMin,
+                            time_max_s: parsedTimeMax,
                             roast_date: roastDate.trim() || null,
                             notes: notes.trim() || null,
                         });
@@ -168,6 +218,78 @@ function BeanDialog({
                                     className="font-mono"
                                     value={brewTime}
                                     onChange={(event) => setBrewTime(event.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="bean-dose">Dose (g)</Label>
+                            <Input
+                                id="bean-dose"
+                                type="number"
+                                step="0.1"
+                                min="1"
+                                max="200"
+                                placeholder="20.5"
+                                className="font-mono"
+                                value={dose}
+                                onChange={(event) => setDose(event.target.value)}
+                            />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="bean-yield-min">Yield from (g)</Label>
+                                <Input
+                                    id="bean-yield-min"
+                                    type="number"
+                                    step="0.1"
+                                    min="1"
+                                    max="500"
+                                    placeholder="27"
+                                    className="font-mono"
+                                    value={yieldMin}
+                                    onChange={(event) => setYieldMin(event.target.value)}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="bean-yield-max">to (g)</Label>
+                                <Input
+                                    id="bean-yield-max"
+                                    type="number"
+                                    step="0.1"
+                                    min="1"
+                                    max="500"
+                                    placeholder="30"
+                                    className="font-mono"
+                                    value={yieldMax}
+                                    onChange={(event) => setYieldMax(event.target.value)}
+                                />
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="grid gap-2">
+                                <Label htmlFor="bean-time-min">Time from (s)</Label>
+                                <Input
+                                    id="bean-time-min"
+                                    type="number"
+                                    min="1"
+                                    max="600"
+                                    placeholder="25"
+                                    className="font-mono"
+                                    value={timeMin}
+                                    onChange={(event) => setTimeMin(event.target.value)}
+                                />
+                            </div>
+                            <div className="grid gap-2">
+                                <Label htmlFor="bean-time-max">to (s)</Label>
+                                <Input
+                                    id="bean-time-max"
+                                    type="number"
+                                    min="1"
+                                    max="600"
+                                    placeholder="31"
+                                    className="font-mono"
+                                    value={timeMax}
+                                    onChange={(event) => setTimeMax(event.target.value)}
                                 />
                             </div>
                         </div>
@@ -420,7 +542,7 @@ export function BeansPanel() {
                                     )}
                                 </div>
                                 <p className="mt-1 font-mono text-muted-foreground text-sm tabular-nums">
-                                    {ratioLabel(active.ratio)} · {active.brew_time_s} s
+                                    {recipeLabel(active)}
                                     {active.roast_date
                                         ? ` · roasted ${shortDate(active.roast_date)}`
                                         : ''}
@@ -542,7 +664,7 @@ export function BeansPanel() {
                                                 {bean.name}
                                             </span>
                                             <span className="min-w-0 truncate font-mono text-muted-foreground text-sm tabular-nums sm:text-right">
-                                                {ratioLabel(bean.ratio)} · {bean.brew_time_s} s ·{' '}
+                                                {recipeLabel(bean)} ·{' '}
                                                 {beanShotCount(annotations, bean.id)} shots
                                                 {bean.archived ? ' · finished' : ''}
                                             </span>

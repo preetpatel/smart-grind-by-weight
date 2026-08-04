@@ -1,25 +1,42 @@
-// Grind advice: with the shot time fixed per bean, output deviation is a
-// flow-rate signal. Over-delivery means the shot ran fast (too coarse → try
-// finer); under-delivery means it choked (too fine → try coarser). Computed
-// server-side so the thresholds can evolve without a firmware release — the
-// grinder only displays the verdict.
+// Grind advice, computed server-side so the thresholds can evolve without a
+// firmware release — the grinder only displays the verdict.
+//
+// Two readings, depending on what the bag states and what the user measured.
+//
+// Where the bag gives a target time and the shot was actually timed, time is
+// the signal, which is the classic dial-in loop: hold the dose and the yield,
+// and let the clock say whether the grind is too fine or too coarse. A shot
+// stopped short of the yield band would read as fast for the wrong reason, so
+// the time is first normalised to what it would have been at the middle of the
+// band at the same average flow.
+//
+// Otherwise it falls back to the original reading: with the time assumed
+// fixed, output deviation is a flow-rate proxy — over-delivery means the shot
+// ran fast (too coarse → finer), under-delivery means it choked (→ coarser).
+// That assumption is why an unmeasured time must never be stored as a default:
+// it would enter the time-based path as evidence nobody produced.
 import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
-import { type BeanPayload, toBeanPayload } from './beans';
+import { type BeanPayload, resolveRecipe, toBeanPayload } from './beans';
 import type { Db } from './db';
 import { annotations, type BeanRow, beans, type Store, sessions } from './schema';
 
 export type AdviceVerdict = 'finer' | 'coarser' | 'ok' | 'none';
+export type AdviceBasis = 'time' | 'yield';
 
 export interface Advice {
     verdict: AdviceVerdict;
     shots_considered: number;
     median_deviation_pct: number | null;
+    // Which reading produced the verdict, so the dashboard can say what it is
+    // looking at rather than implying both are the same measurement.
+    basis: AdviceBasis;
 }
 
 export const NO_ADVICE: Advice = {
     verdict: 'none',
     shots_considered: 0,
     median_deviation_pct: null,
+    basis: 'yield',
 };
 
 const MIN_SHOTS = 3;
@@ -42,6 +59,7 @@ export async function computeAdvice(db: Db, storeId: string, bean: BeanRow): Pro
     const rows = await db
         .select({
             output: annotations.brewOutputG,
+            time: annotations.brewTimeS,
             setting: annotations.grindSetting,
             dose: sessions.finalWeight,
         })
@@ -73,22 +91,73 @@ export async function computeAdvice(db: Db, storeId: string, bean: BeanRow): Pro
         run.push(row);
     }
 
-    const deviations = run
+    const usable = run.filter(
+        (row) => row.output !== null && row.output > 0 && row.dose !== null && row.dose > 0,
+    );
+
+    // Time is only the signal where the bag stated a target and the shots were
+    // actually timed. Mixing timed and untimed shots into one median would let
+    // the untimed ones vote on a question they never answered, so the timed
+    // reading is used only when the window is timed throughout.
+    const timedRun = usable
         .slice(0, WINDOW)
-        .filter((row) => row.output !== null && row.dose !== null && row.dose > 0)
+        .filter((row) => row.time !== null && row.time > 0)
         .map((row) => {
-            const expected = (row.dose as number) * bean.ratio;
-            return (((row.output as number) - expected) / expected) * 100;
-        });
+            const dose = row.dose as number;
+            const output = row.output as number;
+            const recipe = resolveRecipe(bean, dose);
+            if (recipe.timeMinS === null || recipe.timeMaxS === null) return null;
+            // What the shot would have taken to reach the middle of the yield
+            // band at the flow it actually ran, so stopping short or running
+            // long doesn't masquerade as a grind problem.
+            const targetYield = (recipe.yieldMinG + recipe.yieldMaxG) / 2;
+            const normalised = (row.time as number) * (targetYield / output);
+            const mid = ((recipe.timeMinS as number) + (recipe.timeMaxS as number)) / 2;
+            return {
+                normalised,
+                mid,
+                lo: recipe.timeMinS as number,
+                hi: recipe.timeMaxS as number,
+            };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+    if (timedRun.length >= MIN_SHOTS) {
+        const med = median(timedRun.map((entry) => entry.normalised));
+        const { lo, hi, mid } = timedRun[0] as (typeof timedRun)[number];
+        // A short shot means the water met too little resistance: grind finer.
+        const verdict: AdviceVerdict = med < lo ? 'finer' : med > hi ? 'coarser' : 'ok';
+        return {
+            verdict,
+            shots_considered: timedRun.length,
+            median_deviation_pct: Math.round(((med - mid) / mid) * 1000) / 10,
+            basis: 'time',
+        };
+    }
+
+    const deviations = usable.slice(0, WINDOW).map((row) => {
+        const expected = (row.dose as number) * bean.ratio;
+        return (((row.output as number) - expected) / expected) * 100;
+    });
 
     if (deviations.length < MIN_SHOTS) {
-        return { verdict: 'none', shots_considered: deviations.length, median_deviation_pct: null };
+        return {
+            verdict: 'none',
+            shots_considered: deviations.length,
+            median_deviation_pct: null,
+            basis: 'yield',
+        };
     }
 
     const med = Math.round(median(deviations) * 10) / 10;
     const verdict: AdviceVerdict =
         med > THRESHOLD_PCT ? 'finer' : med < -THRESHOLD_PCT ? 'coarser' : 'ok';
-    return { verdict, shots_considered: deviations.length, median_deviation_pct: med };
+    return {
+        verdict,
+        shots_considered: deviations.length,
+        median_deviation_pct: med,
+        basis: 'yield',
+    };
 }
 
 // How much of the bag is left, in the unit the user thinks in: shots. The

@@ -1,6 +1,7 @@
 // Beans, brew records and the advice engine: the bag registry, ingest-time
 // attribution, the device's brew upload, and the finer/coarser verdict.
 import { beforeEach, describe, expect, it } from 'vitest';
+import { resolveRecipe } from '@/lib/beans';
 import { api, freshDb, newDeviceId, newStore, signUp } from './helpers/api';
 import { buildSessionBlob } from './helpers/blob';
 
@@ -151,6 +152,107 @@ describe('bean attribution at ingest', () => {
     });
 });
 
+describe('recipe ranges', () => {
+    it('stores the bag as typed and scales the yield band to the dose', () => {
+        // The card: dose 20.5 g, yield 27-30 g, ratio 1:1.5. Note 20.5 x 1.5
+        // is 30.75 — outside its own stated range — which is exactly why the
+        // range is stored rather than derived from the ratio.
+        const bean = {
+            ratio: 1.5,
+            doseG: 20.5,
+            yieldMinG: 27,
+            yieldMaxG: 30,
+            timeMinS: 25,
+            timeMaxS: 31,
+        };
+        const atBagDose = resolveRecipe(bean, 20.5);
+        expect(atBagDose.yieldStated).toBe(true);
+        expect(atBagDose.yieldMinG).toBeCloseTo(27, 5);
+        expect(atBagDose.yieldMaxG).toBeCloseTo(30, 5);
+
+        // An 18 g grind targets proportionally less.
+        const smaller = resolveRecipe(bean, 18);
+        expect(smaller.yieldMinG).toBeCloseTo(23.71, 2);
+        expect(smaller.yieldMaxG).toBeCloseTo(26.34, 2);
+        // Time is an absolute the roaster stated: it does not scale.
+        expect(smaller.timeMinS).toBe(25);
+        expect(smaller.timeMaxS).toBe(31);
+    });
+
+    it('falls back to a derived tolerance when the bag states no range', () => {
+        const recipe = resolveRecipe(
+            {
+                ratio: 1.5,
+                doseG: null,
+                yieldMinG: null,
+                yieldMaxG: null,
+                timeMinS: null,
+                timeMaxS: null,
+            },
+            18,
+        );
+        expect(recipe.yieldStated).toBe(false);
+        expect(recipe.yieldMinG).toBeCloseTo(27 * 0.97, 5);
+        expect(recipe.yieldMaxG).toBeCloseTo(27 * 1.03, 5);
+        // No derived time band: a tolerance nobody stated is not invented.
+        expect(recipe.timeMinS).toBeNull();
+        expect(recipe.timeMaxS).toBeNull();
+    });
+
+    it('round-trips a recipe through create and patch', async () => {
+        const store = await newStore();
+        const created = await api.createBean(store.store_id, {
+            cookie: store.cookie,
+            body: {
+                name: 'Atomic Veloce',
+                ratio: 1.5,
+                dose_g: 20.5,
+                yield_min_g: 27,
+                yield_max_g: 30,
+                time_min_s: 25,
+                time_max_s: 31,
+            },
+        });
+        expect(created.status).toBe(201);
+        const { bean } = (await created.json()) as { bean: Record<string, unknown> };
+        expect(bean.dose_g).toBeCloseTo(20.5, 5);
+        expect(bean.yield_max_g).toBeCloseTo(30, 5);
+        expect(bean.time_min_s).toBe(25);
+
+        // Clearing one edge of a pair is refused; clearing both is the way to
+        // turn a range back off.
+        const half = await api.patchBean(store.store_id, bean.id as string, {
+            cookie: store.cookie,
+            body: { time_min_s: null },
+        });
+        expect(half.status).toBe(400);
+
+        const cleared = await api.patchBean(store.store_id, bean.id as string, {
+            cookie: store.cookie,
+            body: { time_min_s: null, time_max_s: null },
+        });
+        expect(cleared.status).toBe(200);
+        const after = (await cleared.json()) as { bean: Record<string, unknown> };
+        expect(after.bean.time_min_s).toBeNull();
+        expect(after.bean.yield_min_g).toBeCloseTo(27, 5);
+    });
+
+    it('refuses an inverted range and a yield range with no dose behind it', async () => {
+        const store = await newStore();
+        const inverted = await api.createBean(store.store_id, {
+            cookie: store.cookie,
+            body: { name: 'Backwards', ratio: 1.5, dose_g: 18, yield_min_g: 30, yield_max_g: 27 },
+        });
+        expect(inverted.status).toBe(400);
+
+        const doseless = await api.createBean(store.store_id, {
+            cookie: store.cookie,
+            body: { name: 'Unanchored', ratio: 1.5, yield_min_g: 27, yield_max_g: 30 },
+        });
+        expect(doseless.status).toBe(400);
+    });
+});
+
 describe('brew records', () => {
     it('lands a device brew on the session annotation and echoes fresh advice', async () => {
         const store = await newStore();
@@ -290,6 +392,9 @@ describe('device config and advice', () => {
         store: { store_id: string; upload_key: string },
         sessionId: number,
         outputG: number,
+        // 0 = the user skipped the time step, which is how a shot reaches the
+        // yield-deviation path even on a bean that states a target time.
+        brewTimeS = 30,
     ): Promise<string> {
         const sha = await ingestBlob(store.store_id, store.upload_key, {
             sessionId,
@@ -303,13 +408,23 @@ describe('device config and advice', () => {
                         session_id: sessionId,
                         session_timestamp: 1754000000 + sessionId,
                         brew_output_g: outputG,
-                        brew_time_s: 30,
+                        brew_time_s: brewTimeS,
                     },
                 ],
             },
         });
         return sha;
     }
+
+    // The bag on the desk: dose 20.5 g, yield 27–30 g, time 25–31 s. The test
+    // blob's dose is 18.02 g, so the yield band scales to ~23.7–26.4.
+    const RECIPE = {
+        dose_g: 20.5,
+        yield_min_g: 27,
+        yield_max_g: 30,
+        time_min_s: 25,
+        time_max_s: 31,
+    };
 
     it('serves the active bean over the view key with no advice until enough shots', async () => {
         const store = await newStore();
@@ -338,6 +453,71 @@ describe('device config and advice', () => {
         ).json()) as { advice: { verdict: string; shots_considered: number } };
         expect(body.advice.verdict).toBe('finer');
         expect(body.advice.shots_considered).toBe(3);
+    });
+
+    it('judges a timed shot on the clock, not the yield', async () => {
+        const store = await newStore();
+        await createBean(store.store_id, store.cookie, RECIPE);
+        // Yield lands mid-band (~25 g), so normalisation is a no-op and the
+        // 20 s clock is what falls short of the 25–31 s the bag asks for.
+        await shotWithBrew(store, 1, 25, 20);
+        await shotWithBrew(store, 2, 25, 21);
+        await shotWithBrew(store, 3, 25, 19);
+
+        const body = (await (
+            await api.getConfig(store.store_id, { key: store.upload_key })
+        ).json()) as {
+            advice: { verdict: string; shots_considered: number; basis: string };
+        };
+        expect(body.advice.basis).toBe('time');
+        expect(body.advice.verdict).toBe('finer');
+        expect(body.advice.shots_considered).toBe(3);
+    });
+
+    it('advises coarser when timed shots run long', async () => {
+        const store = await newStore();
+        await createBean(store.store_id, store.cookie, RECIPE);
+        await shotWithBrew(store, 1, 25, 38);
+        await shotWithBrew(store, 2, 25, 36);
+        await shotWithBrew(store, 3, 25, 40);
+
+        const body = (await (
+            await api.getConfig(store.store_id, { key: store.upload_key })
+        ).json()) as { advice: { verdict: string; basis: string } };
+        expect(body.advice.basis).toBe('time');
+        expect(body.advice.verdict).toBe('coarser');
+    });
+
+    it('normalises the clock to the yield band, so a short shot is not read as fast', async () => {
+        const store = await newStore();
+        await createBean(store.store_id, store.cookie, RECIPE);
+        // Stopped at 12.5 g — half the ~25 g target — in 14 s. Same flow as a
+        // full 28 s shot, which is inside the band: no advice to give.
+        await shotWithBrew(store, 1, 12.5, 14);
+        await shotWithBrew(store, 2, 12.5, 14);
+        await shotWithBrew(store, 3, 12.5, 14);
+
+        const body = (await (
+            await api.getConfig(store.store_id, { key: store.upload_key })
+        ).json()) as { advice: { verdict: string; basis: string } };
+        expect(body.advice.basis).toBe('time');
+        expect(body.advice.verdict).toBe('ok');
+    });
+
+    it('falls back to yield deviation when the shots were never timed', async () => {
+        const store = await newStore();
+        await createBean(store.store_id, store.cookie, RECIPE);
+        // The bag states a time, but nobody answered the time step. The clock
+        // has nothing to say, and the untimed shots must not vote on it.
+        await shotWithBrew(store, 1, 30.5, 0);
+        await shotWithBrew(store, 2, 30.8, 0);
+        await shotWithBrew(store, 3, 30.2, 0);
+
+        const body = (await (
+            await api.getConfig(store.store_id, { key: store.upload_key })
+        ).json()) as { advice: { verdict: string; basis: string } };
+        expect(body.advice.basis).toBe('yield');
+        expect(body.advice.verdict).toBe('finer');
     });
 
     it('advises coarser when shots keep choking', async () => {

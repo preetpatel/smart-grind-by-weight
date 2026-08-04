@@ -2,10 +2,14 @@
 import { and, eq } from 'drizzle-orm';
 import { assertSameOrigin, authOwner } from '@/lib/auth';
 import {
+    assertRecipeConsistent,
     BEAN_LIMITS,
     parseBagSize,
     parseBrewTime,
+    parseDose,
     parseRatio,
+    parseTimeEdge,
+    parseYieldEdge,
     toBeanPayload,
     trimmedField,
 } from '@/lib/beans';
@@ -55,6 +59,22 @@ export async function PATCH(request: Request, { params }: Context): Promise<Resp
         if ('ratio' in entry) set.ratio = parseRatio(entry.ratio);
         if ('brew_time_s' in entry) set.brewTimeS = parseBrewTime(entry.brew_time_s);
         if ('bag_size_g' in entry) set.bagSizeG = parseBagSize(entry.bag_size_g);
+        if ('dose_g' in entry) set.doseG = parseDose(entry.dose_g);
+        if ('yield_min_g' in entry)
+            set.yieldMinG = parseYieldEdge(entry.yield_min_g, 'yield_min_g');
+        if ('yield_max_g' in entry)
+            set.yieldMaxG = parseYieldEdge(entry.yield_max_g, 'yield_max_g');
+        if ('time_min_s' in entry) set.timeMinS = parseTimeEdge(entry.time_min_s, 'time_min_s');
+        if ('time_max_s' in entry) set.timeMaxS = parseTimeEdge(entry.time_max_s, 'time_max_s');
+        // Checked against the merged row, not the patch: touching one edge of
+        // a range must still leave a coherent pair behind.
+        assertRecipeConsistent({
+            doseG: set.doseG !== undefined ? set.doseG : bean.doseG,
+            yieldMinG: set.yieldMinG !== undefined ? set.yieldMinG : bean.yieldMinG,
+            yieldMaxG: set.yieldMaxG !== undefined ? set.yieldMaxG : bean.yieldMaxG,
+            timeMinS: set.timeMinS !== undefined ? set.timeMinS : bean.timeMinS,
+            timeMaxS: set.timeMaxS !== undefined ? set.timeMaxS : bean.timeMaxS,
+        });
         if ('roast_date' in entry)
             set.roastDate = trimmedField(entry.roast_date, BEAN_LIMITS.roastDate);
         if ('notes' in entry) set.notes = trimmedField(entry.notes, BEAN_LIMITS.notes);

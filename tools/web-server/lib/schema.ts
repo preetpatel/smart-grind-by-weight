@@ -132,6 +132,17 @@ export const beans = pgTable(
         // Output per gram of dose: 1.5 means a 1 : 1.5 ratio.
         ratio: real('ratio').notNull(),
         brewTimeS: integer('brew_time_s').notNull().default(30),
+        // What the bag states, as typed. A bag gives a recipe — "dose 20.5 g,
+        // yield 27–30 g, time 25–31 s" — and those numbers routinely disagree
+        // with its own printed ratio (20.5 × 1.5 = 30.75, outside 27–30), so a
+        // range stored as a ratio range would quietly rewrite the roaster.
+        // Null throughout for beans carrying only a ratio, which fall back to
+        // dose × ratio with a derived tolerance.
+        doseG: real('dose_g'),
+        yieldMinG: real('yield_min_g'),
+        yieldMaxG: real('yield_max_g'),
+        timeMinS: integer('time_min_s'),
+        timeMaxS: integer('time_max_s'),
         // How much coffee the bag held when opened. Optional: null disables
         // remaining-shots tracking for this bag.
         bagSizeG: real('bag_size_g'),

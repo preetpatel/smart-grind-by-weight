@@ -91,6 +91,12 @@ export interface Bean {
     name: string;
     ratio: number;
     brew_time_s: number;
+    /** What the bag states, as typed; null throughout for a ratio-only bean. */
+    dose_g: number | null;
+    yield_min_g: number | null;
+    yield_max_g: number | null;
+    time_min_s: number | null;
+    time_max_s: number | null;
     /** Grams in the bag when opened; null = remaining-shots tracking off. */
     bag_size_g: number | null;
     roast_date: string | null;
@@ -101,9 +107,12 @@ export interface Bean {
 }
 
 export type AdviceVerdict = 'finer' | 'coarser' | 'ok' | 'none';
+/** Which reading produced the verdict — see lib/advice.ts. */
+export type AdviceBasis = 'time' | 'yield';
 
 export interface BeanAdvice {
     verdict: AdviceVerdict;
     shots_considered: number;
     median_deviation_pct: number | null;
+    basis: AdviceBasis;
 }

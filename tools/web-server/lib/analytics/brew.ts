@@ -1,10 +1,11 @@
 // Brew shots and the dial-in verdict, client-side.
 //
 // The rule mirrors lib/advice.ts on the server (which is what the grinder
-// displays): with the shot time fixed, output deviation is a flow-rate signal
-// — median of the last ADVICE_WINDOW shots beyond ±ADVICE_THRESHOLD_PCT means
-// finer (ran fast) or coarser (choked), at least ADVICE_MIN_SHOTS shots, and a
-// recorded grind-setting change resets the evidence. Change one, change both.
+// displays) — change one, change both. Where the bag states a target time and
+// the shots were timed, the median normalised time against that band decides;
+// otherwise output deviation beyond ±ADVICE_THRESHOLD_PCT stands in for it.
+// Either way at least ADVICE_MIN_SHOTS shots, over a window of ADVICE_WINDOW,
+// and a recorded grind-setting change resets the evidence.
 import {
     CHART_CONFIG,
     CHART_INK_MUTED,
@@ -32,6 +33,45 @@ export interface BrewShot {
     expectedG: number;
     deviationPct: number;
     setting: string | null;
+    /** Null when the shot was never timed — not a default standing in for one. */
+    timeS: number | null;
+    /** The bag's target time band resolved for this shot, null if unstated. */
+    timeMinS: number | null;
+    timeMaxS: number | null;
+    /** Middle of the yield band this shot was aiming at. */
+    targetYieldG: number;
+}
+
+/** Mirrors resolveRecipe in lib/beans.ts. */
+export const DERIVED_YIELD_TOLERANCE_PCT = 3;
+
+export function resolveRecipe(
+    bean: Bean,
+    doseG: number,
+): { yieldMinG: number; yieldMaxG: number; yieldStated: boolean } {
+    // Loose null checks throughout: a bean cached in IndexedDB before ranges
+    // existed has these undefined rather than null.
+    const stated =
+        bean.yield_min_g != null &&
+        bean.yield_max_g != null &&
+        bean.yield_max_g > bean.yield_min_g &&
+        bean.dose_g != null &&
+        bean.dose_g > 0;
+    if (stated) {
+        const scale = doseG / (bean.dose_g as number);
+        return {
+            yieldMinG: (bean.yield_min_g as number) * scale,
+            yieldMaxG: (bean.yield_max_g as number) * scale,
+            yieldStated: true,
+        };
+    }
+    const expected = doseG * bean.ratio;
+    const tolerance = expected * (DERIVED_YIELD_TOLERANCE_PCT / 100);
+    return {
+        yieldMinG: expected - tolerance,
+        yieldMaxG: expected + tolerance,
+        yieldStated: false,
+    };
 }
 
 // Shots for one bean, oldest → newest (records arrive sorted by session id).
@@ -47,7 +87,10 @@ export function brewShots(
         const output = note.brew_output_g;
         const dose = record.session.final_weight;
         if (output == null || !dose || dose <= 0) continue;
-        const expected = dose * bean.ratio;
+        const recipe = resolveRecipe(bean, dose);
+        const expected = (recipe.yieldMinG + recipe.yieldMaxG) / 2;
+        const timed =
+            bean.time_min_s != null && bean.time_max_s != null && bean.time_max_s > bean.time_min_s;
         shots.push({
             sha256: record.sha256,
             sessionId: record.session_id,
@@ -57,6 +100,10 @@ export function brewShots(
             expectedG: expected,
             deviationPct: ((output - expected) / expected) * 100,
             setting: note.grind_setting ?? null,
+            timeS: note.brew_time_s ?? null,
+            timeMinS: timed ? bean.time_min_s : null,
+            timeMaxS: timed ? bean.time_max_s : null,
+            targetYieldG: expected,
         });
     }
     return shots;
@@ -147,9 +194,44 @@ export function adviceForShots(shots: BrewShot[]): BeanAdvice {
         }
         run.push(shot);
     }
-    const deviations = run.slice(0, ADVICE_WINDOW).map((shot) => shot.deviationPct);
+    const window = run.slice(0, ADVICE_WINDOW);
+
+    // Where the bag states a target time and the window is timed throughout,
+    // the clock decides. Normalise each shot to the middle of its yield band
+    // first, so one stopped short doesn't read as fast for the wrong reason.
+    const timed = window.filter(
+        (shot) =>
+            shot.timeS != null &&
+            shot.timeS > 0 &&
+            shot.timeMinS != null &&
+            shot.timeMaxS != null &&
+            shot.outputG > 0,
+    );
+    if (timed.length >= ADVICE_MIN_SHOTS) {
+        const normalised = timed.map(
+            (shot) => (shot.timeS as number) * (shot.targetYieldG / shot.outputG),
+        );
+        const med = median(normalised);
+        const first = timed[0] as BrewShot;
+        const lo = first.timeMinS as number;
+        const hi = first.timeMaxS as number;
+        const mid = (lo + hi) / 2;
+        return {
+            verdict: med < lo ? 'finer' : med > hi ? 'coarser' : 'ok',
+            shots_considered: timed.length,
+            median_deviation_pct: Math.round(((med - mid) / mid) * 1000) / 10,
+            basis: 'time',
+        };
+    }
+
+    const deviations = window.map((shot) => shot.deviationPct);
     if (deviations.length < ADVICE_MIN_SHOTS) {
-        return { verdict: 'none', shots_considered: deviations.length, median_deviation_pct: null };
+        return {
+            verdict: 'none',
+            shots_considered: deviations.length,
+            median_deviation_pct: null,
+            basis: 'yield',
+        };
     }
     const med = Math.round(median(deviations) * 10) / 10;
     return {
@@ -157,6 +239,7 @@ export function adviceForShots(shots: BrewShot[]): BeanAdvice {
             med > ADVICE_THRESHOLD_PCT ? 'finer' : med < -ADVICE_THRESHOLD_PCT ? 'coarser' : 'ok',
         shots_considered: deviations.length,
         median_deviation_pct: med,
+        basis: 'yield',
     };
 }
 
@@ -263,8 +346,11 @@ export function adviceSentence(bean: Bean, advice: BeanAdvice): string | null {
     if (advice.verdict !== 'finer' && advice.verdict !== 'coarser') return null;
     const direction = advice.verdict === 'finer' ? 'running fast' : 'choking';
     const sign = (advice.median_deviation_pct ?? 0) > 0 ? '+' : '';
+    // Name the measurement: the same percentage means different things on the
+    // two readings, and "off target" would hide which one is talking.
+    const measure = advice.basis === 'time' ? 'shot time' : 'yield';
     return (
-        `${bean.name} is ${direction} — median ${sign}${advice.median_deviation_pct}% over the ` +
-        `last ${advice.shots_considered} shots. Consider a step ${advice.verdict}.`
+        `${bean.name} is ${direction} — median ${measure} ${sign}${advice.median_deviation_pct}% ` +
+        `over the last ${advice.shots_considered} shots. Consider a step ${advice.verdict}.`
     );
 }

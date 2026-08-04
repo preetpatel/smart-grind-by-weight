@@ -3,11 +3,15 @@
 import { desc, eq } from 'drizzle-orm';
 import { assertSameOrigin, authOwner, authStore } from '@/lib/auth';
 import {
+    assertRecipeConsistent,
     BEAN_LIMITS,
     MAX_BEANS_PER_STORE,
     parseBagSize,
     parseBrewTime,
+    parseDose,
     parseRatio,
+    parseTimeEdge,
+    parseYieldEdge,
     toBeanPayload,
     trimmedField,
 } from '@/lib/beans';
@@ -62,6 +66,26 @@ export async function POST(request: Request, { params }: Context): Promise<Respo
         const ratio = parseRatio(entry.ratio);
         const brewTimeS = entry.brew_time_s === undefined ? 30 : parseBrewTime(entry.brew_time_s);
         const bagSizeG = entry.bag_size_g === undefined ? null : parseBagSize(entry.bag_size_g);
+        const recipe = {
+            doseG: entry.dose_g === undefined ? null : parseDose(entry.dose_g),
+            yieldMinG:
+                entry.yield_min_g === undefined
+                    ? null
+                    : parseYieldEdge(entry.yield_min_g, 'yield_min_g'),
+            yieldMaxG:
+                entry.yield_max_g === undefined
+                    ? null
+                    : parseYieldEdge(entry.yield_max_g, 'yield_max_g'),
+            timeMinS:
+                entry.time_min_s === undefined
+                    ? null
+                    : parseTimeEdge(entry.time_min_s, 'time_min_s'),
+            timeMaxS:
+                entry.time_max_s === undefined
+                    ? null
+                    : parseTimeEdge(entry.time_max_s, 'time_max_s'),
+        };
+        assertRecipeConsistent(recipe);
 
         const existing = await db.select({ id: beans.id }).from(beans).where(eq(beans.storeId, id));
         if (existing.length >= MAX_BEANS_PER_STORE) {
@@ -77,6 +101,7 @@ export async function POST(request: Request, { params }: Context): Promise<Respo
                 ratio,
                 brewTimeS,
                 bagSizeG,
+                ...recipe,
                 roastDate: trimmedField(entry.roast_date, BEAN_LIMITS.roastDate),
                 notes: trimmedField(entry.notes, BEAN_LIMITS.notes),
             })

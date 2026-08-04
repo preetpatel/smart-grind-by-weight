@@ -3,16 +3,42 @@
 // window, so a missed push only means the grinder converges later).
 //
 // Wire format matches the other sysinfo config writes:
-//   [0x01][name]\0[ratio]\0[brew_time_s]\0   set
-//   [0x02]                                   clear
+//   [0x01][name]\0[ratio]\0[brew_time_s]\0[dose_g]\0[yield_min_g]\0
+//         [yield_max_g]\0[time_min_s]\0[time_max_s]\0   set
+//   [0x02]                                              clear
+//
+// Unstated recipe fields go out as 0, which is what the firmware reads as
+// "not stated" — and is also what an older firmware, parsing only the first
+// three fields, leaves them as.
 import * as ble from './ble';
 
 export type BeanPushResult = 'pushed' | 'no-grinder' | 'unsupported';
 
-function payloadFor(bean: { name: string; ratio: number; brew_time_s: number } | null): Uint8Array {
+export interface PushableBean {
+    name: string;
+    ratio: number;
+    brew_time_s: number;
+    dose_g?: number | null;
+    yield_min_g?: number | null;
+    yield_max_g?: number | null;
+    time_min_s?: number | null;
+    time_max_s?: number | null;
+}
+
+function payloadFor(bean: PushableBean | null): Uint8Array {
     if (!bean) return new Uint8Array([0x02]);
     const encoder = new TextEncoder();
-    const fields = [bean.name, String(bean.ratio), String(bean.brew_time_s)];
+    const optional = (value: number | null | undefined) => String(value ?? 0);
+    const fields = [
+        bean.name,
+        String(bean.ratio),
+        String(bean.brew_time_s),
+        optional(bean.dose_g),
+        optional(bean.yield_min_g),
+        optional(bean.yield_max_g),
+        optional(bean.time_min_s),
+        optional(bean.time_max_s),
+    ];
     const parts = fields.map((field) => encoder.encode(field));
     const total = 1 + parts.reduce((sum, part) => sum + part.length + 1, 0);
     const payload = new Uint8Array(total);
@@ -26,7 +52,7 @@ function payloadFor(bean: { name: string; ratio: number; brew_time_s: number } |
 }
 
 export async function pushBeanToGrinder(
-    bean: { name: string; ratio: number; brew_time_s: number } | null,
+    bean: PushableBean | null,
     { interactive = false } = {},
 ): Promise<BeanPushResult> {
     if (!ble.isSupported()) return 'no-grinder';
