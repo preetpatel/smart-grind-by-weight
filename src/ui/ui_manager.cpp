@@ -382,6 +382,10 @@ void UIManager::set_background_active(bool active) {
 #endif
 }
 
+bool UIManager::restore_brew_prompt() {
+    return brew_entry_controller_ && brew_entry_controller_->restore_entry();
+}
+
 void UIManager::refresh_auto_action_settings() {
     Preferences prefs;
     prefs.begin("autogrind", true);

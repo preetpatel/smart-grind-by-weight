@@ -5,6 +5,7 @@
 #include <esp_heap_caps.h>
 #include "hardware/hardware_manager.h"
 #include "system/boot_guard.h"
+#include "system/boot_history.h"
 #include "system/state_machine.h"
 #include "system/statistics_manager.h"
 #include "system/time_sync.h"
@@ -45,23 +46,10 @@ void setup() {
     delay(UI_DEBUG_SERIAL_DELAY_MS);
 #endif
     
-    // Log reset reason to help diagnose unexpected resets/freeze scenarios
-    esp_reset_reason_t rr = esp_reset_reason();
-    const char* rr_str = "UNKNOWN";
-    switch (rr) {
-        case ESP_RST_POWERON: rr_str = "POWERON"; break;
-        case ESP_RST_EXT: rr_str = "EXT (Reset Pin)"; break;
-        case ESP_RST_SW: rr_str = "SW (esp_restart)"; break;
-        case ESP_RST_PANIC: rr_str = "PANIC (Exception)"; break;
-        case ESP_RST_INT_WDT: rr_str = "INT_WDT"; break;
-        case ESP_RST_TASK_WDT: rr_str = "TASK_WDT"; break;
-        case ESP_RST_WDT: rr_str = "WDT"; break;
-        case ESP_RST_DEEPSLEEP: rr_str = "DEEPSLEEP"; break;
-        case ESP_RST_BROWNOUT: rr_str = "BROWNOUT"; break;
-        case ESP_RST_SDIO: rr_str = "SDIO"; break;
-        default: break;
-    }
-    LOG_BLE("[STARTUP] Reset reason: %s (%d)\n", rr_str, rr);
+    // Records why this boot happened and recovers the previous boot's black
+    // box, both of which reach the user over BLE in the diagnostics report.
+    // Runs before the boot guard, which may reboot into the other OTA slot.
+    BootHistory::init();
 
     // Boot-loop guard: after 3 consecutive crash resets, revert to the other
     // OTA slot. Runs before any subsystem that could be the crash source.
@@ -138,6 +126,12 @@ void setup() {
         if (auto* ota = ui_manager.get_ota_data_export_controller()) {
             ota->set_failure_info(failed_ota_build.c_str());
         }
+    }
+
+    // A reset mid-shot must not take the unanswered shot log with it. Skipped
+    // where the boot already owes the user a different screen.
+    if (!ota_failed && is_calibrated) {
+        ui_manager.restore_brew_prompt();
     }
     
     // Set up UI status callback to avoid circular dependency
@@ -230,6 +224,12 @@ void loop() {
 
     // Duty-cycled WiFi time sync; gates itself off grind/OTA/export activity
     wifi_service.handle();
+
+    // Keep the crash black box current: whatever the device was doing on this
+    // pass is what the next boot reports if this one doesn't survive.
+    BootHistory::note_activity((uint8_t)state_machine.get_current_state(),
+                               grind_controller.get_current_phase_id(),
+                               cloud_sync.get_run_phase_id());
 
     // Clear the boot-loop crash counter once the system has proven stable
     BootGuard::mark_healthy_if_due();

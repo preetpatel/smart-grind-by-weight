@@ -24,6 +24,8 @@
 #include "../system/cloud_sync.h"
 #include "../system/bean_config.h"
 #include "../system/boot_guard.h"
+#include "../system/boot_history.h"
+#include "../system/state_machine.h"
 #include <esp_partition.h>
 #include <esp_ota_ops.h>
 
@@ -45,6 +47,20 @@ static const char* running_image_hash_hex() {
         snprintf(&cached[i * 2], 3, "%02x", digest[i]);
     }
     return cached;
+}
+
+// GrindPhase ordinals as stored in session logs and in the crash black box.
+// Order is load-bearing: on-flash sessions carry the ordinal, not the name, so
+// entries may be appended but never reordered or removed.
+static const char* grind_phase_name(uint8_t phase_id) {
+    static const char* const phase_names[] = {
+        "IDLE", "INITIALIZING", "SETUP", "TARING", "TARE_CONFIRM",
+        "PREDICTIVE", "PULSE_DECISION", "PULSE_EXECUTE", "PULSE_SETTLING",
+        "FINAL_SETTLING", "TIME_GRINDING", "TIME_ADDITIONAL_PULSE", "COMPLETED", "TIMEOUT",
+        "PRIME", "PRIME_SETTLING", "PURGE_CONFIRM"
+    };
+    constexpr size_t phase_name_count = sizeof(phase_names) / sizeof(phase_names[0]);
+    return (phase_id < phase_name_count) ? phase_names[phase_id] : "UNKNOWN";
 }
 
 BluetoothManager::BluetoothManager()
@@ -1687,6 +1703,7 @@ void BluetoothManager::generate_diagnostic_report() {
     // Access global instances
     extern HardwareManager hardware_manager;
     extern GrindController grind_controller;
+    extern StateMachine state_machine;
 
     char buf[512];
 
@@ -1761,6 +1778,70 @@ void BluetoothManager::generate_diagnostic_report() {
             (rollback && rollback[0]) ? rollback : "never"
         );
         send_chunk(buf);
+    }
+
+    // Section 1c: Boot history - a brownout and a firmware panic look identical
+    // from the outside, and this board has no reachable serial port, so this is
+    // the only place that difference is recorded (src/system/boot_history.h).
+    {
+        const BootRing* ring = BootHistory::ring();
+        uint32_t now_epoch = TimeSync::now_epoch();
+
+        snprintf(buf, sizeof(buf),
+            "[BOOT HISTORY]\n"
+            "  This boot started with: %s\n",
+            boot_reset_kind_name(BootHistory::this_boot_kind()));
+        send_chunk(buf);
+
+        const BootBlackBox* box = BootHistory::previous_black_box();
+        if (box) {
+            snprintf(buf, sizeof(buf),
+                "  Previous boot died in: %s / grind %s / cloud sync %s\n"
+                "    after %lus up, %lu B internal free (%lu B min), build #%lu\n",
+                state_machine.get_state_name((UIState)box->ui_state),
+                grind_phase_name(box->grind_phase),
+                CloudSync::run_phase_name(box->sync_phase),
+                (unsigned long)(box->uptime_ms / 1000),
+                (unsigned long)box->free_internal,
+                (unsigned long)box->min_free_internal,
+                (unsigned long)box->build);
+        } else {
+            snprintf(buf, sizeof(buf),
+                "  Previous boot died in: nothing recorded (power-on, or the sag\n"
+                "    took the RTC domain down with it)\n");
+        }
+        send_chunk(buf);
+
+        for (uint8_t i = 0; i < BOOT_HISTORY_DEPTH; i++) {
+            const BootRecord* record = boot_ring_at(ring, i);
+            if (!record) break;
+
+            char when[32] = "clock never synced";
+            if (record->boot_epoch > 0) {
+                time_t t = (time_t)record->boot_epoch;
+                struct tm tm_info;
+                localtime_r(&t, &tm_info);
+                strftime(when, sizeof(when), "%Y-%m-%d %H:%M:%S", &tm_info);
+            }
+
+            char ran[32] = "";
+            uint32_t duration_s = boot_ring_duration_s(ring, i, now_epoch);
+            if (duration_s > 0) {
+                snprintf(ran, sizeof(ran), "ran %luh %02lum %02lus",
+                         (unsigned long)(duration_s / 3600),
+                         (unsigned long)((duration_s % 3600) / 60),
+                         (unsigned long)(duration_s % 60));
+            }
+
+            snprintf(buf, sizeof(buf), "  %-19s  #%-7lu %-10s %s%s\n",
+                     when,
+                     (unsigned long)record->build,
+                     boot_reset_kind_name((BootResetKind)record->kind),
+                     ran,
+                     i == 0 ? " (this boot)" : "");
+            send_chunk(buf);
+        }
+        send_chunk("\n");
     }
 
     // Section 2: System Runtime
@@ -2281,18 +2362,10 @@ void BluetoothManager::generate_diagnostic_report() {
                                 snprintf(buf, sizeof(buf), "  Events (%u):\n", header.event_count);
                                 send_chunk(buf);
 
-                                static const char* const phase_names[] = {
-                                    "IDLE", "INITIALIZING", "SETUP", "TARING", "TARE_CONFIRM",
-                                    "PREDICTIVE", "PULSE_DECISION", "PULSE_EXECUTE", "PULSE_SETTLING",
-                                    "FINAL_SETTLING", "TIME_GRINDING", "TIME_ADDITIONAL_PULSE", "COMPLETED", "TIMEOUT",
-                                    "PRIME", "PRIME_SETTLING", "PURGE_CONFIRM"
-                                };
-                                const size_t phase_name_count = sizeof(phase_names) / sizeof(phase_names[0]);
-
                                 for (uint16_t e = 0; e < header.event_count; e++) {
                                     GrindEvent event;
                                     if (sessionFile.read((uint8_t*)&event, sizeof(event)) == sizeof(event)) {
-                                        const char* phase_name = (event.phase_id < phase_name_count) ? phase_names[event.phase_id] : "UNKNOWN";
+                                        const char* phase_name = grind_phase_name(event.phase_id);
 
                                         // Calculate event yield (delta)
                                         float event_yield = event.end_weight - event.start_weight;

@@ -143,6 +143,9 @@ public:
     
     void set_background_active(bool active);
     void refresh_auto_action_settings();
+    // Re-opens a shot log a reset interrupted. Called once from setup(), after
+    // the screens exist. No-op when nothing was pending.
+    bool restore_brew_prompt();
     
 
 private:

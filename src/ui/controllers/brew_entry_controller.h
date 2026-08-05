@@ -1,6 +1,7 @@
 #pragma once
 #include <lvgl.h>
 #include <cstdint>
+#include "../../system/bean_config.h"
 #include "../../system/state_machine.h"
 #include "../screens/brew_entry_screen.h"
 
@@ -25,6 +26,11 @@ class UIManager;
  * The 15-minute timeout and a new grind starting both discard, whichever step
  * is showing.
  *
+ * A prompt on screen is mirrored to NVS (BrewPromptStore), because a reset
+ * mid-shot would otherwise take the shot with it - the grind is safely on
+ * flash but the yield and time about to be typed in are not. restore_entry()
+ * puts it back at boot.
+ *
  * Eligibility is decided at arm time: an active bean must be configured and
  * the grind must have logged a session (cancelled grinds never reach
  * COMPLETED; logging-off grinds leave no session to attach a brew to).
@@ -39,6 +45,9 @@ public:
     // A new grind supersedes an unanswered prompt.
     void discard_pending();
     bool begin_entry();
+    // Re-opens a prompt a reset interrupted. Called once at boot; returns
+    // false (leaving the ready screen alone) when there is nothing to restore.
+    bool restore_entry();
 
     // Jog hook (JogAdjustController) and click steps: one increment of
     // whichever field the current step is showing.
@@ -65,6 +74,9 @@ private:
     uint16_t time_s_ = 0;
     float time_lo_ = 0.0f;
     float time_hi_ = 0.0f;
+    // True only while the prompt is actually on screen, so the boot-time
+    // switch to READY doesn't wipe the record before it can be restored.
+    bool presented_ = false;
 
     lv_timer_t* timeout_timer_ = nullptr;
 
@@ -75,4 +87,11 @@ private:
     void refresh_screen();
     void cancel_timeout();
     static void timeout_cb(lv_timer_t* timer);
+
+    // Resolves the bag's recipe for dose_g_ into the band members, returning
+    // it so the caller can decide between its defaults and restored values.
+    BeanConfig::Recipe resolve_recipe();
+    // Puts the current step on screen and starts the 15-minute hold.
+    void present();
+    void persist();
 };

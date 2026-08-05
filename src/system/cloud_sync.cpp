@@ -610,6 +610,18 @@ const char* CloudSync::state_name() const {
     return "unknown";
 }
 
+const char* CloudSync::run_phase_name(uint8_t phase_id) {
+    switch (phase_id) {
+        case 0: return "idle";
+        case (uint8_t)RunPhase::MANIFEST + 1: return "manifest";
+        case (uint8_t)RunPhase::UPLOAD + 1: return "session upload";
+        case (uint8_t)RunPhase::BREW_UPLOAD + 1: return "brew upload";
+        case (uint8_t)RunPhase::CONFIG_FETCH + 1: return "config fetch";
+        case (uint8_t)RunPhase::SNAPSHOT + 1: return "health snapshot";
+        default: return "unknown";
+    }
+}
+
 const char* CloudSync::last_result_name() const {
     switch (last_result) {
         case LastResult::NONE: return "none";

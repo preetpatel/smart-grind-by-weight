@@ -6,7 +6,10 @@
 #include "../../config/constants.h"
 #include "../../logging/grind_logging.h"
 #include "../../system/bean_config.h"
+#include "../../system/boot_history.h"
 #include "../../system/brew_log.h"
+#include "../../system/brew_prompt.h"
+#include "../../system/time_sync.h"
 #include "../../system/wifi_service.h"
 #include "../ui_manager.h"
 
@@ -95,31 +98,100 @@ void BrewEntryController::discard_pending() {
     pending_ = false;
 }
 
-bool BrewEntryController::begin_entry() {
-    if (!ui_manager_ || !pending_) return false;
-    pending_ = false;
-    settled_session_id_ = session_id_;
-
+BeanConfig::Recipe BrewEntryController::resolve_recipe() {
     BeanConfig::Recipe recipe = bean_config.recipe_for_dose(dose_g_);
     yield_lo_ = recipe.yield_lo_g;
     yield_hi_ = recipe.yield_hi_g;
     yield_stated_ = recipe.yield_stated;
-    output_g_ = snap_to_tenth(recipe.default_yield_g);
     time_lo_ = recipe.time_lo_s;
     time_hi_ = recipe.time_hi_s;
-    time_s_ = recipe.default_time_s;
-    step_ = BrewEntryScreen::Step::YIELD;
+    return recipe;
+}
 
+void BrewEntryController::present() {
     char name[USER_BEAN_NAME_MAX_LENGTH + 1];
     bean_config.get_name(name, sizeof(name));
     ui_manager_->brew_entry_screen.set_bean_name(name);
     ui_manager_->brew_entry_screen.set_step(step_);
     refresh_screen();
+    presented_ = true;
     ui_manager_->switch_to_state(UIState::BREW_ENTRY);
 
     cancel_timeout();
     timeout_timer_ = lv_timer_create(timeout_cb, USER_BREW_ENTRY_TIMEOUT_MS, this);
     lv_timer_set_repeat_count(timeout_timer_, 1);
+}
+
+void BrewEntryController::persist() {
+    BrewPromptRecord record = {};
+    record.step = (uint16_t)step_;
+    record.session_id = session_id_;
+    record.session_timestamp = session_timestamp_;
+    record.dose_g = dose_g_;
+    record.opened_epoch = TimeSync::now_epoch();
+    record.output_g = output_g_;
+    record.time_s = time_s_;
+    BrewPromptStore::save(record);
+}
+
+bool BrewEntryController::begin_entry() {
+    if (!ui_manager_ || !pending_) return false;
+    pending_ = false;
+    settled_session_id_ = session_id_;
+
+    BeanConfig::Recipe recipe = resolve_recipe();
+    output_g_ = snap_to_tenth(recipe.default_yield_g);
+    time_s_ = recipe.default_time_s;
+    step_ = BrewEntryScreen::Step::YIELD;
+
+    persist();
+    present();
+    return true;
+}
+
+bool BrewEntryController::restore_entry() {
+    if (!ui_manager_) return false;
+
+    BrewPromptRecord saved = {};
+    bool found = BrewPromptStore::load(&saved);
+    if (!brew_prompt_should_restore(found,
+                                    BootHistory::this_boot_kind() == BootResetKind::POWER_ON,
+                                    TimeSync::is_synced(),
+                                    saved.opened_epoch,
+                                    TimeSync::now_epoch(),
+                                    USER_BREW_ENTRY_TIMEOUT_MS / 1000)) {
+        if (found) BrewPromptStore::clear();
+        return false;
+    }
+
+    // The bag can have been changed or cleared from the dashboard while the
+    // grinder was down; without one there is no recipe to judge the shot
+    // against and nowhere for it to land.
+    bean_config.reload_if_dirty();
+    if (!bean_config.is_configured()) {
+        BrewPromptStore::clear();
+        return false;
+    }
+
+    session_id_ = saved.session_id;
+    session_timestamp_ = saved.session_timestamp;
+    dose_g_ = saved.dose_g;
+    // Nothing can re-arm this shot after a reboot, but keeping the bookkeeping
+    // straight costs nothing.
+    settled_session_id_ = saved.session_id;
+    pending_ = false;
+
+    BeanConfig::Recipe recipe = resolve_recipe();
+    step_ = (saved.step == (uint16_t)BrewEntryScreen::Step::TIME) ? BrewEntryScreen::Step::TIME
+                                                                 : BrewEntryScreen::Step::YIELD;
+    output_g_ = saved.output_g > 0.0f ? saved.output_g : snap_to_tenth(recipe.default_yield_g);
+    time_s_ = saved.time_s > 0 ? saved.time_s : recipe.default_time_s;
+
+    LOG_BLE("[BREW] Restoring the shot log for session %lu after a %s reset\n",
+            (unsigned long)session_id_,
+            boot_reset_kind_name(BootHistory::this_boot_kind()));
+
+    present();
     return true;
 }
 
@@ -164,6 +236,9 @@ void BrewEntryController::advance() {
         step_ = BrewEntryScreen::Step::TIME;
         ui_manager_->brew_entry_screen.set_step(step_);
         refresh_screen();
+        // The answered yield is worth keeping across a reset; the jog ticks
+        // that produced it are not, so this is the only mid-prompt write.
+        persist();
         return;
     }
     finish(true, true);
@@ -190,7 +265,18 @@ void BrewEntryController::finish(bool save, bool timed) {
 }
 
 void BrewEntryController::on_state_changed(UIState new_state) {
-    if (new_state != UIState::BREW_ENTRY) cancel_timeout();
+    if (new_state == UIState::BREW_ENTRY) return;
+
+    cancel_timeout();
+    // Every exit funnels through here - recorded, skipped, timed out, or
+    // superseded by a new grind - so the stored copy is retired in one place.
+    // Guarded on presented_ because boot's own switch to READY runs before
+    // there is anything on screen, and would otherwise wipe the record the
+    // restore is about to read.
+    if (presented_) {
+        presented_ = false;
+        BrewPromptStore::clear();
+    }
 }
 
 void BrewEntryController::cancel_timeout() {

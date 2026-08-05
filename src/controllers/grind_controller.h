@@ -231,6 +231,11 @@ public:
     void queue_log_message(const char* format, ...); // Core 0: Queue formatted log message
     
     bool is_active() const;
+    // The phase ordinal, as written into session logs and the crash black box
+    // (BootHistory) - a reset mid-grind has to be distinguishable from one on
+    // an idle grinder. Not a UI polling hook: screens are driven by grind
+    // events, which is why the rest of the phase accessors stay private.
+    uint8_t get_current_phase_id() const;
     bool is_control_loop_paused() const { return control_loop_paused_; }
     float get_target_weight() const { return target_weight; }
     uint32_t get_target_time_ms() const { return target_time_ms; }
@@ -285,8 +290,7 @@ private:
     void monitor_mechanical_instability(const GrindLoopData& loop_data);
 
     bool check_timeout() const;
-    uint8_t get_current_phase_id() const;
-    
+
     // UI event emission - thread-safe for Core 0
     void emit_ui_event(const GrindEventData& data);
     void emit_progress_update(const GrindLoopData& loop_data);

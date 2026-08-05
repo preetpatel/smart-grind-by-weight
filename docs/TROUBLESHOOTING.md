@@ -8,6 +8,7 @@
 - [PlatformIO Project Initialization Issues](#platformio-project-initialization-issues)
 - [Grind Timeout Screen](#grind-timeout-screen)
 - [Unreliable Pulse Corrections](#unreliable-pulse-corrections)
+- [Unexplained Reboots](#unexplained-reboots)
 - [Getting Diagnostic Reports](#getting-diagnostic-reports)
 
 ---
@@ -232,6 +233,51 @@ Motor response latency mismatch between firmware settings and actual hardware ch
 
 ---
 
+## Unexplained Reboots
+
+**Applies to:** The screen blanks and the grinder restarts on its own, with or without a noise from the grinder.
+
+### Diagnosis
+
+Pull a diagnostic report and read `[BOOT HISTORY]`. It records the last 8 boots and what the device was doing when each one ended:
+
+```
+[BOOT HISTORY]
+  This boot started with: BROWNOUT
+  Previous boot died in: BREW_ENTRY / grind IDLE / cloud sync session upload
+    after 94s up, 9224 B internal free (8468 B min), build #100501
+  2026-08-06 07:52:55  #100501  BROWNOUT   ran 0h 08m 46s (this boot)
+  2026-08-04 17:49:22  #100501  SW         ran 38h 03m 33s
+```
+
+The reset kind is the fork in the road:
+
+| Kind | Meaning |
+|---|---|
+| `BROWNOUT` | The supply sagged below the detector threshold. A power problem, not firmware. |
+| `PANIC` | The firmware hit an exception. |
+| `TASK_WDT` / `INT_WDT` / `WDT` | A task stopped feeding its watchdog. |
+| `SW` | A deliberate restart — an OTA update, or a boot-guard rollback. |
+| `POWER_ON` | Cold start. On a grinder nobody unplugged, a sag deep enough to drop the RTC domain reads this way. |
+| `EXT_PIN` | The reset pin was pulled. |
+
+The `Previous boot died in` line narrows it further, because the two largest current draws in the system are both visible there: `grind PREDICTIVE` or `PULSE_EXECUTE` means the motor was running, and `cloud sync` anything other than `idle` means the WiFi radio was up and transmitting. A brownout that only ever lands on one of those points at the supply rather than the firmware.
+
+`B internal free` is the other half. Internal DRAM is what LVGL, the BLE stack and WiFi station init all draw from; a `min` figure in the single-digit KB with a `PANIC` beside it is heap exhaustion, not a power fault.
+
+### Resolution
+
+**If the kind is `BROWNOUT` or `POWER_ON`:**
+- Check what the ESP32 is powered from. Tapping the grinder's own supply works only if that rail can carry WiFi TX bursts (~350 mA peaks) on top of the relay coil.
+- Add bulk capacitance across the 5 V input, or move the board to its own supply.
+- A large negative weight excursion in a grind log (a dive to −90 g or so, tripping the negative-weight failsafe) is the same fault seen through the HX711: its output is ratiometric, so a sagging excitation reads as a huge negative weight. Those aborted grinds and the reboots usually share one cause.
+
+**If the kind is `PANIC` or a watchdog:** it is a firmware fault. Include the whole `[BOOT HISTORY]` block in a GitHub issue — the state, phase and heap figures are what make it reproducible.
+
+**Note:** a reset while the shot log is on screen no longer loses the shot. The prompt is written to NVS while it is displayed and comes back after the reboot, so the yield and time can still be entered. A clean power-on retires it instead of restoring a stale prompt.
+
+---
+
 ## Getting Diagnostic Reports
 
 **Applies to:** Reporting issues on GitHub or troubleshooting system behavior.
@@ -240,6 +286,7 @@ Motor response latency mismatch between firmware settings and actual hardware ch
 
 The diagnostic report is a comprehensive text dump of your device's current state, including:
 - Firmware version, build number, and git commit
+- Boot history: why each of the last 8 boots happened, and what the device was doing when the previous one ended
 - System information (uptime, CPU frequency, RAM, flash storage)
 - All compile-time constants (grind settings, thresholds, timeouts)
 - Runtime statistics (lifetime grinds, total weight)

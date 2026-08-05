@@ -84,6 +84,15 @@ public:
     const char* state_name() const;
     const char* last_result_name() const;
 
+    // Which blocking HTTP step a run is on, for the crash black box
+    // (BootHistory): 0 when no run is in progress, else RunPhase + 1. A reset
+    // that lands inside a window is the difference between "the radio was up"
+    // and "the device was idle", which is not otherwise recoverable.
+    uint8_t get_run_phase_id() const {
+        return state == State::SYNCING ? (uint8_t)((uint8_t)run_phase + 1) : 0;
+    }
+    static const char* run_phase_name(uint8_t phase_id);
+
 private:
     enum class RunPhase : uint8_t { MANIFEST, UPLOAD, BREW_UPLOAD, CONFIG_FETCH, SNAPSHOT };
 
