@@ -66,6 +66,7 @@ public:
     void begin_run();
     StepResult step();         // At most one blocking HTTP op per call
     void abort_run();          // Window torn down mid-run
+    void defer_window();       // Restart the quiet delay (the device got busy)
 
     // Status for the UI page and the BLE status JSON
     uint32_t get_last_success_epoch() const { return last_success_epoch; }
@@ -110,11 +111,13 @@ private:
     volatile LastResult last_result = LastResult::NONE;
 
     // New-session detection (grind-complete trigger without coupling into
-    // the grind pipeline): GrindLogger bumps its storage version when
-    // session files change; a settle delay keeps the radio clear of
-    // post-grind top-up pulses.
+    // the grind pipeline): GrindLogger bumps its storage version when session
+    // files change, and a queued brew record counts the same way. The window
+    // opens CLOUD_SYNC_GRIND_DELAY_MS after the last of either, so the radio
+    // stays clear of the motor, the top-up pulses and the brew prompt.
     uint32_t last_seen_storage_version = 0;
-    uint32_t storage_changed_ms = 0;
+    uint32_t last_seen_brew_count = 0;
+    uint32_t last_activity_ms = 0;
     uint32_t last_synced_storage_version = 0;
 
     uint32_t last_success_epoch = 0;

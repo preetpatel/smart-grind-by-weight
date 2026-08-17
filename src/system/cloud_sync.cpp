@@ -13,6 +13,7 @@
 #include "time_sync.h"
 #include "bean_config.h"
 #include "brew_log.h"
+#include "sync_schedule_logic.h"
 #include "../logging/grind_logging.h"
 #include "../system/statistics_manager.h"
 
@@ -70,11 +71,16 @@ namespace {
 void CloudSync::init() {
     reload_config();
     update_idle_state();
-    // Sessions ground while the server was unreachable are swept by the
-    // opportunistic run inside the guaranteed boot window (should_run());
-    // wants_window() only tracks sessions flushed since this boot.
+    // There is no cloud run in the boot window any more, so a backlog from
+    // before the reset is not swept at boot: wants_window() only tracks work
+    // arriving since. Nothing is orphaned by that - the manifest handshake
+    // offers every session file on flash, so the next window a grind opens
+    // uploads the backlog along with the new one. A brew record left queued by
+    // a reset does bring a window forward on its own, 30 minutes in.
     last_seen_storage_version = grind_logger.get_session_storage_version();
     last_synced_storage_version = last_seen_storage_version;
+    last_seen_brew_count = brew_log.pending_count();
+    last_activity_ms = millis();
     if (configured) {
         LOG_BLE("[CLOUD] Store %s on %s (%s)\n", store_id, server_url,
                 enabled ? "enabled" : "disabled");
@@ -171,18 +177,24 @@ bool CloudSync::wants_window() {
     }
     if (!configured || !enabled) return false;
 
+    uint32_t now = millis();
     uint32_t version = grind_logger.get_session_storage_version();
     if (version != last_seen_storage_version) {
         last_seen_storage_version = version;
-        storage_changed_ms = millis();
+        last_activity_ms = now;
     }
-    // A queued brew record wants a window of its own: the shot was logged
-    // minutes after the grind, well past the session's settle delay, and the
-    // response brings back fresh advice for the ready screen.
-    if (version == last_synced_storage_version) return brew_log.pending_count() > 0;
-    // Settle delay: skip windows while the user might still fire a top-up
-    // pulse; the daily window still sweeps everything regardless.
-    return (millis() - storage_changed_ms) >= CLOUD_SYNC_SETTLE_MS;
+    // A brew record is entered minutes after the grind, so it restarts the
+    // wait rather than jumping the queue: its response carries the refreshed
+    // advice, which is a slow-moving dial-in signal and keeps perfectly well.
+    uint32_t brews = brew_log.pending_count();
+    if (brews != last_seen_brew_count) {
+        last_seen_brew_count = brews;
+        if (brews > 0) last_activity_ms = now;
+    }
+
+    bool have_work = version != last_synced_storage_version || brews > 0;
+    if (!have_work) return false;
+    return sync_grind_window_due(now, last_activity_ms, CLOUD_SYNC_GRIND_DELAY_MS);
 }
 
 void CloudSync::begin_run() {
@@ -205,6 +217,11 @@ void CloudSync::end_run(LastResult result) {
     }
     last_result = result;
     last_run_uploaded = run_uploaded;
+    // Restart the wait from the end of every run, however it went. On success
+    // there is nothing left to send anyway; on a failure this is what stops
+    // wants_window() - still true, the work is still queued - from reopening a
+    // window on the very next loop pass and hammering the radio.
+    last_activity_ms = millis();
     if (result == LastResult::SUCCESS) {
         // A session flushed mid-run bumps the live version past the snapshot
         // we synced, so wants_window() stays true and the next window mops up.
@@ -219,6 +236,15 @@ void CloudSync::end_run(LastResult result) {
 
 void CloudSync::abort_run() {
     if (state == State::SYNCING) end_run(LastResult::ABORTED);
+}
+
+// A window was torn down before (or while) the uploader ran: the grinder got
+// busy. Restart the quiet delay from this moment, not from whenever the
+// blocker clears - a cancelled grind flushes no session and would otherwise
+// leave a pending backlog free to reopen the window seconds after the motor
+// stops.
+void CloudSync::defer_window() {
+    last_activity_ms = millis();
 }
 
 CloudSync::StepResult CloudSync::step() {

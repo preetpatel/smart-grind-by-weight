@@ -63,12 +63,32 @@ agreed design; each decision was made deliberately — change them knowingly.
   (not bare id) covers the counter-reset case.
 - **No resume/chunking cleverness, ever.** Sessions are ≤ 36 KB; a failed POST is healed
   by the next manifest handshake by design.
-- **Trigger = a rule, not an event:** whenever WiFi is connected, run a manifest sync if
-  stale or a new session exists. The uploader is the second `WifiService` consumer (the
-  seam the service was built for): grind-complete requests a window (a few seconds after
-  returning to READY, clear of top-up pulses), and boot/daily windows sweep up anything
-  missed, with WifiService's existing gating (never during grind/OTA/BLE export) and
-  backoff. No new retry machinery.
+- **Trigger = a rule, not an event:** inside a cloud window, run a manifest sync if a new
+  session or brew record exists. The uploader is the second `WifiService` consumer (the
+  seam the service was built for), and it owns the only recurring window there is: one
+  opens `CLOUD_SYNC_GRIND_DELAY_MS` (30 min) after the last grind or brew record, with
+  WifiService's existing gating (never during grind/OTA/BLE export) and backoff. No new
+  retry machinery.
+- **The radio comes up at exactly two moments, and the uploader owns one of them.** The
+  boot window is `CLOCK_ONLY` — SNTP, then the radio goes off — so the TLS handshake never
+  lands on the startup current draw. There is no daily window: a stale clock is refreshed
+  inside a cloud window that is already open. The scheduling decisions are pure functions
+  in `src/system/sync_schedule_logic.h`, host-tested in `tools/tests/test_sync_schedule.cpp`.
+  This is a power-supply accommodation — see the brownout note in CLAUDE.md before
+  reintroducing any periodic sync.
+- **A backlog is swept by the next grind, not at boot.** Sessions written before a reset
+  do not open a window on their own, but the manifest offers every file on flash, so the
+  next window uploads them alongside the new session. Every run restarts the 30-minute
+  wait however it ended, so a failing server is retried on that cadence rather than on
+  every loop pass.
+- **Retries only ever owe the clock.** A window torn down for a grind/OTA/export restarts
+  the 30-minute wait at that moment (`defer_window()` — a cancelled grind flushes nothing,
+  and would otherwise leave a backlog free to reopen the window seconds after the motor
+  stops), and `sync_retry_after` schedules aborted/failed attempts as `CLOCK_ONLY`
+  retries: the uploader only ever re-enters through its own quiet delay, never on a retry
+  deadline the grinder's activity had no say in. While a retry backoff is pending, waiting
+  cloud work holds off and upgrades the retry when it fires; only a provisioning request
+  from the panel jumps the backoff.
 - **Failure is silent and normal.** Self-hosted servers go down; no UI errors, nothing
   blocks. Status surfaces passively: Menu → Settings → Cloud Sync (last result/time,
   pending count) and the backup row on the web app's home page.

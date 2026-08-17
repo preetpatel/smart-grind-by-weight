@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include "../config/constants.h"
+#include "sync_schedule_logic.h"
 
 class GrindController;
 class BluetoothManager;
@@ -11,9 +12,15 @@ class BluetoothManager;
  * Owns the WiFi connection lifecycle: credentials (NVS "wifi" namespace),
  * grind-state gating, retry backoff, and radio teardown. It knows nothing
  * about why a connection is wanted - consumers request connection windows.
- * Phase 1 has a single consumer: SNTP time sync, requested at boot and then
- * on a daily floor. A future session uploader plugs in as a second consumer
- * without touching the lifecycle logic.
+ * Two consumers: SNTP time sync and the CloudSync uploader.
+ *
+ * Windows open at exactly two moments, and nothing is periodic
+ * (src/system/sync_schedule_logic.h). A CLOCK_ONLY window a minute after boot
+ * sets the clock and closes; a CLOUD_SYNC window CLOUD_SYNC_GRIND_DELAY_MS
+ * after the last grind carries the uploader, and refreshes the clock in the
+ * same breath if SNTP has gone stale. Keeping the radio off the boot sequence
+ * and off the motor is deliberate: both brownouts on 2026-08-06/07 happened
+ * with the uploader's TLS handshake in flight 8-11 s into a boot.
  *
  * Runs from the Arduino main loop (Core 1), which is otherwise nearly idle.
  * The radio is only up for the seconds an attempt takes, and an attempt is
@@ -88,17 +95,29 @@ private:
     volatile bool sync_requested = false;
 
     uint32_t next_attempt_ms = 0;   // millis() timestamp of the next window
+    // Nothing is periodic, so a deadline is only meaningful while one is
+    // actually pending: the boot sync, or a retry after a failed attempt. A
+    // satisfied window clears this instead of scheduling the next one.
+    bool attempt_scheduled = false;
+    SyncWindowPurpose scheduled_purpose = SyncWindowPurpose::CLOCK_ONLY;
+    SyncWindowPurpose window_purpose = SyncWindowPurpose::CLOCK_ONLY;
     uint32_t attempt_started_ms = 0;
     uint32_t backoff_ms = WIFI_RETRY_BACKOFF_START_MS;
+    // Last successful SNTP this boot, for the staleness check that lets a
+    // cloud window refresh the clock without ever waking the radio for it.
+    bool have_sntp = false;
+    uint32_t last_sntp_ms = 0;
     // The window's time-sync outcome, held while the cloud sync run (the
     // second window consumer) finishes; finish_attempt() reports it.
     LastResult pending_time_result = LastResult::NONE;
 
     void reload_config();
     bool window_allowed() const;  // Grind/OTA/export gating
-    void start_attempt();
+    void start_attempt(SyncWindowPurpose purpose);
+    void start_sntp(uint32_t now);
     void begin_upload_or_finish(LastResult time_result);
     void finish_attempt(LastResult result);
+    void schedule_attempt(uint32_t delay_ms, SyncWindowPurpose purpose);
     void radio_off();
     void update_idle_state();  // Map configured/enabled onto the idle states
 };
