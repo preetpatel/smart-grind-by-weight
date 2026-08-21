@@ -16,7 +16,7 @@ namespace {
     // top edge is at 346. This container's bottom edge is at 80% of 456 = 364;
     // -28 lands the chip's bottom 10px above the button.
     constexpr lv_coord_t kAdviceChipBottomOffset = -28;
-    // Long enough for "LAST 18.2G · 28S" (~190px at montserrat_24) plus the
+    // Long enough for "LAST 36.0G • 28S" (~190px at montserrat_24) plus the
     // dot and padding.
     constexpr lv_coord_t kAdviceChipMaxWidth = 280;
 
@@ -78,9 +78,10 @@ void ReadyScreen::create() {
     lv_obj_add_flag(clock_label, LV_OBJ_FLAG_HIDDEN);
     clock_text[0] = '\0';
 
-    // Shared chip above the grind button: the bag-low warning, or what the
-    // last grind delivered (dose + measured shot time) so the user can judge
-    // the next adjustment themselves. Tap to dismiss until new data arrives.
+    // Shared chip above the grind button: the bag-low warning, or the last
+    // shot's numbers (weight out + time once logged, the dose until then) so
+    // the user can judge the next adjustment themselves. Tap to dismiss until
+    // new data arrives.
     //
     // Anchored off the grind button's keep-out, not off this container: the
     // container is LV_PCT(80) = 364px while the button (a sibling of the whole
@@ -156,11 +157,12 @@ void ReadyScreen::update_info_chip() {
         return;
     }
 
-    // What the last grind delivered. The user adjusts; the chip informs.
+    // What the last shot delivered. The user adjusts; the chip informs.
     if (last_shot.is_valid() && !last_shot.is_dismissed()) {
         char text[32];
         last_shot_format_text(text, sizeof(text),
-                              last_shot.get_dose_g(), last_shot.get_brew_time_s());
+                              last_shot.get_dose_g(), last_shot.get_yield_g(),
+                              last_shot.get_brew_time_s());
         chip_showing_bag_warning = false;
         set_chip_dot_color(info_dot, THEME_COLOR_ACCENT);
         set_label_text_if_changed(info_label, text);

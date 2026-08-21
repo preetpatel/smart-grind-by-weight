@@ -254,12 +254,12 @@ void BrewEntryController::finish(bool save, bool timed) {
         // 0 travels as "unmeasured" and the server stores null. Skipping the
         // time step must land here rather than shipping the pre-filled
         // default, which would be indistinguishable from a real measurement.
+        uint16_t recorded_time_s = (timed && time_s_ > 0) ? time_s_ : 0;
         brew_log.queue_record(session_id_, session_timestamp_, output_g_,
-                              (timed && time_s_ > 0) ? time_s_ : 0);
-        // A measured time joins the last-shot chip's readout.
-        if (timed && time_s_ > 0) {
-            last_shot.record_brew_time(session_id_, time_s_);
-        }
+                              recorded_time_s);
+        // The saved shot takes over the last-shot chip: its weight out, plus
+        // the time when one was measured.
+        last_shot.record_brew(session_id_, output_g_, recorded_time_s);
         // The record's upload response carries fresh advice, so ask for a
         // window now rather than waiting for the daily sweep.
         wifi_service.request_sync_now();

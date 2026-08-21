@@ -181,11 +181,15 @@ agreed design; each decision was made deliberately — change them knowingly.
 
 The ready-screen chip itself (`src/system/last_shot.*`) is local, not synced: each
 completed grind writes `{session_id, dose_g}` to one NVS blob (top-up pulses rewrite
-it, since they re-enter COMPLETED with the updated weight), and an answered shot log
-stamps `brew_time_s` onto the matching record - guarded by session id, so a prompt
-superseded by a newer grind can't mislabel its time. The chip reads "LAST 18.2G · 28S"
-(weight only when the time step was skipped) and tap-dismisses until the next dose or
-time arrives; it survives reboot by design.
+it, since they re-enter COMPLETED with the updated weight), and a saved shot log
+stamps its weight out (`yield_dg`, decigrams so the blob keeps its pre-yield size and
+old records still load) and `brew_time_s` onto the matching record - guarded by
+session id, so a prompt superseded by a newer grind can't mislabel its shot. The chip
+reads "LAST 36.0G • 28S" - the shot's weight out and time; time drops off when that
+step was skipped, and until the shot is logged the dose stands in. The separator is
+U+2022 BULLET because the built-in montserrat fonts don't carry U+00B7 MIDDLE DOT
+(it drew a missing-glyph box). Tap dismisses until the next dose or shot arrives; it
+survives reboot by design.
 
 ## Auth model — device is the credential
 

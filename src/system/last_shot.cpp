@@ -17,8 +17,8 @@ void LastShot::init() {
 
     if (read == sizeof(stored) && stored.session_id != 0 && stored.dose_g > 0.0f) {
         record_ = stored;
-        LOG_BLE("[SHOT] Last grind: %.1fg%s%us\n", record_.dose_g,
-                record_.brew_time_s ? " over " : "", (unsigned)record_.brew_time_s);
+        LOG_BLE("[SHOT] Last grind: %.1fg in, %.1fg out, %us\n", record_.dose_g,
+                record_.yield_dg / 10.0f, (unsigned)record_.brew_time_s);
     }
 }
 
@@ -36,19 +36,21 @@ void LastShot::record_dose(uint32_t session_id, float dose_g) {
                    || fabsf(dose_g - record_.dose_g) >= 0.05f;
     record_.session_id = session_id;
     record_.dose_g = dose_g;
-    // A new grind supersedes whatever time the previous shot logged.
+    // A new grind supersedes whatever shot the previous one logged.
     if (changed) {
         record_.brew_time_s = 0;
+        record_.yield_dg = 0;
         persist();
     }
     dismissed_ = false;
 }
 
-void LastShot::record_brew_time(uint32_t session_id, uint16_t time_s) {
-    if (time_s == 0) return;  // 0 travels as "unmeasured"
-    if (!last_shot_brew_time_applies(record_.session_id, session_id)) return;
+void LastShot::record_brew(uint32_t session_id, float yield_g, uint16_t time_s) {
+    if (!(yield_g > 0.0f)) return;  // a saved shot always carries a yield
+    if (!last_shot_brew_applies(record_.session_id, session_id)) return;
 
-    record_.brew_time_s = time_s;
+    record_.yield_dg = (uint16_t)lroundf(yield_g * 10.0f);
+    record_.brew_time_s = time_s;  // 0 travels as "unmeasured"
     persist();
     dismissed_ = false;
 }
