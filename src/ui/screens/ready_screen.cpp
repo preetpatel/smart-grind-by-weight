@@ -3,6 +3,7 @@
 #include "../../config/constants.h"
 #include "../../controllers/grind_mode_traits.h"
 #include "../../system/bean_config.h"
+#include "../../system/last_shot.h"
 #include "../../system/time_sync.h"
 #include "../ui_helpers.h"
 
@@ -15,9 +16,13 @@ namespace {
     // top edge is at 346. This container's bottom edge is at 80% of 456 = 364;
     // -28 lands the chip's bottom 10px above the button.
     constexpr lv_coord_t kAdviceChipBottomOffset = -28;
-    // Long enough for "TRY COARSER" (173px at montserrat_24) plus padding,
-    // short enough that a future verdict can't reach the bezels.
-    constexpr lv_coord_t kAdviceChipMaxWidth = 240;
+    // Long enough for "LAST 18.2G · 28S" (~190px at montserrat_24) plus the
+    // dot and padding.
+    constexpr lv_coord_t kAdviceChipMaxWidth = 280;
+
+    void set_chip_dot_color(lv_obj_t* dot, uint32_t hex) {
+        if (dot) lv_obj_set_style_bg_color(dot, lv_color_hex(hex), 0);
+    }
 }
 
 void ReadyScreen::create() {
@@ -73,68 +78,69 @@ void ReadyScreen::create() {
     lv_obj_add_flag(clock_label, LV_OBJ_FLAG_HIDDEN);
     clock_text[0] = '\0';
 
-    // Grind advice chip: the server's finer/coarser verdict, shown where the
-    // user stands before dialing the next shot. Tap to dismiss until the
-    // verdict changes.
+    // Shared chip above the grind button: the bag-low warning, or what the
+    // last grind delivered (dose + measured shot time) so the user can judge
+    // the next adjustment themselves. Tap to dismiss until new data arrives.
     //
     // Anchored off the grind button's keep-out, not off this container: the
     // container is LV_PCT(80) = 364px while the button (a sibling of the whole
     // screen) starts at 346, so aligning to the container's own bottom edge put
     // the chip 16px underneath it.
-    advice_chip = lv_obj_create(screen);
-    lv_obj_set_size(advice_chip, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-    lv_obj_set_style_max_width(advice_chip, kAdviceChipMaxWidth, 0);
-    lv_obj_align(advice_chip, LV_ALIGN_BOTTOM_MID, 0, kAdviceChipBottomOffset);
-    lv_obj_set_style_bg_color(advice_chip, lv_color_hex(0x202020), 0);
-    lv_obj_set_style_bg_opa(advice_chip, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(advice_chip, THEME_CORNER_RADIUS_PX, 0);
-    lv_obj_set_style_border_width(advice_chip, 0, 0);
-    lv_obj_set_style_pad_ver(advice_chip, 12, 0);
-    lv_obj_set_style_pad_hor(advice_chip, 18, 0);
-    lv_obj_set_layout(advice_chip, LV_LAYOUT_FLEX);
-    lv_obj_set_flex_flow(advice_chip, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(advice_chip, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_gap(advice_chip, 10, 0);
-    lv_obj_clear_flag(advice_chip, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(advice_chip, LV_OBJ_FLAG_CLICKABLE);
+    info_chip = lv_obj_create(screen);
+    lv_obj_set_size(info_chip, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+    lv_obj_set_style_max_width(info_chip, kAdviceChipMaxWidth, 0);
+    lv_obj_align(info_chip, LV_ALIGN_BOTTOM_MID, 0, kAdviceChipBottomOffset);
+    lv_obj_set_style_bg_color(info_chip, lv_color_hex(0x202020), 0);
+    lv_obj_set_style_bg_opa(info_chip, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(info_chip, THEME_CORNER_RADIUS_PX, 0);
+    lv_obj_set_style_border_width(info_chip, 0, 0);
+    lv_obj_set_style_pad_ver(info_chip, 12, 0);
+    lv_obj_set_style_pad_hor(info_chip, 18, 0);
+    lv_obj_set_layout(info_chip, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(info_chip, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(info_chip, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_gap(info_chip, 10, 0);
+    lv_obj_clear_flag(info_chip, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(info_chip, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t* advice_dot = lv_obj_create(advice_chip);
-    lv_obj_set_size(advice_dot, 10, 10);
-    lv_obj_set_style_radius(advice_dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_color(advice_dot, lv_color_hex(THEME_COLOR_WARNING), 0);
-    lv_obj_set_style_border_width(advice_dot, 0, 0);
+    info_dot = lv_obj_create(info_chip);
+    lv_obj_set_size(info_dot, 10, 10);
+    lv_obj_set_style_radius(info_dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(info_dot, lv_color_hex(THEME_COLOR_ACCENT), 0);
+    lv_obj_set_style_border_width(info_dot, 0, 0);
 
-    advice_label = lv_label_create(advice_chip);
-    lv_label_set_text(advice_label, "");
-    lv_obj_set_style_text_font(advice_label, &lv_font_montserrat_24, 0);
-    lv_obj_set_style_text_color(advice_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
-    // The chip is width-capped, so a long verdict ellipsises instead of
+    info_label = lv_label_create(info_chip);
+    lv_label_set_text(info_label, "");
+    lv_obj_set_style_text_font(info_label, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_color(info_label, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    // The chip is width-capped, so an over-long message ellipsises instead of
     // pushing the dot off the left edge.
-    lv_label_set_long_mode(advice_label, LV_LABEL_LONG_DOT);
+    lv_label_set_long_mode(info_label, LV_LABEL_LONG_DOT);
 
-    lv_obj_add_event_cb(advice_chip, [](lv_event_t* e) {
+    lv_obj_add_event_cb(info_chip, [](lv_event_t* e) {
         if (lv_event_get_code(e) != LV_EVENT_CLICKED) return;
         if (chip_showing_bag_warning) {
             bean_config.dismiss_bag_warning();
         } else {
-            bean_config.dismiss_advice();
+            last_shot.dismiss();
         }
         lv_obj_add_flag(static_cast<lv_obj_t*>(lv_event_get_target(e)), LV_OBJ_FLAG_HIDDEN);
     }, LV_EVENT_CLICKED, nullptr);
 
-    lv_obj_add_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(info_chip, LV_OBJ_FLAG_HIDDEN);
 
     update_profile_values(default_weights, GrindMode::WEIGHT);
 
     visible = false;
 }
 
-void ReadyScreen::update_advice_chip() {
-    if (!advice_chip || !advice_label) return;
+void ReadyScreen::update_info_chip() {
+    if (!info_chip || !info_label) return;
     bean_config.reload_if_dirty();
 
-    // The bag running out outranks dial-in advice: it is about to interrupt
-    // the routine, and the advice will still be true on the next bag's shots.
+    // The bag running out outranks everything else on this chip: it is about
+    // to interrupt the routine, and the last shot's numbers will still be
+    // true once the new bag is in.
     if (bean_config.is_bag_low() && !bean_config.is_bag_warning_dismissed()) {
         int16_t shots = bean_config.get_shots_remaining();
         char text[24];
@@ -144,22 +150,25 @@ void ReadyScreen::update_advice_chip() {
             snprintf(text, sizeof(text), "%d SHOT%s LEFT", shots, shots == 1 ? "" : "S");
         }
         chip_showing_bag_warning = true;
-        set_label_text_if_changed(advice_label, text);
-        lv_obj_clear_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);
+        set_chip_dot_color(info_dot, THEME_COLOR_WARNING);
+        set_label_text_if_changed(info_label, text);
+        lv_obj_clear_flag(info_chip, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
-    BeanConfig::Advice advice = bean_config.get_advice();
-    bool actionable = (advice == BeanConfig::Advice::FINER || advice == BeanConfig::Advice::COARSER)
-                      && !bean_config.is_advice_dismissed();
-    if (!actionable) {
-        lv_obj_add_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);
+    // What the last grind delivered. The user adjusts; the chip informs.
+    if (last_shot.is_valid() && !last_shot.is_dismissed()) {
+        char text[32];
+        last_shot_format_text(text, sizeof(text),
+                              last_shot.get_dose_g(), last_shot.get_brew_time_s());
+        chip_showing_bag_warning = false;
+        set_chip_dot_color(info_dot, THEME_COLOR_ACCENT);
+        set_label_text_if_changed(info_label, text);
+        lv_obj_clear_flag(info_chip, LV_OBJ_FLAG_HIDDEN);
         return;
     }
-    chip_showing_bag_warning = false;
-    set_label_text_if_changed(advice_label,
-                              advice == BeanConfig::Advice::FINER ? "TRY FINER" : "TRY COARSER");
-    lv_obj_clear_flag(advice_chip, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_add_flag(info_chip, LV_OBJ_FLAG_HIDDEN);
 }
 
 void ReadyScreen::update_clock() {

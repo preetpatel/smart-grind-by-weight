@@ -404,7 +404,8 @@ CloudSync::StepResult CloudSync::step_upload() {
 // Applies the {bean, advice} payload both device-facing endpoints return:
 // the active bean lands in the NVS cache (the server is the source of truth,
 // so a bean switched in the dashboard converges here without a browser) and
-// the verdict lands on the ready screen.
+// the verdict is kept for the BLE status readback. The ready-screen chip
+// shows the last shot's own numbers instead of the verdict.
 void CloudSync::apply_device_config(const char* response) {
     if (!response) return;
     config_refreshed = true;

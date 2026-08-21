@@ -80,8 +80,9 @@ public:
     uint16_t get_brew_time_s() const { return brew_time_s; }
     Recipe recipe_for_dose(float dose_g) const;
 
-    // Server-computed verdict (CloudSync writes, UI reads). Dismissal hides
-    // the ready-screen chip until the verdict changes.
+    // Server-computed verdict (CloudSync writes, the BLE status readback
+    // reports it). The ready-screen chip no longer renders it - it shows the
+    // last shot's own numbers - but the plumbing stays for the dashboard.
     void set_advice(Advice new_advice);
     Advice get_advice() const { return advice; }
     void dismiss_advice() { advice_dismissed = true; }

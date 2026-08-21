@@ -13,6 +13,7 @@
 #include "system/cloud_sync.h"
 #include "system/bean_config.h"
 #include "system/brew_log.h"
+#include "system/last_shot.h"
 #include "controllers/profile_controller.h"
 #include "controllers/grind_controller.h"
 #include "ui/ui_manager.h"
@@ -101,6 +102,9 @@ void setup() {
     // records awaiting upload. Both no-ops until a bean is provisioned.
     bean_config.init();
     brew_log.init();
+
+    // What the last grind delivered, for the ready-screen chip.
+    last_shot.init();
 
     // Check for OTA failure to determine initial state
     String failed_ota_build = bluetooth_manager.check_ota_failure_after_boot();

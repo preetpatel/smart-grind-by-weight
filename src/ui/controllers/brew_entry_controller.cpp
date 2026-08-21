@@ -9,6 +9,7 @@
 #include "../../system/boot_history.h"
 #include "../../system/brew_log.h"
 #include "../../system/brew_prompt.h"
+#include "../../system/last_shot.h"
 #include "../../system/time_sync.h"
 #include "../../system/wifi_service.h"
 #include "../ui_manager.h"
@@ -255,6 +256,10 @@ void BrewEntryController::finish(bool save, bool timed) {
         // default, which would be indistinguishable from a real measurement.
         brew_log.queue_record(session_id_, session_timestamp_, output_g_,
                               (timed && time_s_ > 0) ? time_s_ : 0);
+        // A measured time joins the last-shot chip's readout.
+        if (timed && time_s_ > 0) {
+            last_shot.record_brew_time(session_id_, time_s_);
+        }
         // The record's upload response carries fresh advice, so ask for a
         // window now rather than waiting for the daily sweep.
         wifi_service.request_sync_now();

@@ -1,5 +1,6 @@
 // Grind advice, computed server-side so the thresholds can evolve without a
-// firmware release — the grinder only displays the verdict.
+// firmware release — the dashboard displays the verdict; the grinder's ready
+// screen shows the last shot's raw numbers instead.
 //
 // Two readings, depending on what the bag states and what the user measured.
 //

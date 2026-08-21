@@ -165,17 +165,27 @@ agreed design; each decision was made deliberately — change them knowingly.
   Otherwise (`basis: 'yield'`) the original reading stands: with time assumed fixed,
   output deviation is a flow proxy, median of the last 5 shots beyond ±8% meaning finer
   (ran fast) or coarser (choked). Both need at least 3 shots, and a recorded
-  grind-setting change resets the evidence either way. The grinder only displays the
-  verdict (ready-screen chip), so thresholds evolve without firmware releases.
+  grind-setting change resets the evidence either way. The grinder does not render
+  the verdict - its ready-screen chip shows the last shot's own numbers instead
+  (see below) - so thresholds evolve without firmware releases and the advice stays
+  a dashboard surface.
 - **Bag tracking follows the same split.** An optional `beans.bag_size_g` enables it:
   the server sums the doses of every session attributed to the bag, estimates the
   per-shot dose from the median of the last 10, and ships
   `bag: {size_g, used_g, shots_remaining, low}` (low at ≤5 shots) alongside the
   advice in `GET /config` and the `POST /brews` echo. The grinder holds it as
   runtime-only state and shows "N SHOTS LEFT" on the shared ready-screen chip — bag
-  warnings outrank the dial-in verdict, and a dismissed warning returns when the
+  warnings outrank the last-shot readout, and a dismissed warning returns when the
   count drops. Purge-mode waste isn't in the session summary, so the estimate runs
   slightly optimistic; the threshold absorbs it.
+
+The ready-screen chip itself (`src/system/last_shot.*`) is local, not synced: each
+completed grind writes `{session_id, dose_g}` to one NVS blob (top-up pulses rewrite
+it, since they re-enter COMPLETED with the updated weight), and an answered shot log
+stamps `brew_time_s` onto the matching record - guarded by session id, so a prompt
+superseded by a newer grind can't mislabel its time. The chip reads "LAST 18.2G · 28S"
+(weight only when the time step was skipped) and tap-dismisses until the next dose or
+time arrives; it survives reboot by design.
 
 ## Auth model — device is the credential
 

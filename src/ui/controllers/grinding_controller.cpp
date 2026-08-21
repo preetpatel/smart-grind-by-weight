@@ -8,6 +8,7 @@
 #include "../../controllers/grind_events.h"
 #include "../../controllers/grind_mode.h"
 #include "../../logging/grind_logging.h"
+#include "../../system/last_shot.h"
 #include "../ui_manager.h"
 
 GrindingUIController* GrindingUIController::instance_ = nullptr;
@@ -499,6 +500,10 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
             if (ui_manager_->brew_entry_controller_) {
                 ui_manager_->brew_entry_controller_->arm(final_grind_weight_);
             }
+            // The ready-screen chip shows this grind's outcome until the
+            // next one replaces it.
+            last_shot.record_dose(grind_logger.get_last_started_session_id(),
+                                  final_grind_weight_);
             break;
         }
         case UIGrindEvent::TIMEOUT: {

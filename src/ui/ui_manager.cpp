@@ -169,7 +169,7 @@ void UIManager::update() {
 
         case UIState::READY:
             ready_screen.update_clock();
-            ready_screen.update_advice_chip();
+            ready_screen.update_info_chip();
             break;
 
         default:
