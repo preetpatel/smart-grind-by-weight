@@ -76,6 +76,14 @@ agreed design; each decision was made deliberately — change them knowingly.
   in `src/system/sync_schedule_logic.h`, host-tested in `tools/tests/test_sync_schedule.cpp`.
   This is a power-supply accommodation — see the brownout note in CLAUDE.md before
   reintroducing any periodic sync.
+- **Transmit power is budgeted as well as scheduled.** Every Wi-Fi window applies
+  and reads back an 8.5 dBm ceiling (`WIFI_MAX_TX_POWER_QDBM = 34`) before
+  association and verifies minimum modem sleep. A configuration failure closes
+  the window and uses the existing backoff; it never falls back to full power.
+  BLE Wi-Fi status exposes `last_tx_power_qdbm` for verification. This targets
+  the brownouts seen during idle cloud sync in September even after the
+  30-minute scheduling delay. It may reduce range and requires validation on
+  the stock supply; it does not cap total board or PHY startup current.
 - **A backlog is swept by the next grind, not at boot.** Sessions written before a reset
   do not open a window on their own, but the manifest offers every file on flash, so the
   next window uploads them alongside the new session. Every run restarts the 30-minute

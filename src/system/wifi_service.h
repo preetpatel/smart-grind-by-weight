@@ -68,6 +68,9 @@ public:
     bool is_configured() const { return configured; }
     State get_state() const { return state; }
     LastResult get_last_result() const { return last_result; }
+    // Last verified radio setting, retained while the radio is off. Zero
+    // means no window has successfully configured power since boot.
+    int8_t get_last_tx_power_qdbm() const { return last_tx_power_qdbm; }
 
     // Copy accessors so callers on other tasks never hold references into
     // buffers the main-loop task rewrites on a config reload.
@@ -93,6 +96,7 @@ private:
     volatile State state = State::NOT_CONFIGURED;
     volatile LastResult last_result = LastResult::NONE;
     volatile bool sync_requested = false;
+    volatile int8_t last_tx_power_qdbm = 0;
 
     uint32_t next_attempt_ms = 0;   // millis() timestamp of the next window
     // Nothing is periodic, so a deadline is only meaningful while one is

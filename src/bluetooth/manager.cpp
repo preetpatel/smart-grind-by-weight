@@ -641,6 +641,7 @@ void BluetoothManager::update_wifi_status_info() {
         "\"last_result\":\"%s\","
         "\"tz_name\":\"%s\","
         "\"tz_rule_set\":%s,"
+        "\"last_tx_power_qdbm\":%d,"
         "\"time_synced\":%s,"
         "\"last_sync_epoch\":%lu"
         "}",
@@ -651,6 +652,7 @@ void BluetoothManager::update_wifi_status_info() {
         wifi_service.last_result_name(),
         tz_name,
         TimeSync::has_tz_rule() ? "true" : "false",
+        (int)wifi_service.get_last_tx_power_qdbm(),
         TimeSync::is_synced() ? "true" : "false",
         (unsigned long)TimeSync::last_sync_epoch()
     );

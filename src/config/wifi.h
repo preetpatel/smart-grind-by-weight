@@ -3,16 +3,21 @@
 //==============================================================================
 // WIFI TIME SYNC CONFIGURATION
 //==============================================================================
-// WiFi is used only as a duty-cycled time source: the radio comes up, SNTP
-// sets the clock, and the radio goes back off. Credentials arrive over BLE
+// WiFi is duty-cycled for time and cloud sync. Credentials arrive over BLE
 // from the web flasher (see BLE_SYSINFO_WIFI_CONFIG_CHAR_UUID) and live in the
 // "wifi" NVS namespace. The service never runs while a grind is active so
 // radio contention cannot touch the 20ms control loop.
 //
-// The radio comes up at exactly two moments, neither of which overlaps another
-// load on the supply (src/system/sync_schedule_logic.h): once a minute after
+// The radio comes up at two scheduled moments (src/system/sync_schedule_logic.h): once a minute after
 // boot to set the clock, and once CLOUD_SYNC_GRIND_DELAY_MS after a grind for
 // everything else. There is no periodic sync.
+
+// RF output budget: 34 quarter-dBm = the driver's 8.5 dBm setting, below the
+// SDK's 20 dBm maximum. Apply and verify before association on every window.
+// This is a current-draw mitigation to validate on the stock grinder supply;
+// delaying a full-power transmission did not prevent the September brownouts.
+// Lower power can reduce range. Never silently raise it on connection failure.
+#define WIFI_MAX_TX_POWER_QDBM 34
 
 //------------------------------------------------------------------------------
 // NTP SERVERS

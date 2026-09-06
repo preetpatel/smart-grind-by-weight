@@ -6,6 +6,7 @@
 #include <cstring>
 #include "time_sync.h"
 #include "cloud_sync.h"
+#include "wifi_power.h"
 #include "../bluetooth/manager.h"
 #include "../controllers/grind_controller.h"
 
@@ -206,7 +207,17 @@ void WifiService::start_attempt(SyncWindowPurpose purpose) {
     window_purpose = purpose;
     LOG_BLE("[WIFI] Connecting to '%s' (%s window)...\n", ssid,
             purpose == SyncWindowPurpose::CLOUD_SYNC ? "cloud" : "clock");
-    WiFi.mode(WIFI_STA);
+    last_tx_power_qdbm = 0;
+    int8_t applied_qdbm = 0;
+    if (!WiFi.mode(WIFI_STA) ||
+        !configure_wifi_power(WIFI_MAX_TX_POWER_QDBM, &applied_qdbm)) {
+        LOG_BLE("[WIFI] Radio power configuration failed; closing window\n");
+        finish_attempt(LastResult::WIFI_FAILED);
+        return;
+    }
+    last_tx_power_qdbm = applied_qdbm;
+    LOG_BLE("[WIFI] TX ceiling %.2f dBm, minimum modem sleep enabled\n",
+            applied_qdbm / 4.0f);
     WiFi.begin(ssid, password);
     attempt_started_ms = millis();
     state = State::CONNECTING;
