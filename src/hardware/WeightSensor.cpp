@@ -752,7 +752,13 @@ bool WeightSensor::sample_and_feed_filter() {
     
     // Non-blocking check for available ADC data
     if (data_waiting_async()) {
-        update_async();
+        // A rejected frame (DOUT never released after the 25th clock - the HX711 lost
+        // its supply or the bus was interrupted) leaves the driver's last good reading
+        // in place. Feeding that back as a fresh sample would re-time an old value, so
+        // drop the pass and let the filter age until the next real conversion.
+        if (!update_async()) {
+            return false;
+        }
         int32_t raw_adc = get_raw_adc_data();  // Get raw ADC data from driver
         uint32_t timestamp = millis();
         

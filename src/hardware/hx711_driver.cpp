@@ -121,11 +121,10 @@ bool HX711Driver::update_async() {
         return false;
     }
     
-    conversion_24bit();
-    return true;
+    return conversion_24bit();
 }
 
-void HX711Driver::conversion_24bit() {
+bool HX711Driver::conversion_24bit() {
     // Record conversion timing
     unsigned long now = micros();
     if (conversion_start_time == 0) {
@@ -150,10 +149,25 @@ void HX711Driver::conversion_24bit() {
         if (i < 24) {
             raw_data = (raw_data << 1) | digitalRead(dout_pin);
         }
+        // T4 requires at least 0.2us LOW, including between gain pulses.
+        // Do not depend on GPIO call overhead to meet the bus timing.
+        if (SCK_DELAY) delayMicroseconds(SCK_DELAY);
     }
+
+    // The HX711 must raise DOUT after the 25th pulse. A stuck-low or
+    // interrupted frame otherwise looks like a valid zero ADC code, which
+    // becomes 0x800000 after normalization and a large negative tared weight.
+    // Check before re-enabling interrupts so a delayed task cannot mistake
+    // the next conversion's ready signal for a failed transaction.
+    const bool frame_complete = digitalRead(dout_pin) == HIGH;
     
     // Re-enable interrupts immediately after conversion
     interrupts();
+
+    if (!frame_complete) {
+        data_ready_flag = false;
+        return false; // Preserve the last good reading; do not publish this frame.
+    }
     
     // HX711_ADC exact data processing: normalize HX711's offset binary output
     // HX711 natural range: 0x800000 to 0x7FFFFF
@@ -164,11 +178,12 @@ void HX711Driver::conversion_24bit() {
     if (raw_data > 0xFFFFFF) {
         // Data out of range - this shouldn't happen with proper 24-bit data
         LOG_BLE("HX711Driver: Data out of range - raw=0x%08lx\n", raw_data);
-        return; // Skip this invalid reading
+        return false; // Skip this invalid reading
     }
     
     last_raw_data = (int32_t)raw_data;  // Explicit cast to int32_t for consistency
     data_ready_flag = true;
+    return true;
 }
 
 int32_t HX711Driver::get_raw_data() const {
