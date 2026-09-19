@@ -103,6 +103,7 @@ int main() {
     // sampling task feeds the previous ADC value back as a fresh sample.
     WeightSensor sensor;
     sensor.init(nullptr);
+    assert(sensor.ms_since_last_sample() == UINT32_MAX);
     sensor.set_calibration_factor(calibration);
     sensor.start_nonblocking_tare();
     for (int i = 0; i < 25; ++i) {
@@ -117,6 +118,7 @@ int main() {
         assert(sensor.sample_and_feed_filter());
     }
     const int samples_before_fault = sensor.get_sample_count();
+    assert(sensor.ms_since_last_sample() == 0);
     for (int i = 0; i < 5; ++i) {
         frame(0, true);
         const bool fed = sensor.sample_and_feed_filter();
@@ -127,10 +129,14 @@ int main() {
         assert(sensor.get_zero_offset() == tare_raw);
         assert(sensor.get_weight_low_latency() > 1.0f);
     }
+    // Rejected frames age the last accepted sample; that age is what the grind
+    // controller's stale-sample failsafe watches (GRIND_SCALE_STALE_SAMPLE_TIMEOUT_MS).
+    assert(sensor.ms_since_last_sample() == 5 * 100);
     for (int i = 0; i < 10; ++i) {
         frame((tare_raw + 13515) ^ 0x800000); // valid grinding resumes at ~2g
         assert(sensor.sample_and_feed_filter());
     }
+    assert(sensor.ms_since_last_sample() == 0);
     assert(std::fabs(sensor.get_weight_low_latency() - 2.0f) < 0.01f);
     // Real cup removal still reaches the controller's negative-weight cutoff.
     for (int i = 0; i < 10; ++i) {

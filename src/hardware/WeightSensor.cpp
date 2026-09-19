@@ -40,6 +40,7 @@ WeightSensor::WeightSensor() {
     detected_sample_rate_sps_ = HW_LOADCELL_SAMPLE_RATE_SPS;
     saturated_sample_count_ = 0;
     signal_saturated_ = false;
+    last_sample_ms_ = 0;
 
     // Initialize tare state
     doTare = false;
@@ -105,6 +106,7 @@ void WeightSensor::init(Preferences* preferences) {
     detected_sample_rate_sps_ = HW_LOADCELL_SAMPLE_RATE_SPS;
     saturated_sample_count_ = 0;
     signal_saturated_ = false;
+    last_sample_ms_ = 0;
 
     calibration_flag_cached_ = false;
     calibration_flag_value_ = false;
@@ -742,6 +744,12 @@ bool WeightSensor::noise_level_diagnostic() const {
 // WEIGHT SAMPLING TASK INTEGRATION
 //==============================================================================
 
+uint32_t WeightSensor::ms_since_last_sample() const {
+    uint32_t last = last_sample_ms_.load();
+    if (last == 0) return UINT32_MAX;
+    return (uint32_t)millis() - last;
+}
+
 bool WeightSensor::sample_and_feed_filter() {
     // Core 0 ADC sampling and filter feeding (hardware-abstracted)
     // Returns true if new sample was processed, false if no data available
@@ -832,6 +840,7 @@ bool WeightSensor::sample_and_feed_filter() {
             update_temperature_if_available();
             
             data_available = true;
+            last_sample_ms_.store(timestamp);
             
             return true; // Successfully processed new sample
         } else {

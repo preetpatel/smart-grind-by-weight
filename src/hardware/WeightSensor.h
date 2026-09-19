@@ -87,6 +87,11 @@ private:
     // Saturation detection (written on Core 0 sampling task, read on Core 1 diagnostics)
     uint16_t saturated_sample_count_;
     std::atomic<bool> signal_saturated_;
+
+    // millis() of the last conversion the filter accepted (written on Core 0, read on
+    // Core 1 by the grind controller). Rejected frames do not advance it, so a stalled
+    // HX711 shows up as a growing sample age rather than a frozen weight.
+    std::atomic<uint32_t> last_sample_ms_;
     
     // Tare implementation (hardware-independent)
     static const uint8_t DATA_SET = 16 + 1 + 1;  // SAMPLES + IGN_HIGH_SAMPLE + IGN_LOW_SAMPLE
@@ -232,6 +237,9 @@ public:
     // Saturation diagnostic: true if raw ADC is pegged at a rail (0x000000/0xFFFFFF)
     // for sustained consecutive samples - indicates load cell wiring/electrical fault
     bool is_signal_saturated() const { return signal_saturated_.load(); }
+
+    // Age of the newest accepted conversion. UINT32_MAX until the first sample lands.
+    uint32_t ms_since_last_sample() const;
 
     // Hardware fault reporting for diagnostics
     HardwareFault get_hardware_fault() const { return hardware_fault_.load(); }

@@ -606,6 +606,25 @@ void GrindController::update() {
         set_error_message("Err: neg wt");
         switch_phase(GrindPhase::TIMEOUT, loop_data);
     }
+    // Stale-sample failsafe: the HX711 driver now rejects frames from a stalled ADC
+    // instead of publishing them as -168g, so a load cell that stops converting
+    // would otherwise leave the motor running on a frozen weight until the grind
+    // timeout. Same phase gating as above; a brief dropout at motor start recovers
+    // well inside the threshold, a dead ADC does not.
+    else if (phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT &&
+             phase != GrindPhase::IDLE && phase != GrindPhase::INITIALIZING &&
+             phase != GrindPhase::SETUP && phase != GrindPhase::PURGE_CONFIRM &&
+             weight_sensor && !weight_sensor->has_hardware_fault() &&
+             weight_sensor->ms_since_last_sample() > GRIND_SCALE_STALE_SAMPLE_TIMEOUT_MS) {
+        timeout_phase = phase;
+        grinder->stop();
+        last_session_result_ = GrindSessionResult::ERROR;
+
+        queue_log_message("--- STALE SAMPLE FAILSAFE TRIGGERED: no load cell sample for %lums in phase %s ---\n",
+                         (unsigned long)weight_sensor->ms_since_last_sample(), get_phase_name(timeout_phase));
+        set_error_message("Err: no scale");
+        switch_phase(GrindPhase::TIMEOUT, loop_data);
+    }
     // Only check timeout during active grinding phases, not during completion states or user confirmation
     else if (phase != GrindPhase::COMPLETED && phase != GrindPhase::TIMEOUT && phase != GrindPhase::PURGE_CONFIRM && check_timeout()) {
         timeout_phase = phase;

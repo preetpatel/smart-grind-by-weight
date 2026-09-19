@@ -31,6 +31,7 @@ enum class GrinderPurgeMode {
 // Main accuracy and timeout settings
 #define GRIND_ACCURACY_TOLERANCE_G 0.03f                                  // Final target accuracy tolerance
 #define GRIND_TIMEOUT_SEC 60                                              // Maximum time for grind operation
+#define GRIND_SCALE_STALE_SAMPLE_TIMEOUT_MS 1000                          // Abort if the load cell stops delivering samples this long mid-grind (10 missed at 10 SPS; a supply sag at motor start stalls it for ~0.5s and recovers)
 #define GRIND_MAX_PULSE_ATTEMPTS 10                                       // Maximum pulse corrections before stopping
 
 // Flow rate detection
